@@ -20,6 +20,7 @@ import type { ChatChannelService } from "../services/chat-channels.js";
 import { activityLog, agents as agentsTable, chatConversations, companies, heartbeatRuns, issues as issuesTable, projects as projectsTable } from "@paperclipai/db";
 import { and, desc, eq, inArray, not, sql } from "drizzle-orm";
 import { sha256Digest } from "../services/feedback-redaction.js";
+import { agentLifecycleActionSchema } from "@paperclipai/shared/validators/agent";
 import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
