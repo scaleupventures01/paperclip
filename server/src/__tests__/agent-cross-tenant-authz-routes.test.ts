@@ -8,6 +8,13 @@ vi.unmock("node:http");
 const agentId = "11111111-1111-4111-8111-111111111111";
 const companyId = "22222222-2222-4222-8222-222222222222";
 const keyId = "33333333-3333-4333-8333-333333333333";
+const managerAgentId = "44444444-4444-4444-8444-444444444444";
+const taskId = "77777777-7777-4777-8777-777777777777";
+const lifecycleBody = {
+  repository: "scaleupventures01/sourcedox-phase0",
+  approvedStage: "approved-poc-prd-refresh",
+  taskId,
+};
 
 const baseAgent = {
   id: agentId,
@@ -80,6 +87,7 @@ const mockBudgetService = vi.hoisted(() => ({
 
 const mockHeartbeatService = vi.hoisted(() => ({
   cancelActiveForAgent: vi.fn(),
+  wakeup: vi.fn(),
 }));
 
 const mockIssueApprovalService = vi.hoisted(() => ({
@@ -88,6 +96,7 @@ const mockIssueApprovalService = vi.hoisted(() => ({
 
 const mockIssueService = vi.hoisted(() => ({
   list: vi.fn(),
+  getById: vi.fn(),
 }));
 
 const mockSecretService = vi.hoisted(() => ({
@@ -340,6 +349,13 @@ function resetMockDefaults() {
   mockAccessService.ensureMembership.mockImplementation(async () => undefined);
   mockAccessService.setPrincipalPermission.mockImplementation(async () => undefined);
   mockHeartbeatService.cancelActiveForAgent.mockImplementation(async () => undefined);
+  mockHeartbeatService.wakeup.mockImplementation(async () => ({ id: "88888888-8888-4888-8888-888888888888" }));
+  mockIssueService.getById.mockImplementation(async () => ({
+    id: taskId,
+    companyId,
+    assigneeAgentId: agentId,
+    status: "todo",
+  }));
   mockLogActivity.mockImplementation(async () => undefined);
 }
 
@@ -475,17 +491,19 @@ describe.sequential("agent cross-tenant route authorization", () => {
     }));
   });
 
-  it("allows a same-company agent with a direct agents:configure grant to resume", async () => {
-    mockAccessService.decide.mockResolvedValue({
-      allowed: true,
-      action: "agent_config:update",
-      reason: "allow_direct_change",
-      explanation: "Allowed by direct configuration grant.",
-      grant: { permissionKey: "agents:configure" },
-    });
+  it("allows a manager with an exact agents:lifecycle grant to resume and wake the approved task", async () => {
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: {
+        repository: lifecycleBody.repository,
+        stage: lifecycleBody.approvedStage,
+        agentIds: [agentId],
+      },
+    }]);
     const app = await createApp({
       type: "agent",
-      agentId: "44444444-4444-4444-8444-444444444444",
+      agentId: managerAgentId,
       companyId,
       runId: "55555555-5555-4555-8555-555555555555",
       keyId: "66666666-6666-4666-8666-666666666666",
@@ -493,71 +511,154 @@ describe.sequential("agent cross-tenant route authorization", () => {
     });
 
     const res = await requestApp(app, (baseUrl) =>
-      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}),
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
     );
 
     expect(res.status).toBe(200);
-    expect(mockAccessService.decide).toHaveBeenCalledWith(expect.objectContaining({
-      action: "agent_config:update",
-      resource: { type: "agent", companyId, agentId },
-      scope: { requiresChangeGrant: true },
-    }));
     expect(mockAgentService.resume).toHaveBeenCalledWith(agentId);
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(agentId, expect.objectContaining({
+      reason: "scoped_lifecycle_resume",
+      payload: { issueId: taskId },
+    }));
   });
 
-  it.each([
-    ["an ungranted peer", "44444444-4444-4444-8444-444444444444"],
-    ["an ungranted self", agentId],
-  ])("denies resume for %s", async (_label, actorAgentId) => {
-    mockAccessService.decide.mockResolvedValue({
-      allowed: false,
-      action: "agent_config:update",
-      reason: "deny_no_grant",
-      explanation: "No direct agent configuration grant.",
+  it("allows the same bounded grant to pause a direct report without waking it", async () => {
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: { repository: lifecycleBody.repository, stage: lifecycleBody.approvedStage, agentIds: [agentId] },
+    }]);
+    const app = await createApp({
+      type: "agent",
+      agentId: managerAgentId,
+      companyId,
+      runId: "55555555-5555-4555-8555-555555555555",
+      keyId: "66666666-6666-4666-8666-666666666666",
+      source: "agent_key",
+    });
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl).post(`/api/agents/${agentId}/pause`).send(lifecycleBody),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockAgentService.pause).toHaveBeenCalledWith(agentId);
+    expect(mockHeartbeatService.cancelActiveForAgent).toHaveBeenCalledWith(agentId);
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("allows an exact target tuple without mixing repository scope across pods", async () => {
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: {
+        targets: [
+          { agentId, repository: lifecycleBody.repository, stage: lifecycleBody.approvedStage },
+          {
+            agentId: "88888888-8888-4888-8888-888888888888",
+            repository: "scaleupventures01/rentlist919",
+            stage: "board-lifecycle-transition",
+          },
+        ],
+      },
+    }]);
+    const app = await createApp({
+      type: "agent",
+      agentId: managerAgentId,
+      companyId,
+      source: "api_key",
+      keyId,
+    });
+
+    await requestApp(app, (baseUrl) =>
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
+    ).then((response) => expect(response.status).toBe(200));
+    await requestApp(app, (baseUrl) =>
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({
+        ...lifecycleBody,
+        repository: "scaleupventures01/rentlist919",
+      }),
+    ).then((response) => expect(response.status).toBe(403));
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies a scoped lifecycle request when the approved task belongs to another agent", async () => {
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: { repository: lifecycleBody.repository, stage: lifecycleBody.approvedStage, agentIds: [agentId] },
+    }]);
+    mockIssueService.getById.mockResolvedValue({
+      id: taskId,
+      companyId,
+      assigneeAgentId: "99999999-9999-4999-8999-999999999999",
+      status: "todo",
     });
     const app = await createApp({
       type: "agent",
-      agentId: actorAgentId,
+      agentId: managerAgentId,
       companyId,
       runId: "55555555-5555-4555-8555-555555555555",
       source: "agent_key",
     });
 
     const res = await requestApp(app, (baseUrl) =>
-      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}),
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
     );
 
     expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({
-      error: "No direct agent configuration grant.",
-      details: { reason: "deny_no_grant" },
-    });
+    expect(res.body.error).toContain("not assigned");
     expect(mockAgentService.resume).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("denies resume outside the exact repository scope", async () => {
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: {
+        repository: lifecycleBody.repository,
+        stage: lifecycleBody.approvedStage,
+        agentIds: [agentId],
+      },
+    }]);
+    const app = await createApp({
+      type: "agent",
+      agentId: managerAgentId,
+      companyId,
+      runId: "55555555-5555-4555-8555-555555555555",
+      source: "agent_key",
+    });
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({
+        ...lifecycleBody,
+        repository: "scaleupventures01/other-repository",
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("outside the approved repository");
+    expect(mockAgentService.resume).not.toHaveBeenCalled();
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
     expect(mockLogActivity).not.toHaveBeenCalled();
   });
 
-  it("denies resume when the agent only has agents:suggest-changes", async () => {
-    mockAccessService.decide.mockResolvedValue({
-      allowed: false,
-      action: "agent_config:update",
-      reason: "deny_missing_consent",
-      explanation: "Accepted consent is required for this suggested change.",
-      grant: { permissionKey: "agents:suggest-changes" },
-    });
+  it("denies resume for a same-company agent who is not the target's direct manager", async () => {
     const app = await createApp({
       type: "agent",
-      agentId: "44444444-4444-4444-8444-444444444444",
+      agentId: managerAgentId,
       companyId,
       runId: "55555555-5555-4555-8555-555555555555",
       source: "agent_key",
     });
 
     const res = await requestApp(app, (baseUrl) =>
-      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}),
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
     );
 
     expect(res.status).toBe(403);
-    expect(res.body.details).toEqual({ reason: "deny_missing_consent" });
+    expect(res.body.error).toContain("direct reports");
     expect(mockAgentService.resume).not.toHaveBeenCalled();
   });
 
@@ -583,6 +684,7 @@ describe.sequential("agent cross-tenant route authorization", () => {
   it("keeps the invalid-org-chain guard for granted agent resume", async () => {
     mockAgentService.getById.mockResolvedValue({
       ...baseAgent,
+      reportsTo: managerAgentId,
       status: "paused",
       orgChainHealth: {
         status: "invalid_org_chain",
@@ -590,23 +692,20 @@ describe.sequential("agent cross-tenant route authorization", () => {
         repairGuidance: "Repair the reporting chain first.",
       },
     });
-    mockAccessService.decide.mockResolvedValue({
-      allowed: true,
-      action: "agent_config:update",
-      reason: "allow_direct_change",
-      explanation: "Allowed by direct configuration grant.",
-      grant: { permissionKey: "agents:configure" },
-    });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: { repository: lifecycleBody.repository, stage: lifecycleBody.approvedStage, agentIds: [agentId] },
+    }]);
     const app = await createApp({
       type: "agent",
-      agentId: "44444444-4444-4444-8444-444444444444",
+      agentId: managerAgentId,
       companyId,
       runId: "55555555-5555-4555-8555-555555555555",
       source: "agent_key",
     });
 
     const res = await requestApp(app, (baseUrl) =>
-      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}),
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
     );
 
     expect(res.status).toBe(409);
@@ -616,16 +715,14 @@ describe.sequential("agent cross-tenant route authorization", () => {
   });
 
   it("attributes agent resume activity to the acting agent, run, and API key", async () => {
-    const actorAgentId = "44444444-4444-4444-8444-444444444444";
+    const actorAgentId = managerAgentId;
     const runId = "55555555-5555-4555-8555-555555555555";
     const actorKeyId = "66666666-6666-4666-8666-666666666666";
-    mockAccessService.decide.mockResolvedValue({
-      allowed: true,
-      action: "agent_config:update",
-      reason: "allow_direct_change",
-      explanation: "Allowed by direct configuration grant.",
-      grant: { permissionKey: "agents:configure" },
-    });
+    mockAgentService.getById.mockResolvedValue({ ...baseAgent, reportsTo: managerAgentId });
+    mockAccessService.listPrincipalGrants.mockResolvedValue([{
+      permissionKey: "agents:lifecycle",
+      scope: { repository: lifecycleBody.repository, stage: lifecycleBody.approvedStage, agentIds: [agentId] },
+    }]);
     const app = await createApp({
       type: "agent",
       agentId: actorAgentId,
@@ -636,11 +733,11 @@ describe.sequential("agent cross-tenant route authorization", () => {
     });
 
     const res = await requestApp(app, (baseUrl) =>
-      request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}),
+      request(baseUrl).post(`/api/agents/${agentId}/resume`).send(lifecycleBody),
     );
 
     expect(res.status).toBe(200);
-    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       companyId,
       actorType: "agent",
       actorId: actorAgentId,
@@ -650,7 +747,12 @@ describe.sequential("agent cross-tenant route authorization", () => {
       action: "agent.resumed",
       entityType: "agent",
       entityId: agentId,
-    });
+      details: expect.objectContaining({
+        taskId,
+        repository: lifecycleBody.repository,
+        approvedStage: lifecycleBody.approvedStage,
+      }),
+    }));
   });
 
   it("clears error agents and records a distinct audit action", async () => {

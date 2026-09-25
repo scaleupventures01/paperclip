@@ -23,6 +23,7 @@ import { sha256Digest } from "../services/feedback-redaction.js";
 import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
+  agentLifecycleActionSchema,
   ADAPTER_AGNOSTIC_KEYS,
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
   createAgentKeySchema,
@@ -2880,20 +2881,62 @@ export function agentRoutes(
     );
   }
 
-  async function assertCanResumeAgent(
+  async function assertCanManageAgentLifecycle(
     req: Request,
-    targetAgent: { id: string; companyId: string },
+    targetAgent: { id: string; companyId: string; reportsTo: string | null },
   ) {
-    if (req.actor.type !== "agent") return;
+    if (req.actor.type !== "agent") return null;
 
-    const decision = await access.decide({
-      actor: req.actor,
-      action: "agent_config:update",
-      resource: { type: "agent", companyId: targetAgent.companyId, agentId: targetAgent.id },
-      scope: { requiresChangeGrant: true },
+    const parsed = agentLifecycleActionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw badRequest("Agent lifecycle actions require repository, approvedStage, and taskId.");
+    }
+    const input = parsed.data;
+    const actorAgentId = req.actor.agentId;
+    if (!actorAgentId || targetAgent.reportsTo !== actorAgentId) {
+      throw forbidden("Lifecycle authority is limited to existing direct reports.");
+    }
+
+    const grants = await access.listPrincipalGrants(
+      targetAgent.companyId,
+      "agent",
+      actorAgentId,
+    );
+    const grant = grants.find((candidate) => {
+      if (candidate.permissionKey !== "agents:lifecycle") return false;
+      const scope = asRecord(candidate.scope);
+      if (!scope) return false;
+      const targets = Array.isArray(scope.targets)
+        ? scope.targets.map(asRecord).filter((value): value is Record<string, unknown> => value !== null)
+        : [];
+      if (targets.some((target) => (
+        target.agentId === targetAgent.id
+        && target.repository === input.repository
+        && target.stage === input.approvedStage
+      ))) return true;
+      const agentIds = Array.isArray(scope.agentIds)
+        ? scope.agentIds.filter((value): value is string => typeof value === "string")
+        : [];
+      return scope.repository === input.repository
+        && scope.stage === input.approvedStage
+        && agentIds.includes(targetAgent.id);
     });
-    if (decision.allowed) return;
-    throw forbidden(decision.explanation, authorizationDeniedDetails(decision));
+    if (!grant) {
+      throw forbidden("Lifecycle action is outside the approved repository, stage, or agent scope.");
+    }
+
+    const task = await issueService(db).getById(input.taskId);
+    if (!task || task.companyId !== targetAgent.companyId) {
+      throw notFound("Approved task not found");
+    }
+    if (task.assigneeAgentId !== targetAgent.id) {
+      throw forbidden("The approved task is not assigned to the target direct report.");
+    }
+    if (task.status === "done" || task.status === "cancelled") {
+      throw conflict("The approved task is already terminal.");
+    }
+
+    return { input, task };
   }
 
   function assertNoAgentInstructionsConfigMutation(
@@ -5487,11 +5530,12 @@ export function agentRoutes(
   });
 
   router.post("/agents/:id/pause", async (req, res) => {
-    assertBoard(req);
     const id = req.params.id as string;
-    if (!(await getAccessibleAgent(req, res, id))) {
+    const existing = await getAccessibleAgent(req, res, id);
+    if (!existing) {
       return;
     }
+    const lifecycle = await assertCanManageAgentLifecycle(req, existing);
     const agent = await svc.pause(id);
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });
@@ -5500,13 +5544,22 @@ export function agentRoutes(
 
     await heartbeat.cancelActiveForAgent(id);
 
+    const actor = getActorInfo(req);
     await logActivity(db, {
       companyId: agent.companyId,
-      actorType: "user",
-      actorId: req.actor.userId ?? "board",
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      agentApiKeyId: actor.agentApiKeyId,
       action: "agent.paused",
       entityType: "agent",
       entityId: agent.id,
+      ...(lifecycle ? { details: {
+        taskId: lifecycle.task.id,
+        repository: lifecycle.input.repository,
+        approvedStage: lifecycle.input.approvedStage,
+      } } : {}),
     });
 
     res.json(redactAgentRowForResponse(agent));
@@ -5518,7 +5571,7 @@ export function agentRoutes(
     if (!existing) {
       return;
     }
-    await assertCanResumeAgent(req, existing);
+    const lifecycle = await assertCanManageAgentLifecycle(req, existing);
     if (existing.orgChainHealth?.status === "invalid_org_chain") {
       res.status(409).json({
         error: existing.orgChainHealth?.repairGuidance ?? "Repair this agent's reporting chain before resuming it",
@@ -5532,6 +5585,26 @@ export function agentRoutes(
     }
 
     const actor = getActorInfo(req);
+    let wakeRunId: string | null = null;
+    if (lifecycle) {
+      const wakeRun = await heartbeat.wakeup(id, {
+        source: "on_demand",
+        triggerDetail: "manual",
+        reason: "scoped_lifecycle_resume",
+        payload: { issueId: lifecycle.task.id },
+        idempotencyKey: `scoped-lifecycle:${id}:${lifecycle.task.id}:${lifecycle.input.approvedStage}:resume`,
+        requestedByActorType: "agent",
+        requestedByActorId: actor.agentId,
+        contextSnapshot: {
+          triggeredBy: "agent",
+          actorId: actor.agentId,
+          originIdentityContextId: req.actor.identityContextId ?? null,
+          responsibleUserId: req.actor.onBehalfOfUserId ?? null,
+          issueId: lifecycle.task.id,
+        },
+      });
+      wakeRunId = wakeRun?.id ?? null;
+    }
     await logActivity(db, {
       companyId: agent.companyId,
       actorType: actor.actorType,
@@ -5542,6 +5615,12 @@ export function agentRoutes(
       action: "agent.resumed",
       entityType: "agent",
       entityId: agent.id,
+      ...(lifecycle ? { details: {
+        taskId: lifecycle.task.id,
+        repository: lifecycle.input.repository,
+        approvedStage: lifecycle.input.approvedStage,
+        wakeRunId,
+      } } : {}),
     });
 
     res.json(redactAgentRowForResponse(agent));

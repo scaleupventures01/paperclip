@@ -690,7 +690,26 @@ approval is created. The legacy fields `protectedAgent.requiresApproval` and
 aliases for the same hard block, but API denial copy must describe the block and
 administrator remediation rather than promising a nonexistent approval step.
 
-### 9.8.1 Issue-thread interaction resolver contract
+### 9.8.1 Scoped Direct-Report Lifecycle Grants
+
+`agents:lifecycle` permits an agent manager to pause or resume an existing direct
+report only when the request matches one stored grant scope. A single-pod scope
+must name an exact `repository`, an exact approved `stage`, and an `agentIds`
+allowlist. A manager of multiple pods instead uses `targets`, with one exact
+`agentId`, `repository`, and `stage` tuple per engagement manager; values cannot
+be mixed across tuples.
+The mutation request must repeat those two scope values and identify a
+non-terminal task in the same company that is currently assigned to the target
+agent. Missing, malformed, unscoped, cross-company, cross-pod, indirect-report,
+terminal-task, and mismatched repository/stage/agent requests fail closed.
+
+The permission authorizes no hire, termination, reconfiguration, instruction,
+reporting-line, cross-pod, or permission mutation. Board operators retain their
+existing unrestricted lifecycle authority. A successful scoped resume invokes
+the target agent with the approved task after changing lifecycle state and logs
+the task, repository, stage, actor, run, API key, and resulting wake run.
+
+### 9.8.2 Issue-thread interaction resolver contract
 
 Issue-thread interactions are coordination records, not grants of authority. Every
 interaction kind defaults to resolver policy `anyone` when the create request omits
@@ -1030,6 +1049,21 @@ Invites tab does not hide this Cloud action.
 - `POST /agents/:agentId/keys` (create API key)
 - `POST /agents/:agentId/heartbeat/invoke`
 
+Board callers may use pause/resume without a body. Agent-manager callers must
+send the scoped lifecycle envelope:
+
+```json
+{
+  "repository": "owner/repository",
+  "approvedStage": "approved-stage-key",
+  "taskId": "uuid"
+}
+```
+
+The server enforces the caller's `agents:lifecycle` grant and direct-report/task
+binding. A scoped resume also wakes that task; a scoped pause cancels the target
+agent's active run.
+
 ## 10.4 Tasks (Issues)
 
 - `GET /companies/:companyId/issues`
@@ -1147,7 +1181,7 @@ Dashboard payload must include:
 The current app also exposes V1-supporting surfaces for:
 
 - company-scoped summary slots for projects, the workspaces overview, project workspaces, and individual execution workspaces; execution-workspace slots are keyed by execution workspace id so a new workspace never inherits another workspace's summary
-- issue thread interactions (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, `request_item_verdicts`) with the open-default resolver contract in §9.8.1
+- issue thread interactions (`suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, `request_item_verdicts`) with the open-default resolver contract in §9.8.2
 - issue approvals, issue references/search, labels, read state, inbox/archive state, and work products
 - task search uses shared PostgreSQL matching/ranking for company search and task-list quick search;
   all query terms contribute, quoted phrases stay literal, exact identifiers and direct title matches

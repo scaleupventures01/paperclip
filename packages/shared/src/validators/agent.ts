@@ -243,6 +243,14 @@ export const wakeAgentSchema = z.object({
 
 export type WakeAgent = z.infer<typeof wakeAgentSchema>;
 
+export const agentLifecycleActionSchema = z.object({
+  repository: z.string().trim().min(1),
+  approvedStage: z.string().trim().min(1),
+  taskId: z.string().uuid(),
+}).strict();
+
+export type AgentLifecycleAction = z.infer<typeof agentLifecycleActionSchema>;
+
 export const resetAgentSessionSchema = z.object({
   taskKey: z.string().min(1).optional().nullable(),
 });
