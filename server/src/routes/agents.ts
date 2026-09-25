@@ -1556,6 +1556,66 @@ export function agentRoutes(
     return Boolean((agent.permissions as Record<string, unknown>).canCreateAgents);
   }
 
+  // The 2026.916.x release stores broad legacy roles, so the exact pod seat is
+  // fail-closed on both the role and title until the canonical role taxonomy
+  // reaches a stable release.
+  const autonomousDeliveryPodHireSeats = new Map<string, Set<string>>([
+    ["engagement manager", new Set(["pm"])],
+    ["spec writer", new Set(["general"])],
+    ["tester", new Set(["qa"])],
+    ["builder", new Set(["engineer"])],
+    ["release manager", new Set(["devops"])],
+    ["pod devops", new Set(["devops"])],
+    ["architect", new Set(["engineer"])],
+    ["designer", new Set(["designer"])],
+    ["researcher", new Set(["researcher"])],
+    ["engineer", new Set(["engineer"])],
+    ["independent verifier", new Set(["qa"])],
+  ]);
+
+  function deliveryPodSeat(role: string | null | undefined, title: string | null | undefined) {
+    if (!role || !title) return null;
+    const normalizedTitle = title.trim().toLowerCase();
+    for (const [seat, roles] of autonomousDeliveryPodHireSeats) {
+      if ((normalizedTitle === seat || normalizedTitle.endsWith(` ${seat}`)) && roles.has(role)) return seat;
+    }
+    return null;
+  }
+
+  async function qualifiesForAutonomousDeliveryPodHire(
+    actorAgent: NonNullable<Awaited<ReturnType<typeof svc.getById>>> | null,
+    hireInput: { role?: string | null; title?: string | null; reportsTo?: string | null; permissions?: unknown },
+  ) {
+    if (!actorAgent || actorAgent.role !== "pm" || !actorAgent.title?.toLowerCase().includes("program manager")) return false;
+    if (!actorAgent.permissions || typeof actorAgent.permissions !== "object") return false;
+    if (!(actorAgent.permissions as Record<string, unknown>).canHireDeliveryPodsWithoutBoardApproval) {
+      return false;
+    }
+    const seat = deliveryPodSeat(hireInput.role, hireInput.title);
+    if (!seat) return false;
+
+    const requestedPermissions =
+      hireInput.permissions && typeof hireInput.permissions === "object" && !Array.isArray(hireInput.permissions)
+        ? hireInput.permissions as Record<string, unknown>
+        : {};
+    if (requestedPermissions.canCreateAgents === true) {
+      throw unprocessable("Autonomous delivery-pod hires cannot create agents");
+    }
+
+    if (seat === "engagement manager") {
+      return hireInput.reportsTo === actorAgent.id;
+    }
+    if (!hireInput.reportsTo) return false;
+    const manager = await svc.getById(hireInput.reportsTo);
+    return Boolean(
+      manager
+      && manager.companyId === actorAgent.companyId
+      && manager.role === "pm"
+      && manager.title?.toLowerCase().endsWith("engagement manager")
+      && manager.reportsTo === actorAgent.id,
+    );
+  }
+
   async function buildAgentAccessState(agent: NonNullable<Awaited<ReturnType<typeof svc.getById>>>) {
     const membership = await access.getMembership(agent.companyId, "agent", agent.id);
     const grants = membership
@@ -4389,7 +4449,7 @@ export function agentRoutes(
 
   router.post("/companies/:companyId/agent-hires", validate(createAgentHireSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
-    await assertCanCreateAgentsForCompany(req, companyId);
+    const hiringActorAgent = await assertCanCreateAgentsForCompany(req, companyId);
     const sourceIssueIds = parseSourceIssueIds(req.body);
     const {
       desiredSkills: requestedDesiredSkills,
@@ -4408,6 +4468,17 @@ export function agentRoutes(
       onboardingFirstAgent: hireOnboardingFirstAgent,
       ...hireInput
     } = req.body;
+    const autonomousDeliveryPodHire = await qualifiesForAutonomousDeliveryPodHire(
+      hiringActorAgent,
+      hireInput,
+    );
+    if (autonomousDeliveryPodHire) {
+      const requestedPermissions =
+        hireInput.permissions && typeof hireInput.permissions === "object" && !Array.isArray(hireInput.permissions)
+          ? hireInput.permissions as Record<string, unknown>
+          : {};
+      hireInput.permissions = { ...requestedPermissions, canCreateAgents: false };
+    }
     hireInput.adapterType = await assertSelectableAdapterType(hireInput.adapterType);
     const rawHireAdapterConfig = (hireInput.adapterConfig ?? {}) as Record<string, unknown>;
     assertProviderTraceSettingTransition(req, hireInput.runtimeConfig);
@@ -4515,7 +4586,7 @@ export function agentRoutes(
         }
       }
 
-      const requiresApproval = company.requireBoardApprovalForNewAgents;
+      const requiresApproval = company.requireBoardApprovalForNewAgents && !autonomousDeliveryPodHire;
       const status = requiresApproval ? "pending_approval" : "idle";
       const managedHireBinding = normalizedHireInput.runtimeConfig?.aiConnection ? aiConnectionBindingSchema.parse(normalizedHireInput.runtimeConfig.aiConnection) : undefined;
       const managedHireConnectionId = managedHireBinding ? await validateManagedAgentBinding(req, companyId, hiredAgentId, normalizedHireInput.adapterType, normalizedHireInput.adapterConfig, managedHireBinding, normalizedHireInput.defaultEnvironmentId, false, true) : undefined;
@@ -4635,6 +4706,7 @@ export function agentRoutes(
           name: agent.name,
           role: agent.role,
           requiresApproval,
+          autonomousDeliveryPodHire,
           approvalId: approval?.id ?? null,
           issueIds: sourceIssueIds,
           desiredSkills: desiredSkillAssignment.desiredSkills,
