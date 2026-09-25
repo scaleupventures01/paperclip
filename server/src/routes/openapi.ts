@@ -38,6 +38,7 @@ import {
   writeStatusCardQuerySchema,
   writeStatusCardSummarySchema,
   wakeAgentSchema,
+  agentLifecycleActionSchema,
   resetAgentSessionSchema,
   agentSkillSyncSchema,
   testAdapterEnvironmentSchema,
@@ -689,6 +690,11 @@ const responses = {
 const jsonBody = (schema: z.ZodTypeAny) => ({
   content: { "application/json": { schema } },
   required: true as const,
+});
+
+const optionalJsonBody = (schema: z.ZodTypeAny) => ({
+  content: { "application/json": { schema } },
+  required: false as const,
 });
 
 // The company import + preview routes accept the inline JSON body or the raw
@@ -3624,7 +3630,10 @@ registry.registerPath({
   path: "/api/agents/{id}/pause",
   tags: ["agents"],
   summary: "Pause an agent",
-  request: { params: z.object({ id: z.string() }) },
+  request: {
+    params: z.object({ id: z.string() }),
+    body: optionalJsonBody(agentLifecycleActionSchema),
+  },
   responses: { 200: r.ok(), 401: r.unauthorized },
 });
 
@@ -3633,7 +3642,10 @@ registry.registerPath({
   path: "/api/agents/{id}/resume",
   tags: ["agents"],
   summary: "Resume an agent",
-  request: { params: z.object({ id: z.string() }) },
+  request: {
+    params: z.object({ id: z.string() }),
+    body: optionalJsonBody(agentLifecycleActionSchema),
+  },
   responses: { 200: r.ok(), 401: r.unauthorized },
 });
 
