@@ -29,6 +29,16 @@ describe("agent permissions service", () => {
     expect(normalizeAgentPermissions([]).canCreateAgents).toBe(false);
   });
 
+  it("keeps autonomous pod hiring fail-closed unless explicitly granted", () => {
+    expect(defaultAgentPermissions({ context: "create" }).canHireDeliveryPodsWithoutBoardApproval).toBe(false);
+    expect(normalizeAgentPermissions(undefined).canHireDeliveryPodsWithoutBoardApproval).toBe(false);
+    expect(normalizeAgentPermissions({}).canHireDeliveryPodsWithoutBoardApproval).toBe(false);
+    expect(
+      normalizeAgentPermissions({ canHireDeliveryPodsWithoutBoardApproval: true })
+        .canHireDeliveryPodsWithoutBoardApproval,
+    ).toBe(true);
+  });
+
   it("withholds agent-creation authority from new low-trust agents", () => {
     expect(defaultAgentPermissions({ lowTrust: true, context: "create" }).canCreateAgents).toBe(false);
     expect(
@@ -98,6 +108,17 @@ describe("agent permissions service", () => {
     expect(agentPermissionsSchema.parse({}).canCreateAgents).toBeUndefined();
     expect(agentPermissionsSchema.parse({ canCreateAgents: false }).canCreateAgents).toBe(false);
     expect(agentPermissionsSchema.parse({ canCreateAgents: true }).canCreateAgents).toBe(true);
+  });
+
+  it("validates the autonomous delivery-pod hiring permission", () => {
+    expect(agentPermissionsSchema.parse({}).canHireDeliveryPodsWithoutBoardApproval).toBeUndefined();
+    expect(agentPermissionsSchema.parse({ canHireDeliveryPodsWithoutBoardApproval: true }))
+      .toMatchObject({ canHireDeliveryPodsWithoutBoardApproval: true });
+    expect(updateAgentPermissionsSchema.parse({
+      canCreateAgents: true,
+      canAssignTasks: true,
+      canHireDeliveryPodsWithoutBoardApproval: true,
+    })).toMatchObject({ canHireDeliveryPodsWithoutBoardApproval: true });
   });
 
   it("validates skill creation permission with a default-on value", () => {
