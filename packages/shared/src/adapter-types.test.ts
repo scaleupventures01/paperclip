@@ -61,4 +61,32 @@ describe("dynamic adapter type validation schemas", () => {
 
     expect(AGENT_ROLE_LABELS.security).toBe("Security");
   });
+
+  it.each([
+    ["program_manager", "Program Manager"],
+    ["engagement_manager", "Engagement Manager"],
+    ["spec_writer", "Spec Writer"],
+    ["tester", "Tester"],
+    ["builder", "Builder"],
+    ["architect", "Architect"],
+    ["release_manager", "Release Manager"],
+    ["pod_devops", "Pod DevOps"],
+    ["storage_steward", "Storage Steward"],
+    ["maintenance_manager", "Maintenance Manager"],
+    ["agent_improver", "Agent Improver"],
+    ["agent_doctor", "Agent Doctor"],
+    ["root_cause_engineer", "Root Cause Engineer"],
+    ["uptime_services", "Uptime and Services"],
+    ["reviewer", "Reviewer"],
+  ] as const)("accepts the %s agent role and exposes its UI label", (role, label) => {
+    expect(
+      createAgentSchema.parse({
+        name: label,
+        role,
+        adapterType: "codex_local",
+      }).role,
+    ).toBe(role);
+
+    expect(AGENT_ROLE_LABELS[role]).toBe(label);
+  });
 });
