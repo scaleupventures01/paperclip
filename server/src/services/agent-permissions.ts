@@ -2,6 +2,7 @@ import { LOW_TRUST_REVIEW_PRESET } from "@paperclipai/shared";
 
 export type NormalizedAgentPermissions = Record<string, unknown> & {
   canCreateAgents: boolean;
+  canHireDeliveryPodsWithoutBoardApproval: boolean;
   canCreateSkills: boolean;
 };
 
@@ -44,6 +45,7 @@ export function defaultAgentPermissions(
 ): NormalizedAgentPermissions {
   return {
     canCreateAgents: options?.context === "create" && options?.lowTrust !== true,
+    canHireDeliveryPodsWithoutBoardApproval: false,
     canCreateSkills: true,
   };
 }
@@ -67,6 +69,10 @@ export function normalizeAgentPermissions(
       typeof record.canCreateAgents === "boolean"
         ? record.canCreateAgents
         : defaults.canCreateAgents,
+    canHireDeliveryPodsWithoutBoardApproval:
+      typeof record.canHireDeliveryPodsWithoutBoardApproval === "boolean"
+        ? record.canHireDeliveryPodsWithoutBoardApproval
+        : defaults.canHireDeliveryPodsWithoutBoardApproval,
     canCreateSkills:
       typeof record.canCreateSkills === "boolean"
         ? record.canCreateSkills

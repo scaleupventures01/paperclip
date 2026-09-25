@@ -1294,6 +1294,195 @@ describe.sequential("agent permission routes", () => {
     );
   });
 
+  const deliveryManagerId = "33333333-3333-4333-8333-333333333333";
+
+  function markWithAutonomousPodHiring() {
+    return {
+      ...baseAgent,
+      role: "program_manager",
+      title: "Program Manager",
+      permissions: {
+        canCreateAgents: true,
+        canHireDeliveryPodsWithoutBoardApproval: true,
+      },
+    };
+  }
+
+  function deliveryManager(reportsTo = agentId) {
+    return {
+      ...baseAgent,
+      id: deliveryManagerId,
+      name: "ScaleUp Marketing Engagement Manager",
+      role: "engagement_manager",
+      title: "Engagement Manager",
+      reportsTo,
+      permissions: { canCreateAgents: false },
+    };
+  }
+
+  function mockAutonomousPodHierarchy(managerReportsTo = agentId) {
+    const mark = markWithAutonomousPodHiring();
+    const manager = deliveryManager(managerReportsTo);
+    mockAgentService.getById.mockImplementation(async (id: string) => {
+      if (id === mark.id) return mark;
+      if (id === manager.id) return manager;
+      return baseAgent;
+    });
+    mockAgentService.create.mockImplementation(async (_companyId: string, input: Record<string, unknown>) => ({
+      ...baseAgent,
+      ...input,
+      companyId,
+    }));
+  }
+
+  it("lets an authorized program manager hire a direct engagement manager without board approval", async () => {
+    mockAutonomousPodHierarchy();
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "ScaleUp Marketing Engagement Manager",
+        role: "engagement_manager",
+        reportsTo: agentId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.approval).toBeNull();
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({
+        role: "engagement_manager",
+        reportsTo: agentId,
+        status: "idle",
+        permissions: expect.objectContaining({ canCreateAgents: false }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("lets Mark hire an allowed specialist only beneath his engagement manager", async () => {
+    mockAutonomousPodHierarchy();
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "ScaleUp Marketing Builder",
+        role: "builder",
+        reportsTo: deliveryManagerId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.approval).toBeNull();
+    expect(mockApprovalService.create).not.toHaveBeenCalled();
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: "agent.hire_created",
+      details: expect.objectContaining({
+        requiresApproval: false,
+        autonomousDeliveryPodHire: true,
+      }),
+    }));
+  });
+
+  it("keeps non-pod roles behind board approval even when Mark requests them", async () => {
+    mockAutonomousPodHierarchy();
+    mockApprovalService.create.mockResolvedValue({ id: "approval-1", type: "hire_agent", status: "pending" });
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "ScaleUp Marketing CFO",
+        role: "cfo",
+        reportsTo: agentId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockApprovalService.create).toHaveBeenCalledOnce();
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({ status: "pending_approval" }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps another manager's pod hire behind board approval", async () => {
+    mockAutonomousPodHierarchy("44444444-4444-4444-8444-444444444444");
+    mockApprovalService.create.mockResolvedValue({ id: "approval-1", type: "hire_agent", status: "pending" });
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "Foreign Pod Builder",
+        role: "builder",
+        reportsTo: deliveryManagerId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockApprovalService.create).toHaveBeenCalledOnce();
+  });
+
+  it("rejects autonomous pod hires that could create more agents", async () => {
+    mockAutonomousPodHierarchy();
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "ScaleUp Marketing Builder",
+        role: "builder",
+        reportsTo: deliveryManagerId,
+        permissions: { canCreateAgents: true },
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("cannot create agents");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
+  });
+
   it("allows board users to directly approve pending agents", async () => {
     const pendingAgent = {
       ...baseAgent,
