@@ -5,6 +5,7 @@ import {
 } from "./experimental-api-paths.js";
 import { Router } from "express";
 import { z } from "zod";
+import { agentLifecycleActionSchema } from "@paperclipai/shared/validators/agent";
 import {
   createAiConnectionSchema,
   aiConnectionLoginIntentSchema,
@@ -38,7 +39,6 @@ import {
   writeStatusCardQuerySchema,
   writeStatusCardSummarySchema,
   wakeAgentSchema,
-  agentLifecycleActionSchema,
   resetAgentSessionSchema,
   agentSkillSyncSchema,
   testAdapterEnvironmentSchema,
