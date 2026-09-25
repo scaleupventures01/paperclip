@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_ROLE_LABELS, acceptInviteSchema, createAgentSchema, updateAgentSchema } from "./index.js";
+import {
+  AGENT_ROLES,
+  AGENT_ROLE_FAMILIES,
+  AGENT_ROLE_FAMILY_BY_ROLE,
+  AGENT_ROLE_FAMILY_LABELS,
+  AGENT_ROLE_LABELS,
+  acceptInviteSchema,
+  createAgentSchema,
+  updateAgentSchema,
+} from "./index.js";
 
 describe("dynamic adapter type validation schemas", () => {
   it("accepts external adapter types in create/update agent schemas", () => {
@@ -75,7 +84,7 @@ describe("dynamic adapter type validation schemas", () => {
     ["maintenance_manager", "Maintenance Manager"],
     ["agent_improver", "Agent Improver"],
     ["agent_doctor", "Agent Doctor"],
-    ["root_cause_engineer", "Root Cause Engineer"],
+    ["root_cause_engineer", "Root Cause Repair Engineer"],
     ["uptime_services", "Uptime and Services"],
     ["reviewer", "Reviewer"],
   ] as const)("accepts the %s agent role and exposes its UI label", (role, label) => {
@@ -88,5 +97,26 @@ describe("dynamic adapter type validation schemas", () => {
     ).toBe(role);
 
     expect(AGENT_ROLE_LABELS[role]).toBe(label);
+  });
+
+  it("maps every role to exactly one labeled role family", () => {
+    expect(Object.keys(AGENT_ROLE_FAMILY_BY_ROLE).sort()).toEqual([...AGENT_ROLES].sort());
+    expect(new Set(Object.values(AGENT_ROLE_FAMILY_BY_ROLE))).toEqual(new Set(AGENT_ROLE_FAMILIES));
+    for (const role of AGENT_ROLES) {
+      expect(AGENT_ROLE_FAMILY_LABELS[AGENT_ROLE_FAMILY_BY_ROLE[role]]).toBeTruthy();
+    }
+  });
+
+  it("accepts the complete ScaleUp role taxonomy and rejects unknown roles", () => {
+    for (const role of AGENT_ROLES) {
+      expect(createAgentSchema.parse({ name: role, role, adapterType: "codex_local" }).role).toBe(role);
+    }
+    expect(() =>
+      createAgentSchema.parse({
+        name: "Unknown role",
+        role: "unknown_role",
+        adapterType: "codex_local",
+      }),
+    ).toThrow();
   });
 });

@@ -40,7 +40,7 @@ Follows the existing `NewIssueDialog` / `NewProjectDialog` pattern: a `Dialog` c
 |-------|---------|----------|---------|-------|
 | Name | Text input (large, auto-focused) | Yes | -- | e.g. "Alice", "Build Bot" |
 | Title | Text input (subtitle style) | No | -- | e.g. "VP of Engineering" |
-| Role | Chip popover (select) | No | `general` | Values from `AGENT_ROLES`. The list includes executive and broad discipline roles plus delivery-team and operations roles: program manager, engagement manager, spec writer, tester, builder, architect, release manager, Pod DevOps, storage steward, maintenance manager, agent improver, agent doctor, root-cause engineer, uptime and services, and reviewer. |
+| Role | Chip popover (select) | No | `general` | Values from `AGENT_ROLES`. Every role maps through `AGENT_ROLE_FAMILY_BY_ROLE` to one family: Executive Leadership, Product and Program, Engineering and Architecture, Quality and Verification, Release and Delivery Operations, Platform Reliability and Maintenance, Research and Design, Revenue and Growth, Administration and Coordination, Security, or General. The role list includes every currently staffed ScaleUp role while preserving the original broad roles for compatibility. |
 | Reports To | Chip popover (agent select) | No | -- | Dropdown of existing agents in the company. If this is the first agent, auto-set role to `ceo` and gray out Reports To. Otherwise required unless role is `ceo`. |
 | Capabilities | Text input | No | -- | Free-text description of what this agent can do |
 
