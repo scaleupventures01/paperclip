@@ -131,6 +131,7 @@ const SUCCESSFUL_RUN_HANDOFF_VALID_PATH_SKIP_REASONS = new Set([
   "issue has execution policy state",
   "active routine continuation owns the next action",
   "issue already has an active execution path",
+  "active delegated child owns the next action",
   "issue already has a queued or deferred wake",
   "pending interaction or approval owns the next action",
   "persisted issue monitor owns the next action",
@@ -469,6 +470,7 @@ export function decideSuccessfulRunHandoff(input: {
   nextAction: string | null;
   taskKey: string | null;
   hasActiveExecutionPath: boolean;
+  hasActiveDelegatedChildPath: boolean;
   hasQueuedWake: boolean;
   hasPendingInteractionOrApproval: boolean;
   hasPersistedMonitor: boolean;
@@ -517,6 +519,9 @@ export function decideSuccessfulRunHandoff(input: {
     return { kind: "skip", reason: "successful run did not produce handoff-relevant progress" };
   }
   if (input.hasActiveExecutionPath) return { kind: "skip", reason: "issue already has an active execution path" };
+  if (input.hasActiveDelegatedChildPath) {
+    return { kind: "skip", reason: "active delegated child owns the next action" };
+  }
   if (input.hasQueuedWake) return { kind: "skip", reason: "issue already has a queued or deferred wake" };
   if (input.hasPendingInteractionOrApproval) {
     return { kind: "skip", reason: "pending interaction or approval owns the next action" };
