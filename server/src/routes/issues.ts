@@ -13192,7 +13192,7 @@ export function issueRoutes(
       if (updateFields.unblockDescriptor && nextStatus !== "blocked") {
         throw unprocessable("unblockDescriptor requires blocked status");
       }
-      const descriptor = updateFields.unblockDescriptor ?? null;
+      let descriptor = updateFields.unblockDescriptor ?? null;
       if (descriptor && typeof descriptor === "object") {
         const owner = descriptor.owner;
         if (
@@ -13271,7 +13271,15 @@ export function issueRoutes(
               .unresolvedBlockerCount > 0;
         const [pendingInteraction, pendingApproval] = await Promise.all([
           db
-            .select({ id: issueThreadInteractions.id })
+            .select({
+              id: issueThreadInteractions.id,
+              kind: issueThreadInteractions.kind,
+              title: issueThreadInteractions.title,
+              summary: issueThreadInteractions.summary,
+              addresseeAgentId: issueThreadInteractions.addresseeAgentId,
+              addresseeUserId: issueThreadInteractions.addresseeUserId,
+              updatedAt: issueThreadInteractions.updatedAt,
+            })
             .from(issueThreadInteractions)
             .where(
               and(
@@ -13296,6 +13304,29 @@ export function issueRoutes(
             .limit(1)
             .then((rows) => rows[0] ?? null),
         ]);
+        if (!descriptor && pendingInteraction) {
+          const owner = pendingInteraction.addresseeAgentId
+            ? { agentId: pendingInteraction.addresseeAgentId }
+            : pendingInteraction.addresseeUserId
+              ? { userId: pendingInteraction.addresseeUserId }
+              : "board" as const;
+          descriptor = {
+            owner,
+            action:
+              readNonEmptyString(pendingInteraction.title) ??
+              readNonEmptyString(pendingInteraction.summary) ??
+              `Resolve the pending ${pendingInteraction.kind} interaction`,
+            clearingCheck: {
+              kind: "interaction_resolved" as const,
+              interactionId: pendingInteraction.id,
+            },
+            freshness: {
+              observedAt: new Date().toISOString(),
+              sourceUpdatedAt: pendingInteraction.updatedAt.toISOString(),
+            },
+          };
+          updateFields.unblockDescriptor = descriptor;
+        }
         if (
           !hasUnresolvedBlocker &&
           !pendingInteraction &&

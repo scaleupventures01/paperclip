@@ -24,7 +24,6 @@ import { agentLifecycleActionSchema } from "./agent-lifecycle-schema.js";
 import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
-  agentLifecycleActionSchema,
   ADAPTER_AGNOSTIC_KEYS,
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
   createAgentKeySchema,

@@ -54,6 +54,7 @@ function baseStalenessFacts(): QueuedRunFacts {
     issueExecutionRunId: "run-1",
     isResolvedInteractionContinuation: false,
     isInteractionWake: false,
+    isPendingInteractionAddresseeWake: false,
     isAuthorizedSourceScopedRecovery: false,
     isNonAssigneeWorkspaceBusyRetry: false,
     resumeIntent: false,
@@ -425,6 +426,14 @@ describe("decideQueuedRunStaleness", () => {
       },
     };
     expect(decideQueuedRunStaleness(facts, NOW)).toEqual({ stale: false });
+  });
+
+  it("allows a pending interaction addressee to act without owning the issue", () => {
+    expect(decideQueuedRunStaleness({
+      ...baseStalenessFacts(),
+      issueAssigneeAgentId: "agent-2",
+      isPendingInteractionAddresseeWake: true,
+    }, NOW)).toEqual({ stale: false });
   });
 
   it("allows resume intent to bypass a terminal status", () => {

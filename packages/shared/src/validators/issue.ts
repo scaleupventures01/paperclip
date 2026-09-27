@@ -691,6 +691,20 @@ const createIssueBaseSchema = z.object({
         z.literal("board"),
       ]),
       action: multilineTextSchema.pipe(z.string().trim().min(1).max(2_000)),
+      clearingCheck: z
+        .object({
+          kind: z.literal("interaction_resolved"),
+          interactionId: z.string().guid(),
+        })
+        .strict()
+        .optional(),
+      freshness: z
+        .object({
+          observedAt: z.string().datetime(),
+          sourceUpdatedAt: z.string().datetime(),
+        })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional()

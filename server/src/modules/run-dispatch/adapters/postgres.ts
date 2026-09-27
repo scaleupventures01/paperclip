@@ -512,6 +512,28 @@ export function createPostgresRunDispatchAdapter(
       context,
       ISSUE_TREE_CONTROL_INTERACTION_WAKE_REASONS,
     );
+    const pendingInteractionId =
+      readNonEmptyString(context.interactionId);
+    const isPendingInteractionAddresseeWake = Boolean(
+      issue &&
+      pendingInteractionId &&
+      readNonEmptyString(context.wakeReason) === "interaction_pending" &&
+      readNonEmptyString(context.source) === "issue.interaction.created" &&
+      await dbOrTx
+        .select({ id: issueThreadInteractions.id })
+        .from(issueThreadInteractions)
+        .where(
+          and(
+            eq(issueThreadInteractions.id, pendingInteractionId),
+            eq(issueThreadInteractions.companyId, input.companyId),
+            eq(issueThreadInteractions.issueId, issue.id),
+            eq(issueThreadInteractions.status, "pending"),
+            eq(issueThreadInteractions.addresseeAgentId, input.agentId),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows.length === 1),
+    );
     const resumeIntent = context.resumeIntent === true || context.followUpRequested === true;
     const wakeReason = readNonEmptyString(context.wakeReason);
     const retryReason =
@@ -585,6 +607,7 @@ export function createPostgresRunDispatchAdapter(
       isConnectionContinuation: (isResolvedInteractionContinuation && context.interactionKind === "connection_intent")
         || context.source === "connection_tools.refreshed",
       isInteractionWake,
+      isPendingInteractionAddresseeWake,
       isAuthorizedSourceScopedRecovery,
       isNonAssigneeWorkspaceBusyRetry: isNonAssigneeWorkspaceBusyRetry(retryReason, context),
       resumeIntent,

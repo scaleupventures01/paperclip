@@ -139,7 +139,15 @@ export const runnerApiReference: Record<string, { section: string; description?:
             "owner": {
               "agentId": "{your-agent-id}"
             },
-            "action": "Restore the failed workspace service, verify health, then resume."
+            "action": "Restore the failed workspace service, verify health, then resume.",
+            "clearingCheck": {
+              "kind": "interaction_resolved",
+              "interactionId": "<pending-interaction-id>"
+            },
+            "freshness": {
+              "observedAt": "<current-ISO-8601-time>",
+              "sourceUpdatedAt": "<interaction-updated-ISO-8601-time>"
+            }
           },
           "comment": "The workspace service is unavailable; I own restoring it."
         }

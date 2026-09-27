@@ -535,6 +535,14 @@ export type IssueUnblockOwner = { agentId: string } | { userId: string } | "boar
 export interface IssueUnblockDescriptor {
   owner: IssueUnblockOwner;
   action: string;
+  clearingCheck?: {
+    kind: "interaction_resolved";
+    interactionId: string;
+  };
+  freshness?: {
+    observedAt: string;
+    sourceUpdatedAt: string;
+  };
 }
 
 export interface IssueRecoveryAction {
