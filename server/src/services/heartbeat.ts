@@ -13332,7 +13332,7 @@ export function heartbeatService(
 
     const [
       activeExecutionPath,
-      activeDelegatedChildPath,
+      activeDelegatedDescendantPath,
       queuedWake,
       pendingInteraction,
       pendingApproval,
@@ -13365,58 +13365,48 @@ export function heartbeatService(
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),
       issue
-        ? db
-            .select({ id: issues.id })
-            .from(issues)
-            .where(
-              and(
-                eq(issues.companyId, issue.companyId),
-                eq(issues.parentId, issue.id),
-                notInArray(issues.status, ["done", "cancelled"]),
-                or(
-                  exists(
-                    db
-                      .select({ id: heartbeatRuns.id })
-                      .from(heartbeatRuns)
-                      .where(
-                        and(
-                          eq(heartbeatRuns.companyId, issue.companyId),
-                          inArray(heartbeatRuns.status, [
-                            ...EXECUTION_PATH_HEARTBEAT_RUN_STATUSES,
-                          ]),
-                          sql`(
-                            ${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issues.id}::text
-                            or ${heartbeatRuns.contextSnapshot} ->> 'taskId' = ${issues.id}::text
-                          )`,
-                        ),
-                      ),
-                  ),
-                  exists(
-                    db
-                      .select({ id: agentWakeupRequests.id })
-                      .from(agentWakeupRequests)
-                      .where(
-                        and(
-                          eq(agentWakeupRequests.companyId, issue.companyId),
-                          inArray(agentWakeupRequests.status, [
-                            "queued",
-                            "deferred_issue_execution",
-                            "claimed",
-                          ]),
-                          sql`(
-                            ${agentWakeupRequests.payload} ->> 'issueId' = ${issues.id}::text
-                            or ${agentWakeupRequests.payload} ->> 'taskId' = ${issues.id}::text
-                            or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'issueId' = ${issues.id}::text
-                            or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'taskId' = ${issues.id}::text
-                          )`,
-                        ),
-                      ),
-                  ),
-                ),
-              ),
+        ? db.execute(sql<{ id: string }>`
+            WITH RECURSIVE delegated_issues(id) AS (
+              SELECT child.id
+              FROM issues child
+              WHERE child.company_id = ${issue.companyId}
+                AND child.parent_id = ${issue.id}
+                AND child.status NOT IN ('done', 'cancelled')
+              UNION ALL
+              SELECT child.id
+              FROM issues child
+              JOIN delegated_issues parent ON child.parent_id = parent.id
+              WHERE child.company_id = ${issue.companyId}
+                AND child.status NOT IN ('done', 'cancelled')
             )
-            .limit(1)
-            .then((rows) => rows[0] ?? null)
+            SELECT delegated.id
+            FROM delegated_issues delegated
+            WHERE EXISTS (
+              SELECT 1
+              FROM heartbeat_runs delegated_run
+              WHERE delegated_run.company_id = ${issue.companyId}
+                AND delegated_run.status IN (${sql.join(
+                  EXECUTION_PATH_HEARTBEAT_RUN_STATUSES.map((status) => sql`${status}`),
+                  sql`, `,
+                )})
+                AND (
+                  delegated_run.context_snapshot ->> 'issueId' = delegated.id::text
+                  OR delegated_run.context_snapshot ->> 'taskId' = delegated.id::text
+                )
+            ) OR EXISTS (
+              SELECT 1
+              FROM agent_wakeup_requests delegated_wake
+              WHERE delegated_wake.company_id = ${issue.companyId}
+                AND delegated_wake.status IN ('queued', 'deferred_issue_execution', 'claimed')
+                AND (
+                  delegated_wake.payload ->> 'issueId' = delegated.id::text
+                  OR delegated_wake.payload ->> 'taskId' = delegated.id::text
+                  OR delegated_wake.payload -> '_paperclipWakeContext' ->> 'issueId' = delegated.id::text
+                  OR delegated_wake.payload -> '_paperclipWakeContext' ->> 'taskId' = delegated.id::text
+                )
+            )
+            LIMIT 1
+          `).then((rows) => Array.from(rows)[0] ?? null)
         : Promise.resolve(null),
       issue
         ? db
@@ -13553,7 +13543,7 @@ export function heartbeatService(
       nextAction,
       taskKey,
       hasActiveExecutionPath: Boolean(activeExecutionPath),
-      hasActiveDelegatedChildPath: Boolean(activeDelegatedChildPath),
+      hasActiveDelegatedDescendantPath: Boolean(activeDelegatedDescendantPath),
       hasQueuedWake: Boolean(queuedWake),
       hasPendingInteractionOrApproval: Boolean(
         pendingInteraction || pendingApproval,
