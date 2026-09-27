@@ -1592,10 +1592,103 @@ export function agentRoutes(
     "independent_verifier",
   ]);
 
+  const engagementDeliveryRoles = new Set([
+    "business_analyst",
+    "systems_analyst",
+    "spec_writer",
+    "tester",
+    "builder",
+    "release_manager",
+    "pod_devops",
+    "devops",
+    "architect",
+    "designer",
+    "researcher",
+    "engineer",
+    "independent_verifier",
+  ]);
+
+  type EngagementHireContext = {
+    governingIssueId: string;
+    actorKind: "head" | "engagement_manager";
+  };
+
+  async function resolveEngagementHireContext(
+    actorAgent: NonNullable<Awaited<ReturnType<typeof svc.getById>>> | null,
+    hireInput: { role?: string | null; reportsTo?: string | null; permissions?: unknown; metadata?: Record<string, unknown> | null },
+    sourceIssueIds: string[],
+  ): Promise<EngagementHireContext | null> {
+    if (!actorAgent) return null;
+    const isHead = actorAgent.title === "Head of Engagement Management";
+    const isEngagementManager = actorAgent.role === "engagement_manager";
+    if (!isHead && !isEngagementManager) return null;
+    if (sourceIssueIds.length !== 1) {
+      throw unprocessable("Governed engagement hires require exactly one governing source issue");
+    }
+    const governingIssue = await issueService(db).getById(sourceIssueIds[0]!);
+    if (!governingIssue || governingIssue.companyId !== actorAgent.companyId) {
+      throw unprocessable("The governing source issue must exist in the hiring agent's company");
+    }
+
+    if (isHead) {
+      if (hireInput.role !== "engagement_manager" || hireInput.reportsTo !== actorAgent.id) {
+        throw forbidden("Head of Engagement Management may create only Engagement Managers reporting directly to the Head");
+      }
+    } else if (!hireInput.role || !engagementDeliveryRoles.has(hireInput.role) || hireInput.reportsTo !== actorAgent.id) {
+      throw forbidden("Engagement Managers may create only allowlisted delivery roles reporting directly to themselves");
+    }
+
+    const requestedMetadata =
+      hireInput.metadata && typeof hireInput.metadata === "object" && !Array.isArray(hireInput.metadata)
+        ? hireInput.metadata
+        : {};
+    hireInput.metadata = {
+      ...requestedMetadata,
+      agentosEngagement: {
+        governingIssueId: governingIssue.id,
+      },
+    };
+    return {
+      governingIssueId: governingIssue.id,
+      actorKind: isHead ? "head" : "engagement_manager",
+    };
+  }
+
+  async function findReusableRosterSeat(
+    companyId: string,
+    hireInput: { role?: string | null; reportsTo?: string | null },
+    engagementContext: EngagementHireContext | null,
+  ) {
+    const managerId = hireInput.reportsTo ?? null;
+    const roster = await svc.list(companyId);
+    return roster.find((candidate) => {
+      if (
+        candidate.status === "terminated"
+        || candidate.role !== hireInput.role
+        || (candidate.reportsTo ?? null) !== managerId
+      ) return false;
+      if (engagementContext?.actorKind !== "head" || hireInput.role !== "engagement_manager") {
+        return true;
+      }
+      const metadata = candidate.metadata && typeof candidate.metadata === "object" && !Array.isArray(candidate.metadata)
+        ? candidate.metadata as Record<string, unknown>
+        : null;
+      const binding = metadata?.agentosEngagement;
+      return Boolean(
+        binding
+        && typeof binding === "object"
+        && !Array.isArray(binding)
+        && (binding as Record<string, unknown>).governingIssueId === engagementContext.governingIssueId,
+      );
+    }) ?? null;
+  }
+
   async function qualifiesForAutonomousDeliveryPodHire(
     actorAgent: NonNullable<Awaited<ReturnType<typeof svc.getById>>> | null,
     hireInput: { role?: string | null; reportsTo?: string | null; permissions?: unknown },
+    engagementContext: EngagementHireContext | null = null,
   ) {
+    if (engagementContext) return true;
     if (!actorAgent || actorAgent.role !== "program_manager") return false;
     if (!actorAgent.permissions || typeof actorAgent.permissions !== "object") return false;
     if (!(actorAgent.permissions as Record<string, unknown>).canHireDeliveryPodsWithoutBoardApproval) {
@@ -4570,16 +4663,25 @@ export function agentRoutes(
       ...hireInput
     } = req.body;
 
+    const engagementHireContext = await resolveEngagementHireContext(
+      hiringActorAgent,
+      hireInput,
+      sourceIssueIds,
+    );
     const autonomousDeliveryPodHire = await qualifiesForAutonomousDeliveryPodHire(
       hiringActorAgent,
       hireInput,
+      engagementHireContext,
     );
     if (autonomousDeliveryPodHire) {
       const requestedPermissions =
         hireInput.permissions && typeof hireInput.permissions === "object" && !Array.isArray(hireInput.permissions)
           ? hireInput.permissions as Record<string, unknown>
           : {};
-      hireInput.permissions = { ...requestedPermissions, canCreateAgents: false };
+      hireInput.permissions = {
+        ...requestedPermissions,
+        canCreateAgents: engagementHireContext?.actorKind === "head" && hireInput.role === "engagement_manager",
+      };
     }
 
     if (inheritRuntimeFrom === "caller") {
@@ -4716,6 +4818,19 @@ export function agentRoutes(
               typeof priorApprovalId === "string" ? await approvalsSvc.getById(priorApprovalId) : null;
             return { status: 200, body: { agent: existingAgent, approval: existingApproval, idempotent: true } };
           }
+        }
+      }
+
+      if (hiringActorAgent) {
+        const reusableSeat = await findReusableRosterSeat(
+          companyId,
+          normalizedHireInput,
+          engagementHireContext,
+        );
+        if (reusableSeat) {
+          throw conflict(
+            `Roster seat already exists for role ${normalizedHireInput.role} under this manager: ${reusableSeat.name} (${reusableSeat.id}). Reuse or repair that agent; terminate it before a deliberate replacement.`,
+          );
         }
       }
 
@@ -4884,7 +4999,10 @@ export function agentRoutes(
 
   router.post("/companies/:companyId/agents", validate(createAgentSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
-    await assertCanCreateAgentsForCompany(req, companyId);
+    const directCreationActorAgent = await assertCanCreateAgentsForCompany(req, companyId);
+    if (directCreationActorAgent) {
+      throw forbidden("Agent actors must use the governed agent-hire route");
+    }
 
     const company = await db
       .select()
