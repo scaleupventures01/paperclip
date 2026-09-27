@@ -7165,11 +7165,20 @@ function hasInteractionContinuationWakeContext(
   );
 }
 
-function normalizeInteractionContinuationWakeContext(
+export function normalizeInteractionContinuationWakeContext(
   contextSnapshot: Record<string, unknown>,
   payload: Record<string, unknown> | null | undefined,
 ) {
   if (isInteractionResolutionWakePayload(payload)) return;
+  // A pending interaction is not a continuation yet, but its durable identity
+  // is required to authorize delivery to an addressee who is not the issue
+  // assignee. Preserve only the server-issued pending-interaction shape; other
+  // callers still cannot smuggle continuation authority in arbitrary context.
+  if (
+    readNonEmptyString(contextSnapshot.wakeReason) === "interaction_pending" &&
+    readNonEmptyString(contextSnapshot.source) === "issue.interaction.created" &&
+    readNonEmptyString(contextSnapshot.interactionId)
+  ) return;
   clearInteractionContinuationWakeContext(contextSnapshot);
 }
 
