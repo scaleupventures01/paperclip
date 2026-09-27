@@ -95,6 +95,7 @@ const mockIssueApprovalService = vi.hoisted(() => ({
 
 const mockIssueService = vi.hoisted(() => ({
   list: vi.fn(),
+  getById: vi.fn(),
 }));
 
 const mockSecretService = vi.hoisted(() => ({
@@ -327,6 +328,7 @@ describe.sequential("agent permission routes", () => {
     mockHeartbeatService.cancelInvocationsForAgents.mockReset();
     mockIssueApprovalService.linkManyForApproval.mockReset();
     mockIssueService.list.mockReset();
+    mockIssueService.getById.mockReset();
     mockSecretService.normalizeAdapterConfigForPersistence.mockReset();
     mockSecretService.resolveAdapterConfigForRuntime.mockReset();
     mockAgentInstructionsService.materializeManagedBundle.mockReset();
@@ -345,6 +347,7 @@ describe.sequential("agent permission routes", () => {
     mockAgentService.getConfigRevision.mockResolvedValue(null);
     mockAgentService.listConfigRevisions.mockResolvedValue([]);
     mockAgentService.list.mockResolvedValue([baseAgent]);
+    mockIssueService.getById.mockResolvedValue(null);
     mockAgentService.getChainOfCommand.mockResolvedValue([]);
     mockAgentService.resolveByReference.mockResolvedValue({ ambiguous: false, agent: baseAgent });
     mockAgentService.create.mockResolvedValue(baseAgent);
@@ -1368,6 +1371,214 @@ describe.sequential("agent permission routes", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("lets the Head create one task-bound engagement manager per governing issue", async () => {
+    const head = {
+      ...baseAgent,
+      role: "pm",
+      title: "Head of Engagement Management",
+      permissions: { canCreateAgents: true },
+    };
+    const governingIssueId = "55555555-5555-4555-8555-555555555555";
+    mockAgentService.getById.mockResolvedValue(head);
+    mockAgentService.list.mockResolvedValue([{
+      ...baseAgent,
+      id: deliveryManagerId,
+      role: "engagement_manager",
+      reportsTo: agentId,
+      metadata: null,
+    }]);
+    mockIssueService.getById.mockResolvedValue({ id: governingIssueId, companyId });
+    mockAgentService.create.mockImplementation(async (_companyId: string, input: Record<string, unknown>) => ({
+      ...baseAgent,
+      ...input,
+      companyId,
+    }));
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "SCA-35 Engagement Manager",
+        role: "engagement_manager",
+        reportsTo: agentId,
+        sourceIssueId: governingIssueId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.approval).toBeNull();
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({
+        status: "idle",
+        permissions: expect.objectContaining({ canCreateAgents: true }),
+        metadata: expect.objectContaining({
+          agentosEngagement: { governingIssueId },
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects a duplicate task-bound engagement manager for the same governing issue", async () => {
+    const head = {
+      ...baseAgent,
+      role: "pm",
+      title: "Head of Engagement Management",
+      permissions: { canCreateAgents: true },
+    };
+    const governingIssueId = "55555555-5555-4555-8555-555555555555";
+    mockAgentService.getById.mockResolvedValue(head);
+    mockAgentService.list.mockResolvedValue([{
+      ...baseAgent,
+      id: deliveryManagerId,
+      name: "Existing Task Engagement Manager",
+      role: "engagement_manager",
+      reportsTo: agentId,
+      metadata: { agentosEngagement: { governingIssueId } },
+    }]);
+    mockIssueService.getById.mockResolvedValue({ id: governingIssueId, companyId });
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "Duplicate Engagement Manager",
+        role: "engagement_manager",
+        reportsTo: agentId,
+        sourceIssueId: governingIssueId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain("Roster seat already exists");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Head engagement-manager hire without one governing issue", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      ...baseAgent,
+      role: "pm",
+      title: "Head of Engagement Management",
+      permissions: { canCreateAgents: true },
+    });
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "Unbound Engagement Manager",
+        role: "engagement_manager",
+        reportsTo: agentId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("exactly one governing source issue");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
+  });
+
+  it("lets a task-bound engagement manager create an allowlisted specialist", async () => {
+    const governingIssueId = "55555555-5555-4555-8555-555555555555";
+    mockAgentService.getById.mockResolvedValue({
+      ...baseAgent,
+      role: "engagement_manager",
+      title: "Engagement Manager",
+      permissions: { canCreateAgents: true },
+    });
+    mockAgentService.list.mockResolvedValue([]);
+    mockIssueService.getById.mockResolvedValue({ id: governingIssueId, companyId });
+    mockAgentService.create.mockImplementation(async (_companyId: string, input: Record<string, unknown>) => ({
+      ...baseAgent,
+      ...input,
+      companyId,
+    }));
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "Task Builder",
+        role: "builder",
+        reportsTo: agentId,
+        sourceIssueId: governingIssueId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.approval).toBeNull();
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({
+        status: "idle",
+        permissions: expect.objectContaining({ canCreateAgents: false }),
+        metadata: expect.objectContaining({ agentosEngagement: { governingIssueId } }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects a task-bound engagement manager creating a non-delivery role", async () => {
+    const governingIssueId = "55555555-5555-4555-8555-555555555555";
+    mockAgentService.getById.mockResolvedValue({
+      ...baseAgent,
+      role: "engagement_manager",
+      title: "Engagement Manager",
+      permissions: { canCreateAgents: true },
+    });
+    mockIssueService.getById.mockResolvedValue({ id: governingIssueId, companyId });
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "Task CFO",
+        role: "cfo",
+        reportsTo: agentId,
+        sourceIssueId: governingIssueId,
+        adapterType: "process",
+        adapterConfig: {},
+      }));
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("allowlisted delivery roles");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
   });
 
   it("lets an autonomous pod hire repeat canonical managed-bundle hints without choosing a host path", async () => {
