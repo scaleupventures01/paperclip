@@ -13332,6 +13332,7 @@ export function heartbeatService(
 
     const [
       activeExecutionPath,
+      activeDelegatedChildPath,
       queuedWake,
       pendingInteraction,
       pendingApproval,
@@ -13358,6 +13359,60 @@ export function heartbeatService(
                 or ${heartbeatRuns.contextSnapshot} ->> 'taskId' = ${issue.id}
               )`,
                 sql`${heartbeatRuns.id} <> ${run.id}`,
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+      issue
+        ? db
+            .select({ id: issues.id })
+            .from(issues)
+            .where(
+              and(
+                eq(issues.companyId, issue.companyId),
+                eq(issues.parentId, issue.id),
+                notInArray(issues.status, ["done", "cancelled"]),
+                or(
+                  exists(
+                    db
+                      .select({ id: heartbeatRuns.id })
+                      .from(heartbeatRuns)
+                      .where(
+                        and(
+                          eq(heartbeatRuns.companyId, issue.companyId),
+                          inArray(heartbeatRuns.status, [
+                            ...EXECUTION_PATH_HEARTBEAT_RUN_STATUSES,
+                          ]),
+                          sql`(
+                            ${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issues.id}::text
+                            or ${heartbeatRuns.contextSnapshot} ->> 'taskId' = ${issues.id}::text
+                          )`,
+                        ),
+                      ),
+                  ),
+                  exists(
+                    db
+                      .select({ id: agentWakeupRequests.id })
+                      .from(agentWakeupRequests)
+                      .where(
+                        and(
+                          eq(agentWakeupRequests.companyId, issue.companyId),
+                          inArray(agentWakeupRequests.status, [
+                            "queued",
+                            "deferred_issue_execution",
+                            "claimed",
+                          ]),
+                          sql`(
+                            ${agentWakeupRequests.payload} ->> 'issueId' = ${issues.id}::text
+                            or ${agentWakeupRequests.payload} ->> 'taskId' = ${issues.id}::text
+                            or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'issueId' = ${issues.id}::text
+                            or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'taskId' = ${issues.id}::text
+                          )`,
+                        ),
+                      ),
+                  ),
+                ),
               ),
             )
             .limit(1)
@@ -13498,6 +13553,7 @@ export function heartbeatService(
       nextAction,
       taskKey,
       hasActiveExecutionPath: Boolean(activeExecutionPath),
+      hasActiveDelegatedChildPath: Boolean(activeDelegatedChildPath),
       hasQueuedWake: Boolean(queuedWake),
       hasPendingInteractionOrApproval: Boolean(
         pendingInteraction || pendingApproval,
