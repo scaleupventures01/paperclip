@@ -13,6 +13,7 @@ import {
   issueDocuments,
   issueRelations,
   issueRecoveryActions,
+  issueThreadInteractions,
   issueTreeHolds,
   issues,
 } from "@paperclipai/db";
@@ -24,6 +25,7 @@ import {
 import { createPostgresRunDispatchAdapter } from "./postgres.js";
 import { settleUnrecoverableExecutions } from "../../../services/execution-recovery-resolution.js";
 import { getExecutionBlocker } from "../../../services/execution-blocker.js";
+import { recoveryService } from "../../../services/recovery/service.js";
 
 // Proves the DB-to-facts mapping this adapter owns for each state the two
 // run-dispatch gates decide on. `application/use-cases.test.ts` and
@@ -608,6 +610,146 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
         outcome: "cancelled",
         errorCode: "issue_assignee_changed",
       });
+    });
+
+    it("allows only the authoritative pending interaction addressee to run without issue ownership", async () => {
+      const { companyId, agentId: assigneeAgentId } = await seedCompanyAndAgent();
+      const addresseeAgentId = randomUUID();
+      const wrongAgentId = randomUUID();
+      await seedAgent({ id: addresseeAgentId, companyId, name: "InteractionAddressee" });
+      await seedAgent({ id: wrongAgentId, companyId, name: "WrongAddressee" });
+      const issueId = randomUUID();
+      await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId });
+      const interactionId = randomUUID();
+      await db.insert(issueThreadInteractions).values({
+        id: interactionId,
+        companyId,
+        issueId,
+        kind: "request_confirmation",
+        status: "pending",
+        addresseeAgentId,
+        payload: { version: 1, prompt: "Approve the recovery?" },
+      });
+
+      const contextSnapshot = {
+        issueId,
+        interactionId,
+        wakeReason: "interaction_pending",
+        source: "issue.interaction.created",
+      };
+      const addresseeRunId = await seedRun({ companyId, agentId: addresseeAgentId, contextSnapshot });
+      const allowed = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+        runId: addresseeRunId,
+        companyId,
+        expectedStatus: "queued",
+        now: new Date(),
+      });
+      expect(allowed).toEqual({ outcome: "not_stale" });
+
+      const wrongRunId = await seedRun({ companyId, agentId: wrongAgentId, contextSnapshot });
+      const rejected = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+        runId: wrongRunId,
+        companyId,
+        expectedStatus: "queued",
+        now: new Date(),
+      });
+      expect(rejected).toMatchObject({ outcome: "cancelled", errorCode: "issue_assignee_changed" });
+
+      const forgedSourceRunId = await seedRun({
+        companyId,
+        agentId: addresseeAgentId,
+        contextSnapshot: { ...contextSnapshot, source: "issue.update" },
+      });
+      const forgedSource = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+        runId: forgedSourceRunId,
+        companyId,
+        expectedStatus: "queued",
+        now: new Date(),
+      });
+      expect(forgedSource).toMatchObject({ outcome: "cancelled", errorCode: "issue_assignee_changed" });
+
+      await db.update(issueThreadInteractions).set({ status: "accepted" }).where(eq(issueThreadInteractions.id, interactionId));
+      const resolvedRunId = await seedRun({ companyId, agentId: addresseeAgentId, contextSnapshot });
+      const resolved = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+        runId: resolvedRunId,
+        companyId,
+        expectedStatus: "queued",
+        now: new Date(),
+      });
+      expect(resolved).toMatchObject({ outcome: "cancelled", errorCode: "issue_assignee_changed" });
+    });
+
+    it("requeues the exact cancelled pending-interaction addressee wake and restores blocked routing data", async () => {
+      const { companyId, agentId: assigneeAgentId } = await seedCompanyAndAgent();
+      const addresseeAgentId = randomUUID();
+      await seedAgent({ id: addresseeAgentId, companyId, name: "DecisionOwner" });
+      const issueId = randomUUID();
+      await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId });
+      const interactionId = randomUUID();
+      await db.insert(issueThreadInteractions).values({
+        id: interactionId,
+        companyId,
+        issueId,
+        kind: "request_confirmation",
+        status: "pending",
+        addresseeAgentId,
+        title: "Repair delivery readiness",
+        payload: { version: 1, prompt: "Confirm the readiness repair" },
+      });
+      const failedRunId = await seedRun({
+        companyId,
+        agentId: addresseeAgentId,
+        status: "queued",
+        contextSnapshot: {
+          issueId,
+          interactionId,
+          wakeReason: "interaction_pending",
+          source: "issue.interaction.created",
+        },
+      });
+      await db.update(heartbeatRuns).set({
+        status: "cancelled",
+        errorCode: "issue_assignee_changed",
+      }).where(eq(heartbeatRuns.id, failedRunId));
+      const enqueueWakeup = vi.fn(async () => ({ id: randomUUID() }) as never);
+
+      const result = await recoveryService(db, { enqueueWakeup })
+        .reconcileCancelledPendingInteractionAddresseeWakes();
+
+      expect(result).toEqual({ scanned: 1, recovered: 1, descriptorsRestored: 1 });
+      expect(enqueueWakeup).toHaveBeenCalledWith(
+        addresseeAgentId,
+        expect.objectContaining({
+          reason: "interaction_pending",
+          idempotencyKey: `interaction-pending-recovery:${interactionId}:${failedRunId}`,
+          contextSnapshot: expect.objectContaining({
+            interactionId,
+            source: "issue.interaction.created",
+          }),
+        }),
+      );
+      const descriptor = await db.select({ value: issues.unblockDescriptor })
+        .from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0]?.value);
+      expect(descriptor).toEqual({
+        owner: { agentId: addresseeAgentId },
+        action: "Repair delivery readiness",
+        clearingCheck: {
+          kind: "interaction_resolved",
+          interactionId,
+        },
+        freshness: {
+          observedAt: expect.any(String),
+          sourceUpdatedAt: expect.any(String),
+        },
+      });
+
+      await db.update(issueThreadInteractions).set({ status: "accepted" })
+        .where(eq(issueThreadInteractions.id, interactionId));
+      enqueueWakeup.mockClear();
+      const negative = await recoveryService(db, { enqueueWakeup })
+        .reconcileCancelledPendingInteractionAddresseeWakes();
+      expect(negative).toEqual({ scanned: 0, recovered: 0, descriptorsRestored: 0 });
+      expect(enqueueWakeup).not.toHaveBeenCalled();
     });
 
     it(

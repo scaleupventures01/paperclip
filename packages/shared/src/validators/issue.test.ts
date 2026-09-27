@@ -148,11 +148,27 @@ describe("issue validators", () => {
         unblockDescriptor: {
           owner: { agentId: "00000000-0000-4000-8000-000000000001" },
           action: "Review the finding",
+          clearingCheck: {
+            kind: "interaction_resolved",
+            interactionId: "00000000-0000-4000-8000-000000000002",
+          },
+          freshness: {
+            observedAt: "2026-09-27T13:30:00.000Z",
+            sourceUpdatedAt: "2026-09-27T13:29:00.000Z",
+          },
         },
       }).unblockDescriptor,
     ).toEqual({
       owner: { agentId: "00000000-0000-4000-8000-000000000001" },
       action: "Review the finding",
+      clearingCheck: {
+        kind: "interaction_resolved",
+        interactionId: "00000000-0000-4000-8000-000000000002",
+      },
+      freshness: {
+        observedAt: "2026-09-27T13:30:00.000Z",
+        sourceUpdatedAt: "2026-09-27T13:29:00.000Z",
+      },
     });
     expect(
       updateIssueSchema.safeParse({

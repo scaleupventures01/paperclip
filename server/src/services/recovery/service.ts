@@ -5214,6 +5214,136 @@ export function recoveryService(
     return result;
   }
 
+  async function reconcileCancelledPendingInteractionAddresseeWakes() {
+    const candidates = await db
+      .select({
+        interactionId: issueThreadInteractions.id,
+        companyId: issueThreadInteractions.companyId,
+        issueId: issueThreadInteractions.issueId,
+        interactionKind: issueThreadInteractions.kind,
+        addresseeAgentId: issueThreadInteractions.addresseeAgentId,
+        sourceCommentId: issueThreadInteractions.sourceCommentId,
+        sourceRunId: issueThreadInteractions.sourceRunId,
+        title: issueThreadInteractions.title,
+        summary: issueThreadInteractions.summary,
+        interactionUpdatedAt: issueThreadInteractions.updatedAt,
+        issueStatus: issues.status,
+        unblockDescriptor: issues.unblockDescriptor,
+      })
+      .from(issueThreadInteractions)
+      .innerJoin(
+        issues,
+        and(
+          eq(issues.id, issueThreadInteractions.issueId),
+          eq(issues.companyId, issueThreadInteractions.companyId),
+        ),
+      )
+      .where(
+        and(
+          eq(issueThreadInteractions.status, "pending"),
+          sql`${issueThreadInteractions.addresseeAgentId} is not null`,
+          notInArray(issues.status, ["done", "cancelled"]),
+          isNull(issues.hiddenAt),
+        ),
+      )
+      .orderBy(asc(issueThreadInteractions.createdAt))
+      .limit(100);
+
+    const result = { scanned: candidates.length, recovered: 0, descriptorsRestored: 0 };
+    for (const candidate of candidates) {
+      if (!candidate.addresseeAgentId) continue;
+      const failedRun = await db
+        .select({
+          id: heartbeatRuns.id,
+          status: heartbeatRuns.status,
+          errorCode: heartbeatRuns.errorCode,
+        })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, candidate.companyId),
+            eq(heartbeatRuns.agentId, candidate.addresseeAgentId),
+            sql`${heartbeatRuns.contextSnapshot} ->> 'interactionId' = ${candidate.interactionId}`,
+            sql`${heartbeatRuns.contextSnapshot} ->> 'wakeReason' = 'interaction_pending'`,
+          ),
+        )
+        .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (
+        !failedRun ||
+        failedRun.status !== "cancelled" ||
+        failedRun.errorCode !== "issue_assignee_changed"
+      ) {
+        continue;
+      }
+
+      if (candidate.issueStatus === "blocked" && !candidate.unblockDescriptor) {
+        const action =
+          readNonEmptyString(candidate.title) ??
+          readNonEmptyString(candidate.summary) ??
+          `Resolve the pending ${candidate.interactionKind} interaction`;
+        const restored = await db
+          .update(issues)
+          .set({
+            unblockDescriptor: {
+              owner: { agentId: candidate.addresseeAgentId },
+              action,
+              clearingCheck: {
+                kind: "interaction_resolved",
+                interactionId: candidate.interactionId,
+              },
+              freshness: {
+                observedAt: new Date().toISOString(),
+                sourceUpdatedAt: candidate.interactionUpdatedAt.toISOString(),
+              },
+            },
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(issues.id, candidate.issueId),
+              eq(issues.companyId, candidate.companyId),
+              eq(issues.status, "blocked"),
+              isNull(issues.unblockDescriptor),
+            ),
+          )
+          .returning({ id: issues.id });
+        if (restored.length === 1) result.descriptorsRestored += 1;
+      }
+
+      const run = await deps.enqueueWakeup(candidate.addresseeAgentId, {
+        source: "automation",
+        triggerDetail: "system",
+        reason: "interaction_pending",
+        payload: {
+          issueId: candidate.issueId,
+          interactionId: candidate.interactionId,
+          interactionKind: candidate.interactionKind,
+          sourceCommentId: candidate.sourceCommentId,
+          sourceRunId: candidate.sourceRunId,
+          mutation: "interaction_recovery",
+        },
+        idempotencyKey: `interaction-pending-recovery:${candidate.interactionId}:${failedRun.id}`,
+        requestedByActorType: "system",
+        requestedByActorId: "system:interaction-pending-recovery",
+        contextSnapshot: {
+          issueId: candidate.issueId,
+          taskId: candidate.issueId,
+          interactionId: candidate.interactionId,
+          interactionKind: candidate.interactionKind,
+          sourceCommentId: candidate.sourceCommentId,
+          sourceRunId: candidate.sourceRunId,
+          wakeReason: "interaction_pending",
+          source: "issue.interaction.created",
+          recoveredFromRunId: failedRun.id,
+        },
+      });
+      if (run) result.recovered += 1;
+    }
+    return result;
+  }
+
   async function reconcileResolvedDependencyWakeBackstop(
     opts?: ResolvedDependencyWakeBackstopOptions,
   ) {
@@ -5914,6 +6044,7 @@ export function recoveryService(
     recordWatchdogDecision,
     scanSilentActiveRuns,
     reconcileStrandedAssignedIssues,
+    reconcileCancelledPendingInteractionAddresseeWakes,
     sweepStaleIssueLocks,
     reconcileResolvedDependencyWakeBackstop,
     readRecoveryTimerIntervalMs,

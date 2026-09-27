@@ -1523,6 +1523,8 @@ async function startServerWithDatabaseTeardown(
           );
         }
         const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
+        const interactionWakes =
+          await heartbeat.reconcileCancelledPendingInteractionAddresseeWakes();
         if (
           promotion.promoted > 0 ||
           reconciled.assignmentDispatched > 0 ||
@@ -1534,6 +1536,12 @@ async function startServerWithDatabaseTeardown(
           logger.warn(
             { promotedScheduledRetries: promotion.promoted, promotedScheduledRetryRunIds: promotion.runIds, ...reconciled },
             "startup heartbeat recovery changed assigned issue state",
+          );
+        }
+        if (interactionWakes.recovered > 0 || interactionWakes.descriptorsRestored > 0) {
+          logger.warn(
+            interactionWakes,
+            "startup interaction-addressee recovery restored pending decision paths",
           );
         }
 
@@ -1763,6 +1771,8 @@ async function startServerWithDatabaseTeardown(
             .then(async (promotion) => {
               await heartbeat.resumeQueuedRuns();
               const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
+              const interactionWakes =
+                await heartbeat.reconcileCancelledPendingInteractionAddresseeWakes();
               if (
                 promotion.promoted > 0 ||
                 reconciled.assignmentDispatched > 0 ||
@@ -1774,6 +1784,12 @@ async function startServerWithDatabaseTeardown(
                 logger.warn(
                   { promotedScheduledRetries: promotion.promoted, promotedScheduledRetryRunIds: promotion.runIds, ...reconciled },
                   "periodic heartbeat recovery changed assigned issue state",
+                );
+              }
+              if (interactionWakes.recovered > 0 || interactionWakes.descriptorsRestored > 0) {
+                logger.warn(
+                  interactionWakes,
+                  "periodic interaction-addressee recovery restored pending decision paths",
                 );
               }
             })
