@@ -288,6 +288,7 @@ function preparePreviewFixture(fixture) {
     "#!/usr/bin/env node\nprocess.exit(0);\n",
   );
   writeExecutable(join(fixtureDir, "scripts", "prepare-server-ui-dist.sh"), "#!/usr/bin/env bash\nexit 0\n");
+  writeExecutable(join(fixtureDir, "scripts", "prepare-package-assets.sh"), "#!/usr/bin/env bash\nexit 0\n");
   writeExecutable(join(fixtureDir, "scripts", "build-npm.sh"), "#!/usr/bin/env bash\nexit 0\n");
   // Step 4 verifies the CLI package version against the target canary version.
   mkdirSync(join(fixtureDir, "cli"), { recursive: true });
