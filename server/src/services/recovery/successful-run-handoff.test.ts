@@ -54,7 +54,7 @@ function decide(overrides: Partial<Parameters<typeof decideSuccessfulRunHandoff>
     nextAction: "Record the correct issue disposition.",
     taskKey: "issue-1",
     hasActiveExecutionPath: false,
-    hasActiveDelegatedChildPath: false,
+    hasActiveDelegatedDescendantPath: false,
     hasQueuedWake: false,
     hasPendingInteractionOrApproval: false,
     hasPersistedMonitor: false,
@@ -310,15 +310,15 @@ describe("successful run handoff decision", () => {
       kind: "skip",
       reason: "issue already has an active execution path",
     });
-    expect(decide({ hasActiveDelegatedChildPath: true })).toEqual({
+    expect(decide({ hasActiveDelegatedDescendantPath: true })).toEqual({
       kind: "skip",
-      reason: "active delegated child owns the next action",
+      reason: "active delegated descendant owns the next action",
     });
   });
 
   it("identifies valid-path skips that can durably resolve a stale required event", () => {
     expect(isSuccessfulRunHandoffValidPathSkip(decide({ hasActiveExecutionPath: true }))).toBe(true);
-    expect(isSuccessfulRunHandoffValidPathSkip(decide({ hasActiveDelegatedChildPath: true }))).toBe(true);
+    expect(isSuccessfulRunHandoffValidPathSkip(decide({ hasActiveDelegatedDescendantPath: true }))).toBe(true);
     expect(isSuccessfulRunHandoffValidPathSkip(decide({ hasQueuedWake: true }))).toBe(true);
     expect(isSuccessfulRunHandoffValidPathSkip(decide({ budgetBlocked: true }))).toBe(false);
   });
