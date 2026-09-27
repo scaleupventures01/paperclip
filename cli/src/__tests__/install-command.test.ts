@@ -162,7 +162,7 @@ describe("managed install commands", () => {
     expect(runCommand.mock.calls.filter(([command, args]) => command === "curl" && args.includes("--output"))).toHaveLength(1);
     expect(runCommand.mock.calls.filter(([command, args]) => command === "corepack" && args[1] === "install")).toHaveLength(1);
     expect(runCommand.mock.calls.filter(([command, args]) => command === "corepack" && args.includes("pack"))).toHaveLength(2);
-    expect(runCommand.mock.calls.filter(([command, args]) => command === "bash" && args[0]?.endsWith("prepare-server-ui-dist.sh"))).toHaveLength(1);
+    expect(runCommand.mock.calls.filter(([command, args]) => command === "bash" && args[0]?.endsWith("prepare-package-assets.sh"))).toHaveLength(1);
     expect(runCommand.mock.calls.filter(([command, args]) => command === process.execPath && args[0]?.endsWith("prepare-bundled-package.mjs"))).toHaveLength(1);
     expect(runCommand.mock.calls.filter(([command, args]) => command === "npm" && args[0] === "pack")).toHaveLength(2);
     const installCall = runCommand.mock.calls.find(([command, args]) => command === "npm" && args[0] === "install");
@@ -188,7 +188,7 @@ describe("managed install commands", () => {
     const uiPackCall = buildCalls.find(([file, , options]) => file === "corepack" && options?.env?.PAPERCLIP_RELEASE_REUSE_UI_DIST === "1");
     expect(uiPackCall).toBeDefined();
     const uiPrepareCall = buildCalls.find(([file, args, options]) =>
-      file === "bash" && args[0]?.endsWith("prepare-server-ui-dist.sh") && options?.env?.PAPERCLIP_RELEASE_REUSE_UI_DIST === "1");
+      file === "bash" && args[0]?.endsWith("prepare-package-assets.sh") && options?.env?.PAPERCLIP_RELEASE_REUSE_UI_DIST === "1");
     expect(uiPrepareCall).toBeDefined();
   });
 
