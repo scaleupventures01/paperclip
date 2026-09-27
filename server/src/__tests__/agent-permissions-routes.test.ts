@@ -1370,6 +1370,43 @@ describe.sequential("agent permission routes", () => {
     );
   });
 
+  it("lets an autonomous pod hire repeat canonical managed-bundle hints without choosing a host path", async () => {
+    mockAutonomousPodHierarchy();
+    const app = await createApp({
+      type: "agent",
+      agentId,
+      companyId,
+      runId: null,
+      source: "agent_key",
+    }, { requireBoardApprovalForNewAgents: true });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agent-hires`)
+      .send({
+        name: "ScaleUp Marketing Engagement Manager",
+        role: "engagement_manager",
+        reportsTo: agentId,
+        adapterType: "codex_local",
+        adapterConfig: {
+          instructionsBundleMode: "managed",
+          instructionsEntryFile: "AGENTS.md",
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({
+        adapterConfig: expect.not.objectContaining({
+          instructionsBundleMode: expect.anything(),
+          instructionsEntryFile: expect.anything(),
+        }),
+      }),
+      expect.anything(),
+    );
+    expect(mockAgentInstructionsService.materializeManagedBundle).toHaveBeenCalledOnce();
+  });
+
   it("lets Mark hire an allowed specialist only beneath his engagement manager", async () => {
     mockAutonomousPodHierarchy();
     const app = await createApp({

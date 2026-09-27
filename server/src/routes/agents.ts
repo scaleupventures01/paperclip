@@ -2954,6 +2954,31 @@ export function agentRoutes(
     );
   }
 
+  function normalizeAutonomousManagedInstructionsHints(
+    adapterConfig: Record<string, unknown>,
+    autonomousDeliveryPodHire: boolean,
+  ): Record<string, unknown> {
+    if (!autonomousDeliveryPodHire) return adapterConfig;
+
+    const isCanonicalServerManagedHint =
+      adapterConfig.instructionsBundleMode === "managed"
+      && adapterConfig.instructionsEntryFile === "AGENTS.md"
+      && adapterConfig.instructionsRootPath === undefined
+      && adapterConfig.instructionsFilePath === undefined
+      && adapterConfig.agentsMdPath === undefined;
+    if (!isCanonicalServerManagedHint) return adapterConfig;
+
+    // Autonomous delivery managers may repeat the canonical managed-bundle
+    // markers when hiring a pod member. They are intent, not authority to pick
+    // a host path: discard them and let the server materialize its role-owned
+    // default bundle below. Any custom root/path (or non-canonical marker)
+    // remains rejected by assertNoAgentAdapterConfigMutation.
+    const normalized = { ...adapterConfig };
+    delete normalized.instructionsBundleMode;
+    delete normalized.instructionsEntryFile;
+    return normalized;
+  }
+
   function assertExternalInstructionsAdmin(
     req: Request,
     agent: Parameters<typeof agentInstructionsBundleMode>[0],
@@ -4580,7 +4605,10 @@ export function agentRoutes(
       hireInput.defaultEnvironmentId = caller.defaultEnvironmentId ?? null;
     }
     hireInput.adapterType = await assertSelectableAdapterType(hireInput.adapterType);
-    const rawHireAdapterConfig = (hireInput.adapterConfig ?? {}) as Record<string, unknown>;
+    const rawHireAdapterConfig = normalizeAutonomousManagedInstructionsHints(
+      (hireInput.adapterConfig ?? {}) as Record<string, unknown>,
+      autonomousDeliveryPodHire,
+    );
     assertProviderTraceSettingTransition(req, hireInput.runtimeConfig);
     await assertFreshPaperclipRunnerProvider(
       companyId,
