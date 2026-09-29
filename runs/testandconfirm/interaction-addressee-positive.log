@@ -1,0 +1,102 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0
+
+[09:35:37] [33mWARN[39m: [36mAutomatic recovery disposition remains pending[39m [90m{"recoveryActionId":"da5f38aa-43fe-4d4d-a356-5cf9c5ef41c8"}[39m
+    err: {
+      "type": "DrizzleQueryError",
+      "message": "Failed query: insert into \"heartbeat_run_events\" (\"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning \"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\"\nparams: f23e25b2-5610-4488-9c93-567f102653f7,4b288b43-22be-4447-9b3f-322d08c8d2f0,5cc272f2-f9d4-46fe-af30-0725eeb359f7,1,lifecycle,system,warn,,Recovery closed because the task's owner, execution, or status changed. No work was replayed.,{\"recoveryActionId\":\"da5f38aa-43fe-4d4d-a356-5cf9c5ef41c8\",\"cause\":\"legacy_execution_requires_reconciliation\",\"automaticRecovery\":\"preserve_without_replay_v1\",\"replay\":\"blocked\"},,,,,: duplicate key value violates unique constraint \"heartbeat_run_events_run_seq_uq\"",
+      "stack":
+          Error: Failed query: insert into "heartbeat_run_events" ("id", "company_id", "run_id", "agent_id", "seq", "event_type", "stream", "level", "color", "message", "payload", "source_instance_id", "source_event_id", "source_seq", "source_payload_sha256", "protocol_schema_version", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning "id", "company_id", "run_id", "agent_id", "seq", "event_type", "stream", "level", "color", "message", "payload", "source_instance_id", "source_event_id", "source_seq", "source_payload_sha256", "protocol_schema_version", "created_at"
+          params: f23e25b2-5610-4488-9c93-567f102653f7,4b288b43-22be-4447-9b3f-322d08c8d2f0,5cc272f2-f9d4-46fe-af30-0725eeb359f7,1,lifecycle,system,warn,,Recovery closed because the task's owner, execution, or status changed. No work was replayed.,{"recoveryActionId":"da5f38aa-43fe-4d4d-a356-5cf9c5ef41c8","cause":"legacy_execution_requires_reconciliation","automaticRecovery":"preserve_without_replay_v1","replay":"blocked"},,,,,
+              at PostgresJsPreparedQuery.queryWithCache (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/drizzle-orm@0.45.2_@opentelemetry+api@1.9.1_kysely@0.29.5_pg@8.18.0_postgres@3.4.9_patch_hash_uil4xuf7icnddjurbgy2qn5oo4/node_modules/drizzle-orm/pg-core/session.js:41:15)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/drizzle-orm@0.45.2_@opentelemetry+api@1.9.1_kysely@0.29.5_pg@8.18.0_postgres@3.4.9_patch_hash_uil4xuf7icnddjurbgy2qn5oo4/node_modules/drizzle-orm/postgres-js/session.js:37:20
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/heartbeat-run-events.ts:148:19
+              at scope (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/execution-recovery-resolution.ts:535:9
+              at scope (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at settleUnrecoverableExecutions (/Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/execution-recovery-resolution.ts:399:7)
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/modules/run-dispatch/adapters/postgres.test.ts:1017:5
+          caused by: PostgresError: duplicate key value violates unique constraint "heartbeat_run_events_run_seq_uq"
+              at ErrorResponse (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:819:30)
+              at handle (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:493:6)
+              at Socket.data (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:324:9)
+              at Socket.emit (node:events:514:28)
+              at addChunk (node:internal/streams/readable:568:12)
+              at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+              at Socket.Readable.push (node:internal/streams/readable:399:5)
+              at TCP.onStreamRead (node:internal/stream_base_commons:189:23)
+      "query": "insert into \"heartbeat_run_events\" (\"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning \"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\"",
+      "params": [
+        "f23e25b2-5610-4488-9c93-567f102653f7",
+        "4b288b43-22be-4447-9b3f-322d08c8d2f0",
+        "5cc272f2-f9d4-46fe-af30-0725eeb359f7",
+        1,
+        "lifecycle",
+        "system",
+        "warn",
+        null,
+        "Recovery closed because the task's owner, execution, or status changed. No work was replayed.",
+        "{\"recoveryActionId\":\"da5f38aa-43fe-4d4d-a356-5cf9c5ef41c8\",\"cause\":\"legacy_execution_requires_reconciliation\",\"automaticRecovery\":\"preserve_without_replay_v1\",\"replay\":\"blocked\"}",
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+[09:35:37] [33mWARN[39m: [36mAutomatic recovery disposition remains pending[39m [90m{"recoveryActionId":"3012144f-cf64-4028-8a33-b28039c92284"}[39m
+    err: {
+      "type": "DrizzleQueryError",
+      "message": "Failed query: insert into \"heartbeat_run_events\" (\"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning \"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\"\nparams: 15c3ca64-925b-40c9-877a-8ec617bacdc0,d662b7c3-9401-4001-ab1b-f80f1e02fcb9,be47eb23-dae6-4fb4-80cb-d4bf3ca59972,1,lifecycle,system,warn,,Recovery closed because the task's owner, execution, or status changed. No work was replayed.,{\"recoveryActionId\":\"3012144f-cf64-4028-8a33-b28039c92284\",\"cause\":\"legacy_execution_requires_reconciliation\",\"automaticRecovery\":\"preserve_without_replay_v1\",\"replay\":\"blocked\"},,,,,: duplicate key value violates unique constraint \"heartbeat_run_events_run_seq_uq\"",
+      "stack":
+          Error: Failed query: insert into "heartbeat_run_events" ("id", "company_id", "run_id", "agent_id", "seq", "event_type", "stream", "level", "color", "message", "payload", "source_instance_id", "source_event_id", "source_seq", "source_payload_sha256", "protocol_schema_version", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning "id", "company_id", "run_id", "agent_id", "seq", "event_type", "stream", "level", "color", "message", "payload", "source_instance_id", "source_event_id", "source_seq", "source_payload_sha256", "protocol_schema_version", "created_at"
+          params: 15c3ca64-925b-40c9-877a-8ec617bacdc0,d662b7c3-9401-4001-ab1b-f80f1e02fcb9,be47eb23-dae6-4fb4-80cb-d4bf3ca59972,1,lifecycle,system,warn,,Recovery closed because the task's owner, execution, or status changed. No work was replayed.,{"recoveryActionId":"3012144f-cf64-4028-8a33-b28039c92284","cause":"legacy_execution_requires_reconciliation","automaticRecovery":"preserve_without_replay_v1","replay":"blocked"},,,,,
+              at PostgresJsPreparedQuery.queryWithCache (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/drizzle-orm@0.45.2_@opentelemetry+api@1.9.1_kysely@0.29.5_pg@8.18.0_postgres@3.4.9_patch_hash_uil4xuf7icnddjurbgy2qn5oo4/node_modules/drizzle-orm/pg-core/session.js:41:15)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/drizzle-orm@0.45.2_@opentelemetry+api@1.9.1_kysely@0.29.5_pg@8.18.0_postgres@3.4.9_patch_hash_uil4xuf7icnddjurbgy2qn5oo4/node_modules/drizzle-orm/postgres-js/session.js:37:20
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/heartbeat-run-events.ts:148:19
+              at scope (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/execution-recovery-resolution.ts:535:9
+              at scope (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at settleUnrecoverableExecutions (/Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/services/execution-recovery-resolution.ts:399:7)
+              at /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/src/modules/run-dispatch/adapters/postgres.test.ts:1017:5
+          caused by: PostgresError: duplicate key value violates unique constraint "heartbeat_run_events_run_seq_uq"
+              at ErrorResponse (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:819:30)
+              at handle (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:493:6)
+              at Socket.data (file:///Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/connection.js:324:9)
+              at Socket.emit (node:events:514:28)
+              at addChunk (node:internal/streams/readable:568:12)
+              at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+              at Socket.Readable.push (node:internal/streams/readable:399:5)
+              at TCP.onStreamRead (node:internal/stream_base_commons:189:23)
+      "query": "insert into \"heartbeat_run_events\" (\"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, default) returning \"id\", \"company_id\", \"run_id\", \"agent_id\", \"seq\", \"event_type\", \"stream\", \"level\", \"color\", \"message\", \"payload\", \"source_instance_id\", \"source_event_id\", \"source_seq\", \"source_payload_sha256\", \"protocol_schema_version\", \"created_at\"",
+      "params": [
+        "15c3ca64-925b-40c9-877a-8ec617bacdc0",
+        "d662b7c3-9401-4001-ab1b-f80f1e02fcb9",
+        "be47eb23-dae6-4fb4-80cb-d4bf3ca59972",
+        1,
+        "lifecycle",
+        "system",
+        "warn",
+        null,
+        "Recovery closed because the task's owner, execution, or status changed. No work was replayed.",
+        "{\"recoveryActionId\":\"3012144f-cf64-4028-8a33-b28039c92284\",\"cause\":\"legacy_execution_requires_reconciliation\",\"automaticRecovery\":\"preserve_without_replay_v1\",\"replay\":\"blocked\"}",
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+
+ Test Files  3 passed (3)
+      Tests  126 passed (126)
+   Start at  09:35:27
+   Duration  10.52s (transform 3.96s, setup 118ms, import 7.12s, tests 2.94s, environment 0ms)
+

@@ -1,0 +1,45 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0
+
+ ❯ |@paperclipai/server| src/modules/run-dispatch/domain/policy.test.ts (59 tests | 1 failed) 7ms
+     × allows a pending interaction addressee to act without owning the issue 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/modules/run-dispatch/domain/policy.test.ts > decideQueuedRunStaleness > allows a pending interaction addressee to act without owning the issue
+AssertionError: expected { stale: true, …(3) } to deeply equal { stale: false }
+
+- Expected
++ Received
+
+  {
+-   "stale": false,
++   "details": {
++     "currentAssigneeAgentId": "agent-2",
++     "issueId": "issue-1",
++     "previousAssigneeAgentId": "agent-1",
++   },
++   "errorCode": "issue_assignee_changed",
++   "reason": "Cancelled because issue assignee changed before the queued run could start; the new owner will be woken instead",
++   "stale": true,
+  }
+
+ ❯ src/modules/run-dispatch/domain/policy.test.ts:436:14
+    434|       issueAssigneeAgentId: "agent-2",
+    435|       isPendingInteractionAddresseeWake: true,
+    436|     }, NOW)).toEqual({ stale: false });
+       |              ^
+    437|   });
+    438|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 58 passed (59)
+   Start at  09:30:49
+   Duration  130ms (transform 21ms, setup 36ms, import 18ms, tests 7ms, environment 0ms)
+

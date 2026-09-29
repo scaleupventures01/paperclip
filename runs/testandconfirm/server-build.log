@@ -1,0 +1,129 @@
+
+> @paperclipai/server@0.3.1 build /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server
+> pnpm run prepare:runner-vendor && node scripts/verify-runner-vendor-dependencies.mjs && tsc && mkdir -p dist/onboarding-assets dist/built-ins dist/services/scripts dist/vendor/paperclip-runner && cp -R src/onboarding-assets/. dist/onboarding-assets/ && cp -R src/built-ins/. dist/built-ins/ && cp -R src/services/scripts/. dist/services/scripts/ && cp -R ../packages/paperclip-runner/dist/. dist/vendor/paperclip-runner/ && node scripts/write-build-stamp.mjs
+
+
+> @paperclipai/server@0.3.1 prepare:runner-vendor /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server
+> pnpm --filter @paperclipai/paperclip-runner build
+
+
+> @paperclipai/paperclip-runner@0.0.0 build /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run check:protocol-manifest && pnpm run build:typescript && pnpm run check:capability-contract && pnpm run check:capability-inventory && pnpm run check:protocol-coverage && pnpm run check:semantic-contracts && pnpm run check:runner-workflow-traceability && pnpm run build:binary && node scripts/generate-replay-goldens.mjs --check && node scripts/generate-semantic-action-catalog.mjs --check
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:protocol-manifest /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-protocol-manifest.mjs --check
+
+The generated PRP contract manifest matches its sources.
+
+> @paperclipai/paperclip-runner@0.0.0 build:typescript /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run ensure:eval-build-deps && pnpm run check:protocol-types && node ./node_modules/typescript/bin/tsc --version && node ./node_modules/typescript/bin/tsc -p tsconfig.json && node ./node_modules/typescript/bin/tsc -p tsconfig.surfaces.json && node scripts/build-verified-provider-entrypoints.mjs
+
+
+> @paperclipai/paperclip-runner@0.0.0 ensure:eval-build-deps /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm --filter @paperclipai/paperclip-eval-kernel build
+
+
+> @paperclipai/paperclip-eval-kernel@0.1.0 build /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-eval-kernel
+> tsc -p tsconfig.json
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:protocol-types /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-protocol-schema-module.mjs --check && node scripts/generate-acpx-sidecar-contract.mjs --check
+
+Generated PRP schema modules match the JSON Schema sources.
+Generated TypeScript/Rust ACPX sidecar contracts match the schema.
+Version 7.0.2
+
+> @paperclipai/paperclip-runner@0.0.0 check:capability-contract /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-capability-contract.mjs --check
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:capability-inventory /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/check-capability-inventory.mjs
+
+Capability inventory completeness and generated-output checks passed.
+
+> @paperclipai/paperclip-runner@0.0.0 check:protocol-coverage /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-protocol-coverage.mjs --check
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:semantic-contracts /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run build:typescript && node scripts/generate-semantic-contracts.mjs --check
+
+
+> @paperclipai/paperclip-runner@0.0.0 build:typescript /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run ensure:eval-build-deps && pnpm run check:protocol-types && node ./node_modules/typescript/bin/tsc --version && node ./node_modules/typescript/bin/tsc -p tsconfig.json && node ./node_modules/typescript/bin/tsc -p tsconfig.surfaces.json && node scripts/build-verified-provider-entrypoints.mjs
+
+
+> @paperclipai/paperclip-runner@0.0.0 ensure:eval-build-deps /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm --filter @paperclipai/paperclip-eval-kernel build
+
+
+> @paperclipai/paperclip-eval-kernel@0.1.0 build /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-eval-kernel
+> tsc -p tsconfig.json
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:protocol-types /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-protocol-schema-module.mjs --check && node scripts/generate-acpx-sidecar-contract.mjs --check
+
+Generated PRP schema modules match the JSON Schema sources.
+Generated TypeScript/Rust ACPX sidecar contracts match the schema.
+Version 7.0.2
+
+> @paperclipai/paperclip-runner@0.0.0 check:runner-workflow-traceability /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run build:typescript && node scripts/check-runner-workflow-traceability.mjs
+
+
+> @paperclipai/paperclip-runner@0.0.0 build:typescript /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm run ensure:eval-build-deps && pnpm run check:protocol-types && node ./node_modules/typescript/bin/tsc --version && node ./node_modules/typescript/bin/tsc -p tsconfig.json && node ./node_modules/typescript/bin/tsc -p tsconfig.surfaces.json && node scripts/build-verified-provider-entrypoints.mjs
+
+
+> @paperclipai/paperclip-runner@0.0.0 ensure:eval-build-deps /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> pnpm --filter @paperclipai/paperclip-eval-kernel build
+
+
+> @paperclipai/paperclip-eval-kernel@0.1.0 build /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-eval-kernel
+> tsc -p tsconfig.json
+
+
+> @paperclipai/paperclip-runner@0.0.0 check:protocol-types /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> node scripts/generate-protocol-schema-module.mjs --check && node scripts/generate-acpx-sidecar-contract.mjs --check
+
+Generated PRP schema modules match the JSON Schema sources.
+Generated TypeScript/Rust ACPX sidecar contracts match the schema.
+Version 7.0.2
+Runner stress traceability passed: 44 findings, 12 workflows, 1 explicit exclusion.
+
+> @paperclipai/paperclip-runner@0.0.0 build:binary /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/packages/paperclip-runner
+> cargo build --release --manifest-path runner/Cargo.toml --locked -p paperclip-runner-core --bin paperclip-runnerd && node scripts/stage-runner-binary.mjs
+
+warning: fields `config` and `system_instructions` are never read
+    --> crates/runner-core/src/claude_managed_provider.rs:1248:5
+     |
+1232 | pub struct ClaudeManagedProvider {
+     |            --------------------- fields in this struct
+...
+1248 |     config: ClaudeManagedProviderConfig,
+     |     ^^^^^^
+1249 |     system_instructions: String,
+     |     ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `receive_plain` is never used
+    --> crates/runner-core/src/durable/transport.rs:1545:4
+     |
+1545 | fn receive_plain(
+     |    ^^^^^^^^^^^^^
+
+warning: function `validate_tool_result_contract` is never used
+    --> crates/runner-core/src/provider_bridge.rs:1043:4
+     |
+1043 | fn validate_tool_result_contract(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `paperclip-runner-core` (lib) generated 3 warnings
+    Finished `release` profile [optimized] target(s) in 0.57s
+Replay golden snapshots and parity summaries are current.
+[build-stamp] wrote /Users/niaopenclaw/Domains/paperclip-wake-fix.R6fqp0/server/dist/build-info.json commit=697bbdc4e8bf3c39f8fdc42c9e9e1515bd837a78
