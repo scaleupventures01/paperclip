@@ -218,6 +218,23 @@ export const ISSUE_SUBTREE_DIAGNOSTICS_MAX_BLOCKERS_PER_NODE = 20;
 export const ISSUE_SUBTREE_DIAGNOSTICS_MAX_WAKE_REQUESTS_PER_NODE = 5;
 export const ISSUE_SUBTREE_DIAGNOSTICS_MAX_ACTIVITY_RECORDS_PER_NODE = 5;
 const ISSUE_LIST_RELATED_QUERY_CHUNK_SIZE = 500;
+export const TERMINAL_ISSUE_STATUSES = ["done", "cancelled"] as const;
+
+export function blockingTerminalConfirmation(
+  rows: Array<
+    Pick<
+      typeof issueThreadInteractions.$inferSelect,
+      "id" | "kind" | "status" | "addresseeAgentId" | "addresseeUserId"
+    >
+  >,
+) {
+  return rows.find((row) => {
+    if (row.kind !== "request_confirmation" || row.status !== "pending") return false;
+    const addresseeAgentId = row.addresseeAgentId ?? null;
+    const addresseeUserId = row.addresseeUserId ?? null;
+    return Boolean(addresseeAgentId || addresseeUserId);
+  });
+}
 export const MAX_CHILD_ISSUES_CREATED_BY_HELPER = 25;
 const MAX_CHILD_COMPLETION_SUMMARIES = 20;
 const CHILD_COMPLETION_SUMMARY_BODY_MAX_CHARS = 500;
@@ -10857,6 +10874,39 @@ export function issueService(db: Db) {
         if (actorAgentId && patch.status === "done") {
           const [review] = await tx.select({ id: toolActionRequests.id }).from(toolActionRequests).where(and(eq(toolActionRequests.companyId, existing.companyId), eq(toolActionRequests.issueId, id), inArray(toolActionRequests.status, ["pending", "approved", "executing"]))).limit(1);
           if (review) throw conflict("This task is waiting for a connection review. Finish unrelated work, then yield in_review without retrying the governed call.", { code: "tool_review_pending", actionRequestId: review.id });
+        }
+        if ((TERMINAL_ISSUE_STATUSES as readonly string[]).includes(patch.status)) {
+          const pendingConfirmations = await tx
+            .select({
+              id: issueThreadInteractions.id,
+              kind: issueThreadInteractions.kind,
+              status: issueThreadInteractions.status,
+              addresseeAgentId: issueThreadInteractions.addresseeAgentId,
+              addresseeUserId: issueThreadInteractions.addresseeUserId,
+            })
+            .from(issueThreadInteractions)
+            .where(
+              and(
+                eq(issueThreadInteractions.companyId, existing.companyId),
+                eq(issueThreadInteractions.issueId, id),
+                eq(issueThreadInteractions.kind, "request_confirmation"),
+                eq(issueThreadInteractions.status, "pending"),
+              ),
+            )
+            .for("update");
+          const confirmation = blockingTerminalConfirmation(
+            pendingConfirmations,
+          );
+          if (confirmation) {
+            throw unprocessable(
+              "Terminal close is blocked by a pending confirmation",
+              {
+                code: "pending_confirmation_blocks_terminal_transition",
+                interactionId: confirmation.id,
+                requestedStatus: patch.status,
+              },
+            );
+          }
         }
 
         const [previousLabelsByIssueId, previousRelationSummaries] = await Promise.all([
