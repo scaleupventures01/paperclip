@@ -425,7 +425,10 @@ export function activityService(db: Db) {
             eq(heartbeatRuns.companyId, companyId),
             or(
               eq(heartbeatRuns.nativeIssueId, issueId),
-              sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+              and(
+                isNull(heartbeatRuns.nativeIssueId),
+                sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+              ),
             ),
           ),
         )

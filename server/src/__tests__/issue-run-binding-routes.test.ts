@@ -227,9 +227,12 @@ describeEmbeddedPostgres("issue run binding routes", () => {
   it("excludes unbound and terminal no-live heartbeat runs", async () => {
     const fixtures = await seedFixtures();
 
-    const [runs, live] = await Promise.all([
-      request(app()).get(`/api/issues/${fixtures.issueId}/runs`).expect(200),
-      request(app()).get(`/api/issues/${fixtures.issueId}/live-runs`).expect(200),
+    const issueApp = app();
+    const [runs, live, staleIssueRuns, staleIssueLive] = await Promise.all([
+      request(issueApp).get(`/api/issues/${fixtures.issueId}/runs`).expect(200),
+      request(issueApp).get(`/api/issues/${fixtures.issueId}/live-runs`).expect(200),
+      request(issueApp).get(`/api/issues/${fixtures.otherIssueId}/runs`).expect(200),
+      request(issueApp).get(`/api/issues/${fixtures.otherIssueId}/live-runs`).expect(200),
     ]);
 
     const runIds = runs.body.map((run: { runId: string }) => run.runId);
@@ -239,5 +242,7 @@ describeEmbeddedPostgres("issue run binding routes", () => {
     expect(liveIds).not.toContain(fixtures.cancelledRunId);
     expect(liveIds).not.toContain(fixtures.failedRunId);
     expect(liveIds).not.toContain(fixtures.unboundRunId);
+    expect(staleIssueRuns.body).toHaveLength(0);
+    expect(staleIssueLive.body).toHaveLength(0);
   });
 });
