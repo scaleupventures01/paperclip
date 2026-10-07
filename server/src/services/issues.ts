@@ -244,6 +244,11 @@ export type IssuePostCommitAction = {
   runId: string;
   issueId: string;
   issueStatus: string;
+} | {
+  type: "cancel_issue_terminal_queued_run";
+  runId: string;
+  issueId: string;
+  issueStatus: string;
 };
 
 /** Execute side effects that must never run before the issue transaction commits. */
@@ -261,8 +266,16 @@ export async function executeIssuePostCommitActions(
     try {
       await heartbeat.cancelRun(
         action.runId,
-        "Task closed while waiting for operator input",
-        {
+        action.type === "cancel_native_question_run"
+          ? "Task closed while waiting for operator input"
+          : `Cancelled because the issue became ${action.issueStatus}`,
+        action.type === "cancel_native_question_run" ? {
+          resultJson: {
+            cancelledByIssueStatus: action.issueStatus,
+            cancelledIssueId: action.issueId,
+          },
+        } : {
+          errorCode: "issue_terminal_status",
           resultJson: {
             cancelledByIssueStatus: action.issueStatus,
             cancelledIssueId: action.issueId,
@@ -288,6 +301,47 @@ function wakeRequestTargetsIssue(issueId: string) {
     or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'issueId' = ${issueId}
     or ${agentWakeupRequests.payload} -> '_paperclipWakeContext' ->> 'taskId' = ${issueId}
   )`;
+}
+
+async function queueTerminalQueuedRunCancellation(
+  dbOrTx: Db,
+  issue: Pick<typeof issues.$inferSelect, "companyId" | "id" | "status">,
+  previousStatus: string,
+  actions: IssuePostCommitAction[],
+) {
+  if (
+    previousStatus === issue.status ||
+    !["done", "cancelled"].includes(issue.status)
+  ) {
+    return;
+  }
+
+  const queuedRuns = await dbOrTx
+    .select({ id: heartbeatRuns.id })
+    .from(heartbeatRuns)
+    .where(
+      and(
+        eq(heartbeatRuns.companyId, issue.companyId),
+        eq(heartbeatRuns.status, "queued"),
+        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issue.id}`,
+      ),
+    );
+
+  const queuedRunIds = new Set(
+    actions
+      .filter((action) => action.type === "cancel_issue_terminal_queued_run")
+      .map((action) => action.runId),
+  );
+  for (const run of queuedRuns) {
+    if (queuedRunIds.has(run.id)) continue;
+    queuedRunIds.add(run.id);
+    actions.push({
+      type: "cancel_issue_terminal_queued_run",
+      runId: run.id,
+      issueId: issue.id,
+      issueStatus: issue.status,
+    });
+  }
 }
 
 function wakeDiagnosticActivityTargetsIssue(issueId: string) {
@@ -10963,6 +11017,12 @@ export function issueService(db: Db) {
           }
           if (updated.status === "done" || updated.status === "cancelled") {
             await finalizeSummarySlotsForTerminalIssue(tx, updated);
+            await queueTerminalQueuedRunCancellation(
+              tx as unknown as Db,
+              updated,
+              existing.status,
+              queuedPostCommitActions,
+            );
             // Every terminal transition funnels through here, including direct
             // service callers (tree control, recovery, pipelines, status cards)
             // that never touch the HTTP routes, so pending interaction cards
