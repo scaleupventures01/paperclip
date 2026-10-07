@@ -135,7 +135,6 @@ describeEmbeddedPostgres("terminal issue confirmation guard", () => {
 
   it("classifies only an unresolved addressed confirmation as blocking", () => {
     expect(TERMINAL_ISSUE_STATUSES).toEqual(["done", "cancelled"]);
-    const issue = { createdByAgentId: creatorId, createdByUserId: null };
     const confirmation = {
       id: "pending",
       kind: "request_confirmation",
@@ -143,13 +142,11 @@ describeEmbeddedPostgres("terminal issue confirmation guard", () => {
       addresseeAgentId: resolverId,
       addresseeUserId: null,
     };
-    expect(blockingTerminalConfirmation([confirmation], issue, creatorId, null)?.id).toBe("pending");
-    expect(blockingTerminalConfirmation([{ ...confirmation, status: "accepted" }], issue, creatorId, null)).toBeUndefined();
-    expect(blockingTerminalConfirmation([{ ...confirmation, status: "expired" }], issue, creatorId, null)).toBeUndefined();
-    expect(blockingTerminalConfirmation([{ ...confirmation, addresseeAgentId: creatorId }], issue, creatorId, null)).toBeUndefined();
-    expect(blockingTerminalConfirmation([{ ...confirmation, addresseeAgentId: creatorId }], issue, null, null)).toBeUndefined();
-    expect(blockingTerminalConfirmation([confirmation], { createdByAgentId: null, createdByUserId: null }, resolverId, null)).toBeUndefined();
-    expect(blockingTerminalConfirmation([{ ...confirmation, addresseeAgentId: null, addresseeUserId: null }], issue, null, null)).toBeUndefined();
+    expect(blockingTerminalConfirmation([confirmation])?.id).toBe("pending");
+    expect(blockingTerminalConfirmation([{ ...confirmation, status: "accepted" }])).toBeUndefined();
+    expect(blockingTerminalConfirmation([{ ...confirmation, status: "expired" }])).toBeUndefined();
+    expect(blockingTerminalConfirmation([{ ...confirmation, addresseeAgentId: creatorId }])?.id).toBe("pending");
+    expect(blockingTerminalConfirmation([{ ...confirmation, addresseeAgentId: null, addresseeUserId: null }])).toBeUndefined();
   });
 
   it("refuses creator closure, preserves the card, and closes after addressee acceptance", async () => {
@@ -259,6 +256,66 @@ describeEmbeddedPostgres("terminal issue confirmation guard", () => {
     const closed = await service.update(issue.id, { status: "cancelled", actorAgentId: creatorId });
     expect(closed).toMatchObject({ status: "cancelled" });
     expect(closed?.completedAt).toBeNull();
+  });
+
+  it("refuses terminal closure for a card addressed to the current actor", async () => {
+    const issue = await createIssue("Current actor confirmation");
+    const confirmation = await createConfirmation({ issueId: issue.id, addresseeAgentId: resolverId });
+    const service = issueService(db);
+
+    let refusal: unknown;
+    try {
+      await service.update(issue.id, { status: "done", actorAgentId: resolverId });
+    } catch (error) {
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(HttpError);
+    expect((refusal as HttpError).details).toEqual({
+      code: "pending_confirmation_blocks_terminal_transition",
+      interactionId: confirmation.id,
+      requestedStatus: "done",
+    });
+    expect(await service.getById(issue.id)).toMatchObject({
+      status: "in_progress",
+      completedAt: null,
+    });
+
+    const [stillPendingCard] = await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, confirmation.id));
+    expect(stillPendingCard).toEqual(confirmation);
+  });
+
+  it("refuses terminal closure for a card addressed to the issue creator", async () => {
+    const issue = await createIssue("Creator confirmation");
+    const confirmation = await createConfirmation({ issueId: issue.id, addresseeAgentId: creatorId });
+    const service = issueService(db);
+
+    let refusal: unknown;
+    try {
+      await service.update(issue.id, { status: "done", actorAgentId: creatorId });
+    } catch (error) {
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(HttpError);
+    expect((refusal as HttpError).details).toEqual({
+      code: "pending_confirmation_blocks_terminal_transition",
+      interactionId: confirmation.id,
+      requestedStatus: "done",
+    });
+    expect(await service.getById(issue.id)).toMatchObject({
+      status: "in_progress",
+      completedAt: null,
+    });
+
+    const [stillPendingCard] = await db
+      .select()
+      .from(issueThreadInteractions)
+      .where(eq(issueThreadInteractions.id, confirmation.id));
+    expect(stillPendingCard).toEqual(confirmation);
   });
 
   it("never lets another issue's pending card block this issue", async () => {

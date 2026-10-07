@@ -227,24 +227,12 @@ export function blockingTerminalConfirmation(
       "id" | "kind" | "status" | "addresseeAgentId" | "addresseeUserId"
     >
   >,
-  issue: Pick<typeof issues.$inferSelect, "createdByAgentId" | "createdByUserId">,
-  actorAgentId: string | null | undefined,
-  actorUserId: string | null | undefined,
 ) {
-  const exemptResolverIds = new Set(
-    [issue.createdByAgentId, issue.createdByUserId, actorAgentId, actorUserId].filter((id): id is string =>
-      Boolean(id),
-    ),
-  );
   return rows.find((row) => {
     if (row.kind !== "request_confirmation" || row.status !== "pending") return false;
     const addresseeAgentId = row.addresseeAgentId ?? null;
     const addresseeUserId = row.addresseeUserId ?? null;
-    if (!addresseeAgentId && !addresseeUserId) return false;
-    return (
-      (!addresseeAgentId || !exemptResolverIds.has(addresseeAgentId)) &&
-      (!addresseeUserId || !exemptResolverIds.has(addresseeUserId))
-    );
+    return Boolean(addresseeAgentId || addresseeUserId);
   });
 }
 export const MAX_CHILD_ISSUES_CREATED_BY_HELPER = 25;
@@ -10908,9 +10896,6 @@ export function issueService(db: Db) {
             .for("update");
           const confirmation = blockingTerminalConfirmation(
             pendingConfirmations,
-            existing,
-            actorAgentId,
-            actorUserId,
           );
           if (confirmation) {
             throw unprocessable(
