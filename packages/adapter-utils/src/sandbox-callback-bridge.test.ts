@@ -1409,6 +1409,8 @@ describe("sandbox callback bridge", () => {
       { method: "GET", path: "/api/goals/goal-1" },
       { method: "GET", path: "/api/issues/issue-1" },
       { method: "GET", path: "/api/issues/issue-1/heartbeat-context" },
+      { method: "GET", path: "/api/issues/issue-1/runs" },
+      { method: "GET", path: "/api/issues/issue-1/live-runs" },
       { method: "GET", path: "/api/issues/issue-1/comments" },
       { method: "GET", path: "/api/issues/issue-1/comments/c-1" },
       { method: "POST", path: "/api/issues/issue-1/comments" },
@@ -1468,6 +1470,10 @@ describe("sandbox callback bridge", () => {
       // grows new actions later.
       { method: "POST", path: "/api/execution-workspaces/ws-1/runtime-services/delete" },
       { method: "POST", path: "/api/companies/co-1/agents" },
+      { method: "POST", path: "/api/issues/issue-1/runs" },
+      { method: "GET", path: "/api/issues/issue-1/runs/run-1" },
+      { method: "POST", path: "/api/issues/issue-1/live-runs" },
+      { method: "GET", path: "/api/issues/issue-1/live-runs/run-1" },
       // The hire allowlist must not over-match: only the exact .txt discovery
       // files, only agent-hires (not /agents), and no sub-resources beyond it.
       { method: "GET", path: "/llms/agent-configuration" },
