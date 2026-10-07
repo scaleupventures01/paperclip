@@ -386,6 +386,7 @@ export function activityService(db: Db) {
           runId: heartbeatRuns.id,
           runtimeMode: heartbeatRuns.runtimeMode,
           status: heartbeatRuns.status,
+          nativeIssueId: heartbeatRuns.nativeIssueId,
           agentId: heartbeatRuns.agentId,
           adapterType: agents.adapterType,
           startedAt: heartbeatRuns.startedAt,
@@ -423,15 +424,11 @@ export function activityService(db: Db) {
           and(
             eq(heartbeatRuns.companyId, companyId),
             or(
-              sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
-              sql`exists (
-                select 1
-                from ${activityLog}
-                where ${activityLog.companyId} = ${companyId}
-                  and ${activityLog.entityType} = 'issue'
-                  and ${activityLog.entityId} = ${issueId}
-                  and ${activityLog.runId} = ${heartbeatRuns.id}
-              )`,
+              eq(heartbeatRuns.nativeIssueId, issueId),
+              and(
+                isNull(heartbeatRuns.nativeIssueId),
+                sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+              ),
             ),
           ),
         )
