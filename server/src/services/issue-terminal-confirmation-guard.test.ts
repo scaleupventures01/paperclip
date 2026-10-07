@@ -194,6 +194,7 @@ describeEmbeddedPostgres("terminal issue confirmation guard", () => {
       agentId: resolverId,
       status: "running",
     });
+    if (!unchangedIssue) throw new Error("Expected guarded issue to remain readable");
     await issueThreadInteractionService(db).acceptInteraction(
       unchangedIssue,
       confirmation.id,
