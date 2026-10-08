@@ -5,7 +5,7 @@ import {
 } from "./experimental-api-paths.js";
 import { Router } from "express";
 import { z } from "zod";
-import { agentLifecycleActionSchema } from "./agent-lifecycle-schema.js";
+import { agentLifecycleActionSchema, agentPauseSchema } from "./agent-lifecycle-schema.js";
 import {
   createAiConnectionSchema,
   aiConnectionLoginIntentSchema,
@@ -3632,7 +3632,7 @@ registry.registerPath({
   summary: "Pause an agent",
   request: {
     params: z.object({ id: z.string() }),
-    body: optionalJsonBody(agentLifecycleActionSchema),
+    body: optionalJsonBody(agentPauseSchema),
   },
   responses: { 200: r.ok(), 401: r.unauthorized },
 });

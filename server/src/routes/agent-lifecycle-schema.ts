@@ -8,3 +8,8 @@ export const agentLifecycleActionSchema = z.object({
   approvedStage: z.string().trim().min(1),
   taskId: z.string().uuid(),
 }).strict();
+
+export const agentPauseSchema = z.object({
+  replacementAgentId: z.string().uuid().optional(),
+  reason: z.enum(["manual", "budget", "system"]).optional(),
+}).strict();

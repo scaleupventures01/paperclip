@@ -1,6 +1,6 @@
 import { agentAppearanceSchema, randomAgentAppearance, resolveAgentAppearance, agentAvatarUrl } from "@paperclipai/shared";
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -17,6 +17,7 @@ import {
   issueExecutionDecisions,
   issues,
   issueComments,
+  routines,
 } from "@paperclipai/db";
 import {
   AGENT_DEFAULT_MAX_CONCURRENT_RUNS,
@@ -129,6 +130,11 @@ interface CreateAgentOptions {
   aiConnectionInstall?: { connectionId: string; createdByUserId: string | null };
   allowBuiltInAgentMetadata?: boolean;
   claudeLogin?: ClaudeLoginContext;
+}
+
+interface PauseAgentOptions {
+  replacementAgentId?: string | null;
+  reason?: "manual" | "budget" | "system";
 }
 
 interface AgentShortnameRow {
@@ -948,24 +954,100 @@ export function agentService(db: Db) {
 
     update: updateAgent,
 
-    pause: async (id: string, reason: "manual" | "budget" | "system" = "manual") => {
+    pause: async (id: string, reasonOrOptions: "manual" | "budget" | "system" | PauseAgentOptions = "manual") => {
       const existing = await getById(id);
       if (!existing) return null;
       if (existing.status === "terminated") throw conflict("Cannot pause terminated agent");
 
-      const updated = await db
-        .update(agents)
-        .set({
-          status: "paused",
-          pauseReason: reason,
-          pausedAt: new Date(),
-          errorReason: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(agents.id, id))
-        .returning()
-        .then((rows) => rows[0] ?? null);
-      return updated ? getById(updated.id) : null;
+      const reason = typeof reasonOrOptions === "string" ? reasonOrOptions : reasonOrOptions.reason ?? "manual";
+      return db.transaction(async (tx) => {
+        await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, id)).for("update");
+
+        const replacementId = typeof reasonOrOptions === "object" ? reasonOrOptions.replacementAgentId ?? null : null;
+        let replacement: { id: string; companyId: string } | undefined;
+        if (replacementId) {
+          [replacement] = await tx
+            .select({ id: agents.id, companyId: agents.companyId })
+            .from(agents)
+            .where(and(
+              eq(agents.id, replacementId),
+              ne(agents.id, id),
+              notInArray(agents.status, ["terminated", "pending_approval", "paused"]),
+            ))
+            .limit(1);
+          if (!replacement || replacement.companyId !== existing.companyId) {
+            throw conflict("Replacement agent must be in the same company and invokable");
+          }
+        }
+
+        const activeRoutines = await tx
+          .select({ id: routines.id })
+          .from(routines)
+          .where(and(eq(routines.assigneeAgentId, id), eq(routines.status, "active")))
+          .for("update");
+        if (replacementId) {
+          await tx.update(routines)
+            .set({ assigneeAgentId: replacementId, updatedAt: new Date() })
+            .where(and(eq(routines.assigneeAgentId, id), eq(routines.status, "active")));
+        } else {
+          await tx.update(routines)
+            .set({ status: "paused", updatedAt: new Date() })
+            .where(and(eq(routines.assigneeAgentId, id), eq(routines.status, "active")));
+        }
+
+        const openIssues = await tx
+          .select({ id: issues.id })
+          .from(issues)
+          .where(and(
+            eq(issues.assigneeAgentId, id),
+            notInArray(issues.status, ["done", "cancelled"]),
+          ))
+          .for("update");
+        if (replacementId) {
+          await tx.update(issues)
+            .set({ assigneeAgentId: replacementId, updatedAt: new Date() })
+            .where(and(
+              eq(issues.assigneeAgentId, id),
+              notInArray(issues.status, ["done", "cancelled"]),
+            ));
+        } else {
+          await tx.update(issues)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(and(
+              eq(issues.assigneeAgentId, id),
+              notInArray(issues.status, ["done", "cancelled"]),
+            ));
+        }
+
+        const updated = await tx
+          .update(agents)
+          .set({
+            status: "paused",
+            pauseReason: reason,
+            pausedAt: new Date(),
+            errorReason: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(agents.id, id))
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        if (!updated) return null;
+        const normalized = await agentService(tx as unknown as Db).getById(updated.id);
+        if (!normalized) return null;
+        return {
+          ...normalized,
+          scheduleChanges: {
+            activeBefore: activeRoutines.length,
+            moved: replacementId ? activeRoutines.length : 0,
+            paused: replacementId ? 0 : activeRoutines.length,
+          },
+          cardChanges: {
+            openBefore: openIssues.length,
+            moved: replacementId ? openIssues.length : 0,
+            closed: replacementId ? 0 : openIssues.length,
+          },
+        };
+      });
     },
 
     resume: async (id: string) => {
