@@ -15,6 +15,8 @@ const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
   hasPermission: vi.fn(),
 }));
+const mockAccessDecide = vi.hoisted(() => vi.fn(async () => ({ allowed: true })));
+const mockResolveTaskWatchdogMutationScope = vi.hoisted(() => vi.fn(async () => ({ kind: "none" })));
 
 const mockHeartbeatService = vi.hoisted(() => ({
   getRun: vi.fn(async () => null),
@@ -96,7 +98,13 @@ function registerModuleMocks() {
   }));
 
   vi.doMock("../services/access.js", () => ({
-    accessService: () => mockAccessService,
+    accessService: () => ({ ...mockAccessService, decide: mockAccessDecide }),
+  }));
+
+  vi.doMock("../services/task-watchdog-scope.js", () => ({
+    TASK_WATCHDOG_ORIGIN_KIND: "task_watchdog",
+    resolveTaskWatchdogMutationScope: mockResolveTaskWatchdogMutationScope,
+    taskWatchdogScopeAllowsIssueMutation: vi.fn(async (_db, scope) => scope),
   }));
 
   vi.doMock("../services/activity-log.js", () => ({
@@ -131,7 +139,7 @@ function registerModuleMocks() {
     companyService: () => ({
       getById: vi.fn(async () => ({ id: "company-1" })),
     }),
-    accessService: () => mockAccessService,
+    accessService: () => ({ ...mockAccessService, decide: mockAccessDecide }),
     agentService: () => ({ getById: vi.fn(async () => null) }),
     companySkillService: () => ({
       completeTestRunForIssue: vi.fn(async () => null),
@@ -222,6 +230,7 @@ describe.sequential("issue comment cancel routes", () => {
           where: vi.fn(() => ({
             orderBy: vi.fn(async () => mockAuthoritativeQueueWakes),
           })),
+          then: (onFulfilled: (rows: unknown[]) => unknown) => onFulfilled([]),
         })),
       })),
     };
@@ -258,6 +267,8 @@ describe.sequential("issue comment cancel routes", () => {
     });
     mockAccessService.canUser.mockResolvedValue(false);
     mockAccessService.hasPermission.mockResolvedValue(false);
+    mockAccessDecide.mockResolvedValue({ allowed: true });
+    mockResolveTaskWatchdogMutationScope.mockResolvedValue({ kind: "none" });
     mockFeedbackService.listIssueVotesForUser.mockResolvedValue([]);
     mockFeedbackService.saveIssueVote.mockResolvedValue({
       vote: null,
@@ -482,6 +493,87 @@ describe.sequential("issue comment cancel routes", () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("Only the comment author can delete comments");
     expect(mockIssueService.removeComment).not.toHaveBeenCalled();
+    expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
+  });
+
+  it("deletes an authorized agent's own comment through server mutation policy", async () => {
+    const agentId = "22222222-2222-4222-8222-222222222222";
+    mockHeartbeatService.getRun.mockResolvedValue(null);
+    mockIssueService.getComment.mockResolvedValue(
+      makeComment({
+        authorAgentId: agentId,
+        authorUserId: null,
+        createdAt: new Date("2026-04-11T14:58:00.000Z"),
+        updatedAt: new Date("2026-04-11T14:58:00.000Z"),
+      }),
+    );
+
+    const res = await request(await installActor(createApp(), {
+      type: "agent",
+      agentId,
+      companyId: "company-1",
+      runId: "run-1",
+      source: "agent_jwt",
+    })).delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/comment-1");
+
+    expect(res.status, describeResponse(res)).toBe(200);
+    expect(mockAccessDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "issue:mutate" }),
+    );
+    expect(mockIssueService.tombstoneComment).toHaveBeenCalledWith(
+      "comment-1",
+      {
+        actorType: "agent",
+        agentId,
+        userId: null,
+        runId: "run-1",
+      },
+      expect.objectContaining({ afterTombstone: expect.any(Function) }),
+    );
+    expect(mockIssueService.removeComment).not.toHaveBeenCalled();
+  });
+
+  it("denies an unauthorized agent deletion at server mutation policy", async () => {
+    mockAccessDecide.mockResolvedValue({ allowed: false });
+
+    const res = await request(await installActor(createApp(), {
+      type: "agent",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      runId: "run-2",
+      source: "agent_jwt",
+    })).delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/comment-1");
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).not.toBe("Route not allowed");
+    expect(mockAccessDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "issue:mutate" }),
+    );
+    expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for a missing comment after server mutation policy allows it", async () => {
+    mockHeartbeatService.getRun.mockResolvedValue(null);
+    mockIssueService.getById.mockResolvedValue({
+      ...makeIssue(),
+      assigneeAgentId: null,
+      status: "todo",
+    });
+    mockIssueService.getComment.mockResolvedValue(null);
+
+    const res = await request(await installActor(createApp(), {
+      type: "agent",
+      agentId: "22222222-2222-4222-8222-222222222222",
+      companyId: "company-1",
+      runId: "run-1",
+      source: "agent_jwt",
+    })).delete("/api/issues/11111111-1111-4111-8111-111111111111/comments/00000000-0000-4000-8000-000000000000");
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Comment not found");
+    expect(mockAccessDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "issue:mutate" }),
+    );
     expect(mockIssueService.tombstoneComment).not.toHaveBeenCalled();
   });
 });
