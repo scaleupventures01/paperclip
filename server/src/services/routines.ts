@@ -3184,9 +3184,11 @@ export function routineService(
           trigger: routineTriggers,
           routine: routines,
           projectPausedAt: projects.pausedAt,
+          agentStatus: agents.status,
         })
         .from(routineTriggers)
         .innerJoin(routines, eq(routineTriggers.routineId, routines.id))
+        .innerJoin(agents, eq(routines.assigneeAgentId, agents.id))
         .leftJoin(projects, eq(routines.projectId, projects.id))
         .where(
           and(
@@ -3201,6 +3203,7 @@ export function routineService(
         .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));
 
       let triggered = 0;
+      let flaggedPausedAgent = 0;
       for (const row of due) {
         if (!row.trigger.nextRunAt || !row.trigger.cronExpression || !row.trigger.timezone) continue;
 
@@ -3209,6 +3212,7 @@ export function routineService(
         // at the next cron boundary instead of replaying missed firings. Routines with no
         // project are never suppressed here.
         const projectPaused = !!(row.routine.projectId && row.projectPausedAt);
+        const agentPaused = row.agentStatus === "paused";
         const automaticEligibility = await getAutomaticRoutineDispatchEligibility(row.routine, worktreeActivation);
         const worktreeSuppressed = !automaticEligibility.eligible;
 
@@ -3247,14 +3251,16 @@ export function routineService(
           .then((rows) => rows[0] ?? null);
         if (!claimed) continue;
 
-        if (projectPaused || worktreeSuppressed) {
+        if (agentPaused || projectPaused || worktreeSuppressed) {
           await recordSuppressedAutomaticRun({
             routine: row.routine,
             trigger: row.trigger,
             source: "schedule",
-            reason: worktreeSuppressed ? "worktree_execution_cutoff" : "paused",
+            reason: agentPaused ? "agent_paused" : worktreeSuppressed ? "worktree_execution_cutoff" : "paused",
             nextRunAt: claimedNextRunAt,
+            details: agentPaused ? { agentStatus: row.agentStatus } : null,
           });
+          if (agentPaused) flaggedPausedAgent += 1;
           continue;
         }
 
@@ -3290,7 +3296,9 @@ export function routineService(
         }
       }
 
-      return { triggered };
+      return flaggedPausedAgent > 0
+        ? { triggered, flaggedPausedAgent }
+        : { triggered };
     },
 
     syncRunStatusForIssue: async (issueId: string) => {

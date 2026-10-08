@@ -20,7 +20,7 @@ import type { ChatChannelService } from "../services/chat-channels.js";
 import { activityLog, agents as agentsTable, chatConversations, companies, heartbeatRuns, issues as issuesTable, projects as projectsTable } from "@paperclipai/db";
 import { and, desc, eq, inArray, isNull, not, or, sql } from "drizzle-orm";
 import { sha256Digest } from "../services/feedback-redaction.js";
-import { agentLifecycleActionSchema } from "./agent-lifecycle-schema.js";
+import { agentLifecycleActionSchema, agentPauseSchema } from "./agent-lifecycle-schema.js";
 import {
   agentSkillSyncSchema,
   agentMineInboxQuerySchema,
@@ -5675,14 +5675,17 @@ export function agentRoutes(
     res.json(redactAgentRowForResponse(agent));
   });
 
-  router.post("/agents/:id/pause", async (req, res) => {
+  router.post("/agents/:id/pause", validate(agentPauseSchema), async (req, res) => {
     const id = req.params.id as string;
     const existing = await getAccessibleAgent(req, res, id);
     if (!existing) {
       return;
     }
     const lifecycle = await assertCanManageAgentLifecycle(req, existing);
-    const agent = await svc.pause(id);
+    const agent = await svc.pause(id, {
+      replacementAgentId: req.body.replacementAgentId ?? null,
+      reason: req.body.reason,
+    });
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });
       return;
@@ -5706,6 +5709,11 @@ export function agentRoutes(
         repository: lifecycle.input.repository,
         approvedStage: lifecycle.input.approvedStage,
       } } : {}),
+      details: {
+        scheduleChanges: agent.scheduleChanges,
+        cardChanges: agent.cardChanges,
+        replacementAgentId: req.body.replacementAgentId ?? null,
+      },
     });
 
     res.json(redactAgentRowForResponse(agent));
