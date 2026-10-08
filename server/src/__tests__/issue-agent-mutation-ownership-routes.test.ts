@@ -13,6 +13,9 @@ const ownerAgentId = "33333333-3333-4333-8333-333333333333";
 const peerAgentId = "44444444-4444-4444-8444-444444444444";
 const ownerRunId = "55555555-5555-4555-8555-555555555555";
 const recoveryActionId = "77777777-7777-4777-8777-777777777777";
+const managerAgentId = "99999999-9999-4999-8999-999999999999";
+const addressedOwnerAgentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const addressedInteractionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const mockIssueService = vi.hoisted(() => ({
   addComment: vi.fn(),
@@ -320,6 +323,7 @@ function createRunContextDb(
   runAgentOrRows: string | Record<string, unknown>[] = ownerAgentId,
   runId: string = ownerRunId,
   chatBindings: Array<{ id: string; companyId: string; issueId: string; state: string }> = [],
+  unblockOwnerRows: Record<string, unknown>[] = [],
 ) {
   const chatBindingQueries: ReturnType<PgDialect["sqlToQuery"]>[] = [];
   const runRows = Array.isArray(runAgentOrRows)
@@ -343,6 +347,7 @@ function createRunContextDb(
     if (keys.includes("entityId")) return [];
     if (keys.includes("contextSnapshot")) return runRows;
     if (keys.includes("agentCompanyId")) return runRows;
+    if (keys.includes("id") && keys.includes("companyId")) return unblockOwnerRows;
     if (keys.length === 0) {
       const issue = await mockIssueService.getById(issueId);
       return issue ? [issue] : [];
@@ -409,6 +414,16 @@ function boardActor() {
     companyIds: [companyId],
     source: "local_implicit",
     isInstanceAdmin: false,
+  };
+}
+
+function managerActor() {
+  return {
+    type: "agent",
+    agentId: managerAgentId,
+    companyId,
+    source: "agent_key",
+    runId: "88888888-8888-4888-8888-888888888888",
   };
 }
 
@@ -1746,6 +1761,352 @@ describe("agent issue mutation checkout ownership", () => {
         unblockDescriptor: { owner: "board", action: "Review the blocker" },
       }),
     );
+  });
+
+  it("allows a live manager to address a different authorized unblock owner", async () => {
+    const manager = makeAgent(managerAgentId, {
+      role: "pm",
+      title: "Project Manager",
+      status: "active",
+    });
+    const owner = makeAgent(addressedOwnerAgentId, { status: "active" });
+    const descriptor = {
+      owner: { agentId: addressedOwnerAgentId },
+      action: "Reconcile the parent after child completion",
+      clearingCheck: {
+        kind: "interaction_resolved",
+        interactionId: addressedInteractionId,
+      },
+      freshness: {
+        observedAt: "2026-10-08T11:30:00.000Z",
+        sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+      },
+    };
+
+    mockAgentService.getById.mockResolvedValue(manager);
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "issue:mutate",
+      reason: "allow_test",
+      explanation: "Authorized",
+    });
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "todo", statusVersion: 41 }),
+    );
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      unresolvedBlockerCount: 0,
+      isDependencyReady: false,
+      blockerIssueIds: [],
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue({ status: "todo", statusVersion: 41 }),
+      ...patch,
+      statusVersion: 42,
+    }));
+
+    const db = createRunContextDb(
+      {},
+      managerActor().agentId,
+      managerActor().runId,
+      [],
+      [owner],
+    );
+    const res = await request(await createApp(managerActor(), db)).patch(`/api/issues/${issueId}`).send({
+      status: "blocked",
+      unblockDescriptor: descriptor,
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      status: "blocked",
+      statusVersion: 42,
+      unblockDescriptor: descriptor,
+    });
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      issueId,
+      expect.objectContaining({ status: "blocked", unblockDescriptor: descriptor }),
+    );
+  });
+
+  const descriptorWithoutClearingCheck = {
+    owner: { agentId: addressedOwnerAgentId },
+    action: "Reconcile the parent",
+    freshness: {
+      observedAt: "2026-10-08T11:30:00.000Z",
+      sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+    },
+  };
+  const descriptorWithoutFreshness = {
+    owner: { agentId: addressedOwnerAgentId },
+    action: "Reconcile the parent",
+    clearingCheck: {
+      kind: "interaction_resolved",
+      interactionId: addressedInteractionId,
+    },
+  };
+
+  it.each([
+    ["no owner", { action: "Reconcile the parent" }, 400],
+    ["no action", { owner: { agentId: addressedOwnerAgentId } }, 400],
+    ["no clearing check", descriptorWithoutClearingCheck, 422],
+    ["no freshness", descriptorWithoutFreshness, 422],
+  ])("rejects an addressed descriptor with %s without mutation", async (_label, partialDescriptor, expectedStatus) => {
+    mockAgentService.getById.mockResolvedValue(
+      makeAgent(managerAgentId, { role: "pm", title: "Project Manager", status: "active" }),
+    );
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "issue:mutate",
+      reason: "allow_test",
+      explanation: "Authorized",
+    });
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "todo", statusVersion: 41, unblockDescriptor: null }),
+    );
+
+    const res = await request(await createApp(managerActor())).patch(`/api/issues/${issueId}`).send({
+      status: "blocked",
+      unblockDescriptor: partialDescriptor,
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(expectedStatus);
+    if (res.status === 422) {
+      expect(res.body.error).toBe(
+        "Addressed unblock descriptors require owner, action, clearingCheck, and freshness",
+      );
+    } else {
+      expect(res.body.error).toBe("Validation error");
+    }
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an unknown owner", []],
+    ["a paused owner", [makeAgent(addressedOwnerAgentId, { status: "paused" })]],
+    [
+      "a non-company owner",
+      [
+        makeAgent(addressedOwnerAgentId, {
+          companyId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          status: "active",
+        }),
+      ],
+    ],
+  ])("rejects addressed blocked transitions naming %s without mutation", async (_label, ownerRows) => {
+    mockAgentService.getById.mockResolvedValue(
+      makeAgent(managerAgentId, { role: "pm", title: "Project Manager", status: "active" }),
+    );
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "issue:mutate",
+      reason: "allow_test",
+      explanation: "Authorized",
+    });
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "todo", statusVersion: 41 }),
+    );
+
+    const descriptor = {
+      owner: { agentId: addressedOwnerAgentId },
+      action: "Reconcile the parent",
+      clearingCheck: {
+        kind: "interaction_resolved",
+        interactionId: addressedInteractionId,
+      },
+      freshness: {
+        observedAt: "2026-10-08T11:30:00.000Z",
+        sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+      },
+    };
+    const res = await request(await createApp(managerActor())).patch(`/api/issues/${issueId}`).send({
+      status: "blocked",
+      unblockDescriptor: descriptor,
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an addressed owner that is not authorized for the governed issue without mutation", async () => {
+    mockAgentService.getById.mockResolvedValue(
+      makeAgent(managerAgentId, { role: "pm", title: "Project Manager", status: "active" }),
+    );
+    mockAccessService.decide.mockImplementation(async (input: { actor: { agentId?: string }; action: string }) => ({
+      allowed: input.actor.agentId !== addressedOwnerAgentId,
+      action: input.action,
+      reason: input.actor.agentId === addressedOwnerAgentId ? "deny_test" : "allow_test",
+      explanation: "Test decision",
+    }));
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "todo", statusVersion: 41 }),
+    );
+    const db = createRunContextDb(
+      {},
+      managerActor().agentId,
+      managerActor().runId,
+      [],
+      [makeAgent(addressedOwnerAgentId, { status: "active" })],
+    );
+
+    const res = await request(await createApp(managerActor(), db)).patch(`/api/issues/${issueId}`).send({
+      status: "blocked",
+      unblockDescriptor: {
+        owner: { agentId: addressedOwnerAgentId },
+        action: "Reconcile the parent",
+        clearingCheck: {
+          kind: "interaction_resolved",
+          interactionId: addressedInteractionId,
+        },
+        freshness: {
+          observedAt: "2026-10-08T11:30:00.000Z",
+          sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+        },
+      },
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toBe("Unblock owner is not authorized for this issue");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects addressed transitions from an agent that is not a live manager", async () => {
+    mockAgentService.getById.mockResolvedValue(
+      makeAgent(peerAgentId, { role: "engineer", title: "Builder", status: "active" }),
+    );
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "issue:mutate",
+      reason: "allow_test",
+      explanation: "Authorized",
+    });
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "todo", statusVersion: 41 }),
+    );
+
+    const db = createRunContextDb(
+      {},
+      peerActor().agentId,
+      peerActor().runId,
+      [],
+      [makeAgent(addressedOwnerAgentId, { status: "active" })],
+    );
+    const res = await request(await createApp(peerActor(), db)).patch(`/api/issues/${issueId}`).send({
+      status: "blocked",
+      unblockDescriptor: {
+        owner: { agentId: addressedOwnerAgentId },
+        action: "Reconcile the parent",
+        clearingCheck: {
+          kind: "interaction_resolved",
+          interactionId: addressedInteractionId,
+        },
+        freshness: {
+          observedAt: "2026-10-08T11:30:00.000Z",
+          sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+        },
+      },
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toBe("Only a live manager may address an unblock owner");
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
+  it("lets the assigned manager wake and clear an addressed root after child completion", async () => {
+    const manager = makeAgent(managerAgentId, {
+      role: "pm",
+      title: "Project Manager",
+      status: "active",
+    });
+    const owner = makeAgent(addressedOwnerAgentId, { status: "active" });
+    const descriptor = {
+      owner: { agentId: addressedOwnerAgentId },
+      action: "Reconcile the parent after child completion",
+      clearingCheck: {
+        kind: "interaction_resolved",
+        interactionId: addressedInteractionId,
+      },
+      freshness: {
+        observedAt: "2026-10-08T11:30:00.000Z",
+        sourceUpdatedAt: "2026-10-08T11:29:00.000Z",
+      },
+    };
+
+    mockAgentService.getById.mockResolvedValue(manager);
+    mockAccessService.decide.mockResolvedValue({
+      allowed: true,
+      action: "issue:mutate",
+      reason: "allow_test",
+      explanation: "Authorized",
+    });
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({
+        id: addressedInteractionId,
+        parentId: issueId,
+        assigneeAgentId: managerAgentId,
+        status: "in_progress",
+        statusVersion: 41,
+      }),
+    );
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      unresolvedBlockerCount: 0,
+      isDependencyReady: false,
+      blockerIssueIds: [],
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue({ id: addressedInteractionId, parentId: issueId, statusVersion: 41 }),
+      ...patch,
+      statusVersion: 42,
+    }));
+    mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue({
+      id: issueId,
+      assigneeAgentId: managerAgentId,
+      childIssueIds: [addressedInteractionId],
+      childIssueSummaries: [],
+      childIssueSummaryTruncated: false,
+    });
+
+    const db = createRunContextDb(
+      {},
+      managerActor().agentId,
+      managerActor().runId,
+      [],
+      [owner],
+    );
+    const app = await createApp(managerActor(), db);
+    const blocked = await request(app).patch(`/api/issues/${addressedInteractionId}`).send({
+      status: "blocked",
+      unblockDescriptor: descriptor,
+    });
+    expect(blocked.status, JSON.stringify(blocked.body)).toBe(200);
+
+    const completed = await request(app).patch(`/api/issues/${addressedInteractionId}`).send({
+      comment: "Child complete",
+      status: "done",
+    });
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200);
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      managerAgentId,
+      expect.objectContaining({ reason: "issue_children_completed" }),
+    );
+
+    mockIssueService.getById.mockResolvedValue(
+      makeIssue({ status: "blocked", statusVersion: 42, unblockDescriptor: descriptor }),
+    );
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue({ statusVersion: 42, unblockDescriptor: descriptor }),
+      ...patch,
+      unblockDescriptor: null,
+      statusVersion: 43,
+    }));
+
+    const reconciled = await request(app).patch(`/api/issues/${issueId}`).send({
+      comment: "All governed children are terminal",
+      status: "done",
+    });
+    expect(reconciled.status, JSON.stringify(reconciled.body)).toBe(200);
+    expect(reconciled.body).toMatchObject({ status: "done", statusVersion: 43, unblockDescriptor: null });
+    const rootPatch = mockIssueService.update.mock.calls.find(([updatedId]) => updatedId === issueId);
+    expect(rootPatch?.[1]).not.toHaveProperty("unblockDescriptor");
   });
 
   it("rejects peer-agent status updates that would clear a recovery action they do not own", async () => {

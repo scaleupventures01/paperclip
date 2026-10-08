@@ -837,6 +837,51 @@ function issueWriteAuthorizationReason(
     : "allow_board_actor";
 }
 
+function isLiveManagerAgent(agent: {
+  companyId: string;
+  role: string;
+  title?: string | null;
+  status: string;
+} | null | undefined) {
+  if (!agent || agent.status === "paused" || agent.status === "terminated") {
+    return false;
+  }
+  const role = agent.role.toLowerCase();
+  const title = (agent.title ?? "").toLowerCase();
+  return (
+    title.includes("manager") ||
+    [
+      "pm",
+      "program_manager",
+      "product_manager",
+      "build_queue_manager",
+      "engagement_manager",
+      "release_manager",
+      "platform_release_manager",
+      "maintenance_manager",
+      "sales_manager",
+      "vp_sales",
+    ].includes(role)
+  );
+}
+
+function isLiveUnblockOwnerStatus(status: string) {
+  return ["active", "idle", "running", "error"].includes(status);
+}
+
+function hasCompleteAddressedDescriptor(descriptor: Record<string, unknown>) {
+  const freshness = descriptor.freshness as Record<string, unknown> | undefined;
+  const clearingCheck = descriptor.clearingCheck as Record<string, unknown> | undefined;
+  return Boolean(
+    typeof descriptor.action === "string" &&
+      descriptor.action.trim() &&
+      clearingCheck?.kind === "interaction_resolved" &&
+      typeof clearingCheck.interactionId === "string" &&
+      freshness?.observedAt &&
+      freshness?.sourceUpdatedAt,
+  );
+}
+
 function readPlanConfirmationTargetForIssue(payload: unknown, issueId: string) {
   const target = readObject(readObject(payload).target);
   if (target.type !== "issue_document" || target.key !== "plan") return null;
@@ -13204,8 +13249,22 @@ export function issueRoutes(
           );
         }
         if (owner !== "board" && "agentId" in owner) {
+          const isAddressed =
+            req.actor.type === "agent" && req.actor.agentId !== owner.agentId;
+          if (
+            isAddressed &&
+            !hasCompleteAddressedDescriptor(descriptor as Record<string, unknown>)
+          ) {
+            throw unprocessable(
+              "Addressed unblock descriptors require owner, action, clearingCheck, and freshness",
+            );
+          }
           const target = await db
-            .select({ id: agents.id })
+            .select({
+              id: agents.id,
+              companyId: agents.companyId,
+              status: agents.status,
+            })
             .from(agents)
             .where(
               and(
@@ -13219,13 +13278,52 @@ export function issueRoutes(
             throw unprocessable(
               "Unblock owner agent must belong to the issue company",
             );
-          if (
-            req.actor.type === "agent" &&
-            req.actor.agentId !== owner.agentId
-          ) {
-            throw forbidden(
-              "Agents may only name themselves as an unblock owner",
-            );
+          if (isAddressed && !isLiveUnblockOwnerStatus(target.status)) {
+            throw unprocessable("Unblock owner agent must be live");
+          }
+          if (isAddressed) {
+            const actingManagerId = req.actor.agentId;
+            if (!actingManagerId) {
+              throw forbidden("Agent authentication required");
+            }
+            const actingManager = await agentsSvc.getById(actingManagerId);
+            if (
+              !actingManager ||
+              !isLiveManagerAgent(actingManager) ||
+              actingManager.companyId !== existing.companyId
+            ) {
+              throw forbidden(
+                "Only a live manager may address an unblock owner",
+              );
+            }
+            const ownerAuthorization = await access.decide({
+              actor: {
+                type: "agent",
+                agentId: owner.agentId,
+                companyId: existing.companyId,
+              },
+              action: "issue:mutate",
+              resource: {
+                type: "issue",
+                companyId: existing.companyId,
+                issueId: existing.id,
+                projectId: existing.projectId,
+                parentIssueId: existing.parentId,
+                assigneeAgentId: existing.assigneeAgentId,
+                assigneeUserId: existing.assigneeUserId,
+                status: existing.status,
+              },
+              scope: {
+                issueId: existing.id,
+                projectId: existing.projectId,
+                parentIssueId: existing.parentId,
+                assigneeAgentId: existing.assigneeAgentId,
+                assigneeUserId: existing.assigneeUserId,
+              },
+            });
+            if (!ownerAuthorization.allowed) {
+              throw forbidden("Unblock owner is not authorized for this issue");
+            }
           }
         } else if (owner !== "board" && "userId" in owner) {
           const member = await db
