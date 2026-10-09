@@ -395,6 +395,15 @@ export async function assertCodexCredentialsLaunchable(input: {
   });
   if (!credentialReadiness.managed || credentialReadiness.ready) return;
 
+  const targetIsRemoteSsh = input.target?.kind === "remote" && input.target.transport === "ssh";
+  if (targetIsRemoteSsh) {
+    await input.onLog(
+      "stdout",
+      `Deferring Codex credential validation to the SSH target launcher for managed home "${input.effectiveCodexHome}".\n`,
+    );
+    return;
+  }
+
   const targetIsSandbox =
     input.target?.kind === "remote" && input.target.transport === "sandbox";
   if (targetIsSandbox) {
