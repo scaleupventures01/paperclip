@@ -318,6 +318,12 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     hasInitialized.current = false;
   }, [orgTree]);
 
+  // Collapsing or expanding a team changes the chart's size, so fit it again; otherwise
+  // the remaining cards can sit outside the visible area.
+  useEffect(() => {
+    hasInitialized.current = false;
+  }, [collapsed]);
+
   useEffect(() => {
     if (hasInitialized.current || allNodes.length === 0 || !containerRef.current) return;
     const container = containerRef.current;
