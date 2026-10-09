@@ -4,6 +4,19 @@ import type { DurableChatWakeupRequest } from "./durable-chat-wakeup.js";
 type WakeupTriggerDetail = "manual" | "ping" | "callback" | "system";
 type WakeupSource = "timer" | "assignment" | "on_demand" | "automation";
 
+export function assignmentWakeupIdempotencyKey(input: {
+  issueId: string;
+  reason: string;
+  statusVersion?: number | null;
+}) {
+  return [
+    "issue-assignment",
+    input.issueId,
+    input.reason,
+    `v${input.statusVersion ?? 0}`,
+  ].join(":");
+}
+
 export interface IssueAssignmentWakeupDeps {
   wakeup: (
     agentId: string,
@@ -24,7 +37,12 @@ export interface IssueAssignmentWakeupDeps {
 
 export function queueIssueAssignmentWakeup(input: {
   heartbeat: IssueAssignmentWakeupDeps;
-  issue: { id: string; assigneeAgentId: string | null; status: string };
+  issue: {
+    id: string;
+    assigneeAgentId: string | null;
+    status: string;
+    statusVersion?: number | null;
+  };
   reason: string;
   mutation: string;
   contextSource: string;
@@ -74,6 +92,11 @@ export function queueIssueAssignmentWakeup(input: {
             }
           : {}),
       },
+      idempotencyKey: assignmentWakeupIdempotencyKey({
+        issueId: input.issue.id,
+        reason: input.reason,
+        statusVersion: input.issue.statusVersion,
+      }),
     })
     .catch((err) => {
       logger.warn(

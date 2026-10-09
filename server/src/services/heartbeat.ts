@@ -26916,6 +26916,37 @@ export function heartbeatService(
             if (previousRetry) return { kind: "replayed" as const, run: previousRetry };
           }
 
+          if (
+            source === "assignment" &&
+            opts.idempotencyKey?.startsWith("issue-assignment:")
+          ) {
+            const existingAssignmentWake = await tx
+              .select({
+                id: agentWakeupRequests.id,
+                runId: agentWakeupRequests.runId,
+              })
+              .from(agentWakeupRequests)
+              .where(
+                and(
+                  eq(agentWakeupRequests.companyId, issue.companyId),
+                  eq(agentWakeupRequests.agentId, agentId),
+                  eq(agentWakeupRequests.idempotencyKey, opts.idempotencyKey),
+                ),
+              )
+              .orderBy(desc(agentWakeupRequests.requestedAt))
+              .limit(1)
+              .then((rows) => rows[0] ?? null);
+
+            if (existingAssignmentWake) {
+              if (["done", "cancelled"].includes(issue.status)) {
+                return { kind: "skipped" as const };
+              }
+              return existingAssignmentWake.runId
+                ? { kind: "replayed" as const, run: await getRun(existingAssignmentWake.runId) }
+                : { kind: "skipped" as const };
+            }
+          }
+
           let reconciledSourceRunId: string | null = null;
           if (executionReconciliationWake) {
             const actionId = readNonEmptyString(
