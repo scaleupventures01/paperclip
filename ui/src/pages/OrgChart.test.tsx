@@ -282,7 +282,8 @@ describe("OrgChart mobile gestures", () => {
   });
 
   it("collapses and expands a manager's team without navigating", async () => {
-    await renderOrgChart();
+    const { layer } = await renderOrgChart();
+    const transformBefore = layer.style.transform;
     const cardNames = () =>
       Array.from(container.querySelectorAll("[data-org-card]")).map((card) => card.textContent ?? "");
     expect(cardNames().some((text) => text.includes("Engineer"))).toBe(true);
@@ -299,6 +300,8 @@ describe("OrgChart mobile gestures", () => {
       (container.querySelector('[data-org-toggle="agent-1"]') as HTMLButtonElement).textContent,
     ).toBe("+1");
     expect(navigateMock).not.toHaveBeenCalled();
+    // The chart re-fits to the smaller tree so the remaining card stays in view.
+    expect(layer.style.transform).not.toBe(transformBefore);
 
     await act(async () => {
       (container.querySelector('[data-org-toggle="agent-1"]') as HTMLButtonElement).click();
