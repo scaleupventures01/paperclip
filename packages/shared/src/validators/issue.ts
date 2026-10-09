@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   ISSUE_EXECUTION_DECISION_OUTCOMES,
@@ -1213,6 +1214,47 @@ export const suggestTasksResultSchema = z.object({
   rejectionReason: z.string().trim().max(4000).nullable().optional(),
 });
 
+const diskGateActionFingerprint = ({
+  action,
+  path,
+  schema,
+  size_gb,
+}: {
+  action: "delete" | "move";
+  path: string;
+  schema: "agentos.disk-gate-action/v1";
+  size_gb: number;
+}) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({ action, path, schema, size_gb }).replace(
+        /[\u0080-\uFFFF]/g,
+        (character) =>
+          `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      ),
+    )
+    .digest("hex");
+
+export const askUserQuestionsDiskGateBindingSchema = z
+  .object({
+    schema: z.literal("agentos.disk-gate-action/v1"),
+    action: z.enum(["delete", "move"]),
+    path: z.string().min(1).regex(/^\//, "path must be absolute"),
+    size_gb: z.number().finite().min(0),
+    fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict()
+  .superRefine((binding, ctx) => {
+    const fingerprint = diskGateActionFingerprint(binding);
+    if (binding.fingerprint !== fingerprint) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fingerprint"],
+        message: "binding fingerprint does not match its fields",
+      });
+    }
+  });
+
 export const askUserQuestionsQuestionOptionSchema = z.object({
   id: z.string().trim().min(1).max(160),
   label: z.string().trim().min(1).max(1000),
@@ -1223,6 +1265,7 @@ export const askUserQuestionsQuestionOptionSchema = z.object({
     .describe(
       "When true, selecting this option reveals an inline text field; the typed value is returned as the question's otherText. Use this for a real \"I'll describe it\" choice instead of authoring a dead option that does nothing. At most one free-text option per question.",
     ),
+  binding: askUserQuestionsDiskGateBindingSchema.optional(),
 });
 
 export const askUserQuestionsQuestionSchema = z.object({
@@ -1240,6 +1283,7 @@ const paperclipQuestionOptionSchema = z.object({
   label: z.string().min(1).max(1000),
   description: z.string().max(4000).optional(),
   recommended: z.boolean().optional(),
+  binding: askUserQuestionsDiskGateBindingSchema.optional(),
 });
 
 const paperclipQuestionSchema = z
