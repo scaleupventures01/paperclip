@@ -334,6 +334,11 @@ export interface AdapterEnvironmentTestContext {
    * Surfaced in check messages so users see which environment the probe ran in.
    */
   environmentName?: string | null;
+  /**
+   * When set, the probe is a task-bound readiness check run before a card is assigned:
+   * it must prove the exact managed runtime that card will use, and soft warnings fail.
+   */
+  taskBinding?: { taskId: string } | null;
   deployment?: {
     mode?: "local_trusted" | "authenticated";
     exposure?: "private" | "public";
