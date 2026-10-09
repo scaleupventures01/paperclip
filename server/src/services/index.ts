@@ -104,7 +104,7 @@ export { toolAccessPolicyService } from "./tool-access-policy.js";
 export { routineService } from "./routines.js";
 export { costService } from "./costs.js";
 export { financeService } from "./finance.js";
-export { heartbeatService, resolveHeartbeatSchedulingSuppression } from "./heartbeat.js";
+export { heartbeatService, resolveExecutionRunAdapterConfig, resolveHeartbeatSchedulingSuppression } from "./heartbeat.js";
 export {
   runnerGoalService,
   applyRunnerGoalPrpEvent,

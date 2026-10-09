@@ -25,6 +25,7 @@ import { SANDBOX_INSTALL_COMMAND } from "../index.js";
 import { codexHomeDir, readCodexAuthInfo } from "./quota.js";
 import { buildCodexExecArgs } from "./codex-args.js";
 import {
+  codexHomeHasUsableAuth,
   isManagedCodexHomePath,
   prepareManagedCodexHome,
   resolveSharedCodexHomeDir,
@@ -279,7 +280,10 @@ export async function testEnvironment(
   const targetLabel = targetIsRemote
     ? ctx.environmentName ?? describeAdapterExecutionTarget(target)
     : null;
-  const runId = `codex-envtest-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const taskBinding = ctx.taskBinding ?? null;
+  const runId = taskBinding
+    ? `codex-runtime-readiness-${ctx.companyId}-${taskBinding.taskId}`
+    : `codex-envtest-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   if (targetLabel) {
     checks.push({
@@ -324,6 +328,55 @@ export async function testEnvironment(
     env,
   });
   if (installCheck) checks.push(installCheck);
+
+  // Task-bound readiness: prove the exact managed runtime a card will use before it is assigned.
+  let requiredManagedHome: string | null = null;
+  if (taskBinding) {
+    checks.push({
+      code: "managed_runtime_task_binding",
+      level: "info",
+      message: `Task-bound readiness probe for issue ${taskBinding.taskId}.`,
+    });
+    if (targetIsRemote) {
+      checks.push({
+        code: "managed_runtime_probe_target_unsupported",
+        level: "error",
+        message: "Task-bound managed-runtime probes currently require the Paperclip host runtime.",
+        hint: "Run the readiness probe on the exact local managed runtime before assigning the child.",
+      });
+    }
+    const configuredHome = isNonEmpty(env.CODEX_HOME) ? path.resolve(env.CODEX_HOME.trim()) : null;
+    if (!configuredHome) {
+      checks.push({
+        code: "managed_runtime_home_missing",
+        level: "error",
+        message: "CODEX_HOME is required for a managed-runtime dispatch probe.",
+        hint: "Bind the agent's managed CODEX_HOME before assigning work.",
+      });
+    } else if (!isManagedCodexHomePath(process.env, ctx.companyId, configuredHome)) {
+      checks.push({
+        code: "managed_runtime_home_namespace_rejected",
+        level: "error",
+        message: "CODEX_HOME is outside this company's Paperclip-managed namespace.",
+        detail: configuredHome,
+      });
+    } else {
+      checks.push({
+        code: "managed_runtime_home_namespace_valid",
+        level: "info",
+        message: "CODEX_HOME is bound inside this company's Paperclip-managed namespace.",
+      });
+      requiredManagedHome = configuredHome;
+      if (!isNonEmpty(env.OPENAI_API_KEY) && !(await codexHomeHasUsableAuth(requiredManagedHome))) {
+        checks.push({
+          code: "managed_runtime_secret_missing",
+          level: "error",
+          message: "No resolvable OPENAI_API_KEY binding or managed-home credential is available.",
+          hint: "Bind the approved per-agent secret reference before assigning work.",
+        });
+      }
+    }
+  }
   try {
     await ensureAdapterExecutionTargetCommandResolvable(command, target, cwd, runtimeEnv);
     checks.push({
@@ -350,7 +403,7 @@ export async function testEnvironment(
       message: "OPENAI_API_KEY is set for Codex authentication.",
       detail: `Detected in ${source}.`,
     });
-  } else if (!targetIsRemote) {
+  } else if (!targetIsRemote && !taskBinding) {
     // Local-only auth file check. On remote targets, the probe will surface
     // any missing-auth errors directly from the remote `codex` invocation.
     const codexHome = isNonEmpty(env.CODEX_HOME) ? env.CODEX_HOME : undefined;
@@ -372,13 +425,12 @@ export async function testEnvironment(
     }
   }
 
-  const canRunProbe =
-    checks.every((check) => check.code !== "codex_cwd_invalid" && check.code !== "codex_command_unresolvable");
+  const canRunProbe = checks.every((check) => check.level !== "error");
   if (canRunProbe) {
     if (!commandLooksLike(command, "codex")) {
       checks.push({
         code: "codex_hello_probe_skipped_custom_command",
-        level: "info",
+        level: taskBinding ? "error" : "info",
         message: "Skipped hello probe because command is not `codex`.",
         detail: command,
         hint: "Use the `codex` CLI command to run the automatic login and installation probe.",
@@ -420,11 +472,15 @@ export async function testEnvironment(
       // wrap the probe with a shell that materializes a per-run auth.json so
       // the CLI can authenticate. The key content is passed via env (not on
       // the command line) to avoid leaking it into process listings.
-      const probeApiKey = isNonEmpty(configOpenAiKey)
-        ? configOpenAiKey
-        : isNonEmpty(hostOpenAiKey)
-          ? hostOpenAiKey
-          : null;
+      // A task-bound probe must authenticate through the exact managed home, never a stand-in key.
+      const usesExactManagedHome = requiredManagedHome !== null;
+      const probeApiKey = usesExactManagedHome
+        ? null
+        : isNonEmpty(configOpenAiKey)
+          ? configOpenAiKey
+          : isNonEmpty(hostOpenAiKey)
+            ? hostOpenAiKey
+            : null;
       const preparedProbe = await prepareCodexHelloProbe({
         managedAiConnection: Boolean(config.managedAiConnection),
         runId,
@@ -471,7 +527,7 @@ export async function testEnvironment(
         if (probe.timedOut) {
           checks.push({
             code: "codex_hello_probe_timed_out",
-            level: "warn",
+            level: taskBinding ? "error" : "warn",
             message: "Codex hello probe timed out.",
             hint: "Retry the probe. If this persists, verify Codex can run `Respond with hello` from this directory manually.",
           });
@@ -480,7 +536,7 @@ export async function testEnvironment(
           const hasHello = /\bhello\b/i.test(summary);
           checks.push({
             code: hasHello ? "codex_hello_probe_passed" : "codex_hello_probe_unexpected_output",
-            level: hasHello ? "info" : "warn",
+            level: hasHello ? "info" : taskBinding ? "error" : "warn",
             message: hasHello
               ? "Codex hello probe succeeded."
               : "Codex probe ran but did not return `hello` as expected.",
@@ -494,7 +550,7 @@ export async function testEnvironment(
         } else if (CODEX_AUTH_REQUIRED_RE.test(authEvidence)) {
           checks.push({
             code: "codex_hello_probe_auth_required",
-            level: "warn",
+            level: taskBinding ? "error" : "warn",
             message: "Codex CLI is installed, but authentication is not ready.",
             ...(detail ? { detail } : {}),
             hint: probeApiKey

@@ -55,6 +55,9 @@ const sshEnvironmentConfigSchema = z.object({
     .nullable()
     .transform((value) => (value && value.length > 0 ? value : null)),
   strictHostKeyChecking: z.boolean().optional().default(true),
+  // AgentOS: "in_place" runs agents directly in remoteWorkspacePath instead of a copy.
+  // Unset means "copy"; left out of the stored shape so existing environments are unchanged.
+  workspaceMode: z.enum(["copy", "in_place"]).optional(),
 }).strict();
 
 const sshEnvironmentConfigProbeSchema = sshEnvironmentConfigSchema.extend({

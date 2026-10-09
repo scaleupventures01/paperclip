@@ -1200,6 +1200,7 @@ function createSshEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
           username: parsed.config.username,
           remoteWorkspacePath: parsed.config.remoteWorkspacePath,
           remoteCwd,
+          workspaceRealization: { mode: parsed.config.workspaceMode ?? "copy" },
         },
       });
     },

@@ -4288,7 +4288,14 @@ export async function startAdapterExecutionTargetPaperclipBridge(input: {
     input.runtimeRootDir?.trim().length
       ? input.runtimeRootDir.trim()
       : path.posix.join(target.remoteCwd, ".paperclip-runtime", input.adapterKey);
-  const bridgeRuntimeDir = path.posix.join(runtimeRootDir, "paperclip-bridge");
+  // One bridge directory per run. A shared directory lets a finishing run's stop() kill the
+  // next run's bridge through the shared server.pid and delete its ready.json, and lets
+  // concurrent runs share a queue.
+  const bridgeRunSegment =
+    typeof input.runId === "string" && /^[a-zA-Z0-9_-]+$/.test(input.runId) ? input.runId : null;
+  const bridgeRuntimeDir = bridgeRunSegment
+    ? path.posix.join(runtimeRootDir, "paperclip-bridge", "runs", bridgeRunSegment)
+    : path.posix.join(runtimeRootDir, "paperclip-bridge");
   const queueDir = path.posix.join(bridgeRuntimeDir, "queue");
   const assetRemoteDir = path.posix.join(bridgeRuntimeDir, "server");
   const bridgeToken = createSandboxCallbackBridgeToken();

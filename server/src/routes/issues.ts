@@ -11843,6 +11843,69 @@ export function issueRoutes(
         Boolean(executionPolicy?.monitor),
       );
       const issueId = randomUUID();
+      // Before assigning a card to a host-local Codex agent, prove its managed runtime with a
+      // fresh task-bound probe; a failure is logged and rejects the create.
+      if (createBody.assigneeAgentId) {
+        const readinessAgent = await agentsSvc.getById(createBody.assigneeAgentId);
+        if (readinessAgent && readinessAgent.companyId === companyId && readinessAgent.adapterType === "codex_local") {
+          const readinessEnvironmentId =
+            createBody.executionWorkspaceSettings?.environmentId ?? readinessAgent.defaultEnvironmentId ?? null;
+          const readinessEnvironment = readinessEnvironmentId
+            ? await environmentsSvc.getById(readinessEnvironmentId)
+            : null;
+          const readinessEnvironmentDriver = readinessEnvironment?.driver ?? "local";
+          if (readinessEnvironmentDriver === "local") {
+            const readinessDetails = {
+              agentId: readinessAgent.id,
+              probeTaskId: issueId,
+              adapterType: readinessAgent.adapterType,
+            };
+            try {
+              await serviceIndex.resolveExecutionRunAdapterConfig({
+                managedAiCredentials: false,
+                managedGitHubCredentials: false,
+                companyId,
+                agentId: readinessAgent.id,
+                adapterType: readinessAgent.adapterType,
+                issueId,
+                heartbeatRunId: issueId,
+                responsibleUserId: authenticatedActorResponsibleUserId(req) ?? null,
+                environmentId: readinessEnvironmentId,
+                environmentEnv: readinessEnvironment?.envVars ?? null,
+                environmentDriver: readinessEnvironmentDriver,
+                projectId: createBody.projectId ?? null,
+                executionRunConfig:
+                  readinessAgent.adapterConfig && typeof readinessAgent.adapterConfig === "object"
+                    ? (readinessAgent.adapterConfig as Record<string, unknown>)
+                    : {},
+                projectEnv: null,
+                secretsSvc: serviceIndex.secretService(db),
+                readinessTaskId: issueId,
+              });
+              await logActivity(db, {
+                companyId,
+                actorType: "system",
+                actorId: "managed_runtime_readiness",
+                action: "managed_runtime_readiness.passed",
+                entityType: "issue",
+                entityId: issueId,
+                details: { ...readinessDetails, probe: "fresh_process" },
+              });
+            } catch (error) {
+              await logActivity(db, {
+                companyId,
+                actorType: "system",
+                actorId: "managed_runtime_readiness",
+                action: "managed_runtime_readiness.failed",
+                entityType: "issue",
+                entityId: issueId,
+                details: { ...readinessDetails, reason: error instanceof Error ? error.message : "unknown" },
+              });
+              throw error;
+            }
+          }
+        }
+      }
       const sourceTrust = await sourceTrustForActorWrite(
         {
           id: issueId,
@@ -18193,7 +18256,7 @@ export function issueRoutes(
           reopened,
           currentStatus: wakeIssueSnapshot.status,
         });
-        if (assigneeId && !goalCommentSteered && shouldWakeAssigneeForComment) {
+        if (assigneeId && req.body.wakeAssignee !== false && !goalCommentSteered && shouldWakeAssigneeForComment) {
           if (reopened) {
             addWakeup(assigneeId, {
               source: "automation",

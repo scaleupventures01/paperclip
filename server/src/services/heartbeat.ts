@@ -569,7 +569,10 @@ import {
   writePaperclipSkillSyncPreference,
 } from "@paperclipai/adapter-utils/server-utils";
 import { extractSkillMentionIds, isUuidLike } from "@paperclipai/shared";
-import { evaluateCodexCredentialReadiness } from "@paperclipai/adapter-codex-local/server";
+import {
+  evaluateCodexCredentialReadiness,
+  testEnvironment as testCodexEnvironment,
+} from "@paperclipai/adapter-codex-local/server";
 import { environmentService } from "./environments.js";
 import { parseExecutionPolicyBootstrapEnv } from "./execution-policy-bootstrap.js";
 import { retryChatControlAdmission } from "./chat-control-admission-retry.js";
@@ -1554,6 +1557,8 @@ export async function resolveExecutionRunAdapterConfig(input: {
   /** Audited class-3 values resolved by an internal credential broker. */
   trustedEnvProjection?: Record<string, string>;
   trustedEnvSecretKeys?: string[];
+  /** When set, prove the exact managed Codex runtime for this task before it is assigned. */
+  readinessTaskId?: string | null;
 }) {
   const executionRunConfig = stripForbiddenEnvFromAdapterConfig(
     input.executionRunConfig,
@@ -1870,6 +1875,8 @@ export async function resolveExecutionRunAdapterConfig(input: {
   // as satisfying the credential. It shares the exact readiness predicate the
   // adapter uses at execute time, so the two cannot drift.
   //
+  // Only host-local runs are checked here. SSH-destined runs read the managed home on the
+  // remote host, whose launcher validates it (the codex adapter defers there too).
   // Sandbox-destined runs are exempt: the sandbox image may carry its own
   // Codex login (`~/.codex/auth.json` baked in at image setup), which only the
   // adapter can probe once the sandbox is up — and on managed cloud hosts a
@@ -1877,7 +1884,7 @@ export async function resolveExecutionRunAdapterConfig(input: {
   // remains the authority there; it probes the sandbox before failing.
   if (
     !input.managedAiCredentials && (input.adapterType ?? null) === "codex_local" &&
-    (input.environmentDriver ?? null) !== "sandbox"
+    (input.environmentDriver ?? "local") === "local"
   ) {
     const resolvedEnv = parseObject(resolvedConfig.env);
     const readiness = await evaluateCodexCredentialReadiness({
@@ -1902,6 +1909,40 @@ export async function resolveExecutionRunAdapterConfig(input: {
             adapterType: "codex_local",
             requiredEnvKeys: ["OPENAI_API_KEY"],
             effectiveCodexHome: readiness.effectiveHome,
+            missingBindings: [],
+          },
+        },
+      );
+    }
+  }
+  // Task-bound readiness: before a card is assigned to a host-local Codex agent, run a fresh
+  // probe against the exact managed runtime the card will use, and fail closed on any error.
+  if (
+    !input.managedAiCredentials && (input.adapterType ?? null) === "codex_local" &&
+    input.readinessTaskId && (input.environmentDriver ?? "local") === "local"
+  ) {
+    const probe = await testCodexEnvironment({
+      companyId: input.companyId,
+      adapterType: "codex_local",
+      config: resolvedConfig,
+      taskBinding: { taskId: input.readinessTaskId },
+    });
+    if (probe.status === "fail") {
+      const failedCheck = probe.checks.find((check) => check.level === "error");
+      throw new ConfigurationIncompleteFailure(
+        `configuration incomplete: managed runtime readiness probe failed (${failedCheck?.code ?? "unknown"}).`,
+        {
+          configurationIncomplete: {
+            reason: "managed_runtime_readiness_failed",
+            companyId: input.companyId,
+            agentId: input.agentId ?? null,
+            issueId: input.issueId ?? null,
+            projectId: input.projectId ?? null,
+            routineId: input.routineId ?? null,
+            responsibleUserId: input.responsibleUserId ?? null,
+            adapterType: "codex_local",
+            probeTaskId: input.readinessTaskId,
+            probeChecks: probe.checks.map(({ code, level, message }) => ({ code, level, message })),
             missingBindings: [],
           },
         },
@@ -19874,11 +19915,52 @@ export function heartbeatService(
         return left.createdAt.getTime() - right.createdAt.getTime();
       });
 
+      // AgentOS: one running job per pod repo per agent (Calvin 2026-10-07). A pod card names
+      // its repo on a `TASK REPO BINDING:` line; a queued run for a repo this agent is already
+      // running stays queued and is claimed when that run ends, since this function runs on
+      // every run end. Cards with no repo binding are limited only by maxConcurrentRuns.
+      const podKey = (text: string | null | undefined) => {
+        const match = /^TASK REPO BINDING:\s*(\S+)/m.exec(text ?? "");
+        return match ? match[1].toLowerCase() : null;
+      };
+      const runIssueId = (run: typeof heartbeatRuns.$inferSelect) =>
+        readNonEmptyString(parseObject(run.contextSnapshot).issueId);
+      const runningRuns = await db
+        .select()
+        .from(heartbeatRuns)
+        .where(and(eq(heartbeatRuns.agentId, agentId), eq(heartbeatRuns.status, "running")));
+      const podIssueIds = [
+        ...new Set(
+          [...runningRuns, ...prioritizedRuns]
+            .map(runIssueId)
+            .filter((issueId): issueId is string => Boolean(issueId)),
+        ),
+      ];
+      const podRows = podIssueIds.length > 0
+        ? await db
+          .select({ id: issues.id, description: issues.description })
+          .from(issues)
+          .where(and(eq(issues.companyId, agent.companyId), inArray(issues.id, podIssueIds)))
+        : [];
+      const podByIssueId = new Map(podRows.map((row) => [row.id, podKey(row.description)]));
+      const podForRun = (run: typeof heartbeatRuns.$inferSelect) => {
+        const issueId = runIssueId(run);
+        return issueId ? podByIssueId.get(issueId) ?? null : null;
+      };
+      const busyPods = new Set(
+        runningRuns.map(podForRun).filter((pod): pod is string => Boolean(pod)),
+      );
+
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
       for (const queuedRun of prioritizedRuns) {
         if (claimedRuns.length >= availableSlots) break;
+        const pod = podForRun(queuedRun);
+        if (pod && busyPods.has(pod)) continue;
         const claimed = await claimQueuedRun(queuedRun, companyAgents);
-        if (claimed) claimedRuns.push(claimed);
+        if (claimed) {
+          claimedRuns.push(claimed);
+          if (pod) busyPods.add(pod);
+        }
       }
       if (claimedRuns.length === 0) return [];
 
@@ -21785,6 +21867,10 @@ export function heartbeatService(
       // isolated-workspace UI, just as warm sandbox continuity already does.
       const nativeSharedWorkspace = agent.adapterType === "paperclip_runner" &&
         requestedExecutionWorkspaceMode === "shared_workspace";
+      // AgentOS: an SSH environment with workspaceMode "in_place" runs in the shared workspace,
+      // so the issue binds to it like warm sandbox and native shared workspaces do.
+      const inPlaceSshWorkspace = selectedEnvironmentForConfig?.driver === "ssh" &&
+        (selectedEnvironmentConfigForFingerprint as { workspaceMode?: unknown }).workspaceMode === "in_place";
       const bindIssueToPersistedExecutionWorkspace = async (
         workspace: ExecutionWorkspace | null,
       ) => {
@@ -21798,7 +21884,7 @@ export function heartbeatService(
           issueRef?.executionWorkspacePreference === "reuse_existing" ||
           requestedExecutionWorkspaceMode === "isolated_workspace" ||
           requestedExecutionWorkspaceMode === "operator_branch" ||
-          warmReusableExecutionWorkspace || nativeSharedWorkspace;
+          warmReusableExecutionWorkspace || nativeSharedWorkspace || inPlaceSshWorkspace;
         const nextIssuePatch: Record<string, unknown> = {};
         if (issueExecutionWorkspaceIdForRun !== workspace.id) {
           nextIssuePatch.executionWorkspaceId = workspace.id;
@@ -21827,7 +21913,7 @@ export function heartbeatService(
             db,
             undefined,
             undefined,
-            { bindRuntimeSharedWorkspace: (warmReusableExecutionWorkspace || nativeSharedWorkspace) && workspace.mode === "shared_workspace" },
+            { bindRuntimeSharedWorkspace: (warmReusableExecutionWorkspace || nativeSharedWorkspace || inPlaceSshWorkspace) && workspace.mode === "shared_workspace" },
           );
           issueExecutionWorkspaceIdForRun = workspace.id;
           issueProjectWorkspaceIdForRun =
