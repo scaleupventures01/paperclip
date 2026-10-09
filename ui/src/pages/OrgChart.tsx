@@ -241,8 +241,37 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     if (!embedded) setBreadcrumbs([{ label: "Org Chart" }]);
   }, [embedded, setBreadcrumbs]);
 
+  // Collapsed teams: a collapsed manager's reports are hidden from the layout.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const reportCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    const walk = (nodes: OrgNode[] | undefined) => {
+      for (const n of nodes ?? []) {
+        counts.set(n.id, n.reports?.length ?? 0);
+        walk(n.reports);
+      }
+    };
+    walk(orgTree ?? []);
+    return counts;
+  }, [orgTree]);
+  const visibleTree = useMemo(() => {
+    const prune = (n: OrgNode): OrgNode => ({
+      ...n,
+      reports: collapsed.has(n.id) ? [] : (n.reports ?? []).map(prune),
+    });
+    return (orgTree ?? []).map(prune);
+  }, [orgTree, collapsed]);
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   // Layout computation
-  const layout = useMemo(() => layoutForest(orgTree ?? []), [orgTree]);
+  const layout = useMemo(() => layoutForest(visibleTree), [visibleTree]);
   const allNodes = useMemo(() => flattenLayout(layout), [layout]);
   const edges = useMemo(() => collectEdges(layout), [layout]);
 
@@ -657,6 +686,37 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                     )}
                   </div>
                 </div>
+                {(reportCounts.get(node.id) ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    data-org-toggle={node.id}
+                    title={collapsed.has(node.id) ? "Expand team" : "Collapse team"}
+                    className="z-10 flex items-center justify-center rounded-full"
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      bottom: "-30px",
+                      transform: "translateX(-50%)",
+                      height: "36px",
+                      minWidth: "36px",
+                      padding: "0 8px",
+                      fontSize: "20px",
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      background: "var(--foreground)",
+                      color: "var(--background)",
+                      border: "2px solid var(--background)",
+                      boxShadow: "0 2px 6px rgba(0,0,0,.35)",
+                      cursor: "pointer",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCollapsed(node.id);
+                    }}
+                  >
+                    {collapsed.has(node.id) ? `+${reportCounts.get(node.id)}` : "\u2212"}
+                  </button>
+                )}
               </Card>
             );
           })}

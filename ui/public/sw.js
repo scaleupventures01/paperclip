@@ -67,7 +67,7 @@ self.addEventListener("fetch", (event) => {
 
   // Network-first; only public build assets can use an offline fallback.
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: "no-cache" })
       .then(async (response) => {
         const cacheControl = response.headers.get("cache-control") ?? "";
         if (privateCacheControl.test(cacheControl)) {

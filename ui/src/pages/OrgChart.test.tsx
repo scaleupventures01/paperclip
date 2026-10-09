@@ -281,6 +281,31 @@ describe("OrgChart mobile gestures", () => {
     expect(layer.style.transform).toBe("translate(0px, 0px) scale(1)");
   });
 
+  it("collapses and expands a manager's team without navigating", async () => {
+    await renderOrgChart();
+    const cardNames = () =>
+      Array.from(container.querySelectorAll("[data-org-card]")).map((card) => card.textContent ?? "");
+    expect(cardNames().some((text) => text.includes("Engineer"))).toBe(true);
+
+    const toggle = container.querySelector('[data-org-toggle="agent-1"]') as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    expect(container.querySelector('[data-org-toggle="agent-2"]')).toBeNull();
+
+    await act(async () => {
+      toggle.click();
+    });
+    expect(cardNames().some((text) => text.includes("Engineer"))).toBe(false);
+    expect(
+      (container.querySelector('[data-org-toggle="agent-1"]') as HTMLButtonElement).textContent,
+    ).toBe("+1");
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      (container.querySelector('[data-org-toggle="agent-1"]') as HTMLButtonElement).click();
+    });
+    expect(cardNames().some((text) => text.includes("Engineer"))).toBe(true);
+  });
+
   it("shows both portability buttons on self-hosted instances", async () => {
     await renderOrgChart();
 
