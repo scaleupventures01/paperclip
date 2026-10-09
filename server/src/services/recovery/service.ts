@@ -906,6 +906,112 @@ export function recoveryService(
   },
 ) {
   const issuesSvc = issueService(db);
+
+  // Successful-run handoff latch (AgentOS): a run that finished without handing its card on
+  // is re-escalated at most SUCCESSFUL_RUN_HANDOFF_LATCH_MAX_ATTEMPTS times per identity,
+  // with exponential backoff, and never once the card, its source or its parent is closed.
+  const SUCCESSFUL_RUN_HANDOFF_LATCH_MAX_ATTEMPTS = 5;
+  const SUCCESSFUL_RUN_HANDOFF_LATCH_BASE_BACKOFF_MS = 30_000;
+
+  function successfulRunHandoffLatchSignature(input: {
+    issue: typeof issues.$inferSelect;
+    latestRun: LatestIssueRun;
+    recoveryCause: StrandedRecoveryCause;
+    successfulRunHandoffEvidence?: SuccessfulRunHandoffRecoveryEvidence | null;
+    recoveryOwnerAgentId?: string | null;
+  }) {
+    return [
+      "successful_run_handoff_latch_v1",
+      input.issue.companyId,
+      input.issue.id,
+      input.recoveryCause,
+      input.successfulRunHandoffEvidence?.sourceRunId ?? input.latestRun?.id ?? "",
+      input.recoveryOwnerAgentId ?? input.issue.assigneeAgentId ?? "",
+      input.issue.status,
+    ].join(":");
+  }
+
+  function successfulRunHandoffLatchDelayMs(attemptCount: number) {
+    const completedAttempts = Math.max(
+      0,
+      Math.min(attemptCount, SUCCESSFUL_RUN_HANDOFF_LATCH_MAX_ATTEMPTS) - 1,
+    );
+    return SUCCESSFUL_RUN_HANDOFF_LATCH_BASE_BACKOFF_MS * 2 ** completedAttempts;
+  }
+
+  async function successfulRunHandoffLatch(
+    input: {
+      issue: typeof issues.$inferSelect;
+      latestRun: LatestIssueRun;
+      recoveryCause: StrandedRecoveryCause;
+      successfulRunHandoffEvidence?: SuccessfulRunHandoffRecoveryEvidence | null;
+      recoveryOwnerAgentId?: string | null;
+    },
+    now = new Date(),
+  ): Promise<{ kind: string; signature: string | null }> {
+    if (input.recoveryCause !== "successful_run_missing_state") return { kind: "proceed", signature: null };
+    if (input.issue.status === "done" || input.issue.status === "cancelled") {
+      return { kind: "suppressed_terminal_root", signature: null };
+    }
+    const sourceIssueId = input.issue.originId ?? null;
+    for (const relatedId of [sourceIssueId, input.issue.parentId]) {
+      if (!relatedId || relatedId === input.issue.id) continue;
+      const [related] = await db
+        .select({ id: issues.id, status: issues.status })
+        .from(issues)
+        .where(and(eq(issues.companyId, input.issue.companyId), eq(issues.id, relatedId)))
+        .limit(1);
+      if (related?.status === "done" || related?.status === "cancelled") {
+        return { kind: "suppressed_terminal_related", signature: null };
+      }
+    }
+    const signature = successfulRunHandoffLatchSignature(input);
+    const [latched] = await db
+      .select({
+        id: issueRecoveryActions.id,
+        attemptCount: issueRecoveryActions.attemptCount,
+        maxAttempts: issueRecoveryActions.maxAttempts,
+        lastAttemptAt: issueRecoveryActions.lastAttemptAt,
+        evidence: issueRecoveryActions.evidence,
+      })
+      .from(issueRecoveryActions)
+      .where(
+        and(
+          eq(issueRecoveryActions.companyId, input.issue.companyId),
+          eq(issueRecoveryActions.sourceIssueId, input.issue.id),
+          eq(issueRecoveryActions.cause, input.recoveryCause),
+          eq(issueRecoveryActions.fingerprint, signature),
+        ),
+      )
+      .orderBy(desc(issueRecoveryActions.updatedAt))
+      .limit(1);
+    if (!latched) return { kind: "proceed", signature };
+    const attemptCount = latched.attemptCount;
+    const maxAttempts = latched.maxAttempts ?? SUCCESSFUL_RUN_HANDOFF_LATCH_MAX_ATTEMPTS;
+    const lastAttemptAt = latched.lastAttemptAt ? new Date(latched.lastAttemptAt) : now;
+    const backoffMs = successfulRunHandoffLatchDelayMs(attemptCount);
+    if (new Date(lastAttemptAt.getTime() + backoffMs) > now) return { kind: "latched_backoff", signature };
+    if (attemptCount >= maxAttempts) return { kind: "latched_exhausted", signature };
+    await db
+      .update(issueRecoveryActions)
+      .set({
+        attemptCount: attemptCount + 1,
+        lastAttemptAt: now,
+        evidence: {
+          ...(latched.evidence ?? {}),
+          recoveryLatch: {
+            signature,
+            attempt: attemptCount + 1,
+            maxAttempts,
+            backoffMs,
+            updatedAt: now.toISOString(),
+          },
+        },
+        updatedAt: now,
+      })
+      .where(eq(issueRecoveryActions.id, latched.id));
+    return { kind: "latched_backoff_recorded", signature };
+  }
   const recoveryActionsSvc = issueRecoveryActionService(db);
   const treeControlSvc = issueTreeControlService(db);
   const budgets = budgetService(db);
@@ -2357,7 +2463,12 @@ export function recoveryService(
     issue: typeof issues.$inferSelect;
     recoveryCause: StrandedRecoveryCause;
     latestRun: LatestIssueRun;
+    successfulRunHandoffEvidence?: SuccessfulRunHandoffRecoveryEvidence | null;
+    recoveryOwnerAgentId?: string | null;
   }) {
+    if (input.recoveryCause === "successful_run_missing_state") {
+      return successfulRunHandoffLatchSignature(input);
+    }
     if (input.recoveryCause === "workspace_validation_failed") {
       const workspaceFingerprint = readWorkspaceValidationFingerprint(
         input.latestRun,
@@ -2449,6 +2560,14 @@ export function recoveryService(
       issue: input.issue,
       latestRun: input.latestRun,
     });
+    const handoffLatch = await successfulRunHandoffLatch({
+      issue: input.issue,
+      latestRun: input.latestRun,
+      recoveryCause,
+      successfulRunHandoffEvidence: input.successfulRunHandoffEvidence,
+      recoveryOwnerAgentId: routing.returnOwnerAgentId,
+    });
+    if (handoffLatch.kind !== "proceed") return null;
     const isProviderQuotaWait = recoveryCause === "provider_quota";
     const now = new Date();
     const action = await recoveryActionsSvc.upsertSourceScoped({
@@ -2458,7 +2577,9 @@ export function recoveryService(
       // (for example the unresolved workspace base ref). A different ref is a
       // distinct blocker, so it must get a new recovery action and notify the
       // operator, not overwrite the active action of the prior ref.
-      supersedeOnIdentityChange: recoveryCause === "configuration_incomplete",
+      supersedeOnIdentityChange:
+        recoveryCause === "successful_run_missing_state" ||
+        recoveryCause === "configuration_incomplete",
       preserveExistingOwner: true,
       kind: strandedRecoveryActionKind(recoveryCause),
       ownerType: isProviderQuotaWait ? "system" : "board",
@@ -2471,6 +2592,8 @@ export function recoveryService(
         issue: input.issue,
         recoveryCause,
         latestRun: input.latestRun,
+        successfulRunHandoffEvidence: input.successfulRunHandoffEvidence,
+        recoveryOwnerAgentId: routing.returnOwnerAgentId,
       }),
       evidence: {
         ...buildStrandedRecoveryActionEvidence({
@@ -2532,7 +2655,9 @@ export function recoveryService(
       monitorPolicy: isProviderQuotaWait
         ? { type: "wait_recovery", retryAgentId: routing.returnOwnerAgentId }
         : null,
-      maxAttempts: null,
+      maxAttempts: recoveryCause === "successful_run_missing_state"
+        ? SUCCESSFUL_RUN_HANDOFF_LATCH_MAX_ATTEMPTS
+        : null,
       lastAttemptAt: now,
     });
 
@@ -3399,20 +3524,15 @@ export function recoveryService(
         healthyChildren.length > 0 ||
         hasNewSourcePath
       ) {
-        if (healthyChildren.length > 0 && !sourceState.hasDurableWaitingPath) {
-          const blockerIds = await existingUnresolvedBlockerIssueIds(
-            issue.companyId,
-            issue.id,
-          );
-          await issuesSvc.update(issue.id, {
-            status: "blocked",
-            blockedByIssueIds: [
-              ...new Set([
-                ...blockerIds,
-                ...healthyChildren.map((child) => child.id),
-              ]),
-            ],
-          });
+        if (
+          healthyChildren.length > 0 &&
+          !sourceState.hasDurableWaitingPath &&
+          issue.status !== "in_progress"
+        ) {
+          // A healthy delegated child is a live continuation path, not a blocker. Linking a
+          // parent as blocked by its own child creates a dependency cycle and escalates the
+          // parent for a board decision while delegated work is still running.
+          await issuesSvc.update(issue.id, { status: "in_progress" });
         }
         const resolved = await recoveryActionsSvc.resolveActiveForIssue({
           companyId: action.companyId,
@@ -3754,6 +3874,7 @@ export function recoveryService(
       recoveryCause,
       successfulRunHandoffEvidence: input.successfulRunHandoffEvidence,
     });
+    if (!recoveryAction) return null;
     const isProviderQuotaWait =
       recoveryCause === "provider_quota" &&
       !recoveryAction.ownerAgentId &&
@@ -4991,6 +5112,13 @@ export function recoveryService(
           continue;
         }
         if (!handoffEvidence.exhausted) {
+          result.skipped += 1;
+          continue;
+        }
+        // A live delegated child is the parent issue's valid disposition. Check before
+        // escalation so recovery never emits a board notice or blocks the parent.
+        if ((await healthyOpenChildIssues(issue, true)).length > 0) {
+          result.productiveContinuationObserved += 1;
           result.skipped += 1;
           continue;
         }
