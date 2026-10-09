@@ -1152,6 +1152,13 @@ export interface AskUserQuestionsQuestionOption {
    * free-text affordance.
    */
   freeText?: boolean;
+  binding?: {
+    schema: "agentos.disk-gate-action/v1";
+    action: "delete" | "move";
+    path: string;
+    size_gb: number;
+    fingerprint: string;
+  };
 }
 
 export interface AskUserQuestionsQuestion {
@@ -1176,6 +1183,7 @@ export interface PaperclipQuestionSetOption {
   label: string;
   description?: string;
   recommended?: boolean;
+  binding?: AskUserQuestionsQuestionOption["binding"];
 }
 
 export interface PaperclipQuestionSetQuestion {

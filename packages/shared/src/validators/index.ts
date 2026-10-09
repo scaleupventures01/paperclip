@@ -458,6 +458,7 @@ export {
   suggestTasksPayloadSchema,
   suggestTasksResultCreatedTaskSchema,
   suggestTasksResultSchema,
+  askUserQuestionsDiskGateBindingSchema,
   askUserQuestionsQuestionOptionSchema,
   askUserQuestionsQuestionSchema,
   paperclipQuestionSetPayloadSchema,

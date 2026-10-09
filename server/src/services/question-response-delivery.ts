@@ -134,6 +134,7 @@ function canonicalQuestionSet(
             id: option.id,
             label: option.label,
             ...(option.description ? { description: option.description } : {}),
+            ...(option.binding ? { binding: option.binding } : {}),
           })),
         ...(customOption
           ? {

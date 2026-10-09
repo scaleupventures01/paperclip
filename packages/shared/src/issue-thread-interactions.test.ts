@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   ISSUE_THREAD_INTERACTION_CANONICAL_RESOLVER_POLICIES,
@@ -7,7 +8,9 @@ import {
 } from "./constants.js";
 import {
   acceptIssueThreadInteractionSchema,
+  askUserQuestionsAnswerSchema,
   askUserQuestionsResultSchema,
+  askUserQuestionsQuestionOptionSchema,
   askUserQuestionsPayloadSchema,
   createIssueThreadInteractionSchema,
   paperclipQuestionSetPayloadSchema,
@@ -257,6 +260,127 @@ describe("issue thread interaction schemas", () => {
     })).toMatchObject({
       expirationReason: "superseded_by_comment",
       commentId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("preserves an immutable disk-gate binding through creation parsing", () => {
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify({
+        action: "delete",
+        path: "/tmp/rebuildable-packages",
+        schema: "agentos.disk-gate-action/v1",
+        size_gb: 2.54,
+      }))
+      .digest("hex");
+    const binding = {
+      schema: "agentos.disk-gate-action/v1",
+      action: "delete",
+      path: "/tmp/rebuildable-packages",
+      size_gb: 2.54,
+      fingerprint,
+    };
+    const parsed = createIssueThreadInteractionSchema.parse({
+      kind: "ask_user_questions",
+      payload: {
+        version: 1,
+        questions: [
+          {
+            id: "disk-action",
+            prompt: "Delete rebuildable packages?",
+            selectionMode: "single",
+            options: [{ id: "delete-packages", label: "Delete packages", binding }],
+          },
+        ],
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      payload: {
+        questions: [
+          { options: [{ id: "delete-packages", binding }] },
+        ],
+      },
+    });
+    expect(
+      askUserQuestionsPayloadSchema.parse(parsed.payload).questions[0]?.options[0]?.binding,
+    ).toEqual(binding);
+    expect(askUserQuestionsQuestionOptionSchema.parse({
+      id: "ordinary",
+      label: "Ordinary",
+    })).toEqual({ id: "ordinary", label: "Ordinary" });
+  });
+
+  it("rejects malformed immutable disk-gate bindings", () => {
+    const valid = {
+      schema: "agentos.disk-gate-action/v1",
+      action: "delete",
+      path: "/tmp/rebuildable-packages",
+      size_gb: 2.54,
+      fingerprint: createHash("sha256")
+        .update(JSON.stringify({
+          action: "delete",
+          path: "/tmp/rebuildable-packages",
+          schema: "agentos.disk-gate-action/v1",
+          size_gb: 2.54,
+        }))
+        .digest("hex"),
+    };
+    const createPayload = (binding: unknown) => ({
+      kind: "ask_user_questions",
+      payload: {
+        version: 1,
+        questions: [{
+          id: "disk-action",
+          prompt: "Delete rebuildable packages?",
+          selectionMode: "single",
+          options: [{ id: "delete-packages", label: "Delete packages", binding }],
+        }],
+      },
+    });
+
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: { ...valid, schema: "agentos.disk-gate-action/v2" },
+    })).toThrow();
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: {
+        action: valid.action,
+        fingerprint: valid.fingerprint,
+        path: valid.path,
+        schema: valid.schema,
+      },
+    })).toThrow();
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: { ...valid, extra: true },
+    })).toThrow();
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: { ...valid, path: "tmp/rebuildable-packages" },
+    })).toThrow();
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: { ...valid, size_gb: -1 },
+    })).toThrow();
+    expect(() => askUserQuestionsQuestionOptionSchema.parse({
+      id: "delete-packages",
+      label: "Delete packages",
+      binding: { ...valid, fingerprint: `${valid.fingerprint.slice(0, -1)}0` },
+    })).toThrow();
+    expect(() => createIssueThreadInteractionSchema.parse(createPayload(valid)))
+      .not.toThrow();
+    expect(askUserQuestionsAnswerSchema.parse({
+      questionId: "disk-action",
+      optionIds: ["delete-packages"],
+    })).toEqual({
+      questionId: "disk-action",
+      optionIds: ["delete-packages"],
     });
   });
 
