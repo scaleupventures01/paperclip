@@ -20,6 +20,8 @@ export interface SshEnvironmentConfig {
   privateKeySecretRef: EnvSecretRefBinding | null;
   knownHosts: string | null;
   strictHostKeyChecking: boolean;
+  /** "in_place" runs agents directly in remoteWorkspacePath instead of a copy. */
+  workspaceMode?: "copy" | "in_place";
 }
 
 export type SandboxEnvironmentProvider = "fake" | (string & {});
