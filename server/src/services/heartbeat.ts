@@ -569,7 +569,10 @@ import {
   writePaperclipSkillSyncPreference,
 } from "@paperclipai/adapter-utils/server-utils";
 import { extractSkillMentionIds, isUuidLike } from "@paperclipai/shared";
-import { evaluateCodexCredentialReadiness } from "@paperclipai/adapter-codex-local/server";
+import {
+  evaluateCodexCredentialReadiness,
+  testEnvironment as testCodexEnvironment,
+} from "@paperclipai/adapter-codex-local/server";
 import { environmentService } from "./environments.js";
 import { parseExecutionPolicyBootstrapEnv } from "./execution-policy-bootstrap.js";
 import { retryChatControlAdmission } from "./chat-control-admission-retry.js";
@@ -1554,6 +1557,8 @@ export async function resolveExecutionRunAdapterConfig(input: {
   /** Audited class-3 values resolved by an internal credential broker. */
   trustedEnvProjection?: Record<string, string>;
   trustedEnvSecretKeys?: string[];
+  /** When set, prove the exact managed Codex runtime for this task before it is assigned. */
+  readinessTaskId?: string | null;
 }) {
   const executionRunConfig = stripForbiddenEnvFromAdapterConfig(
     input.executionRunConfig,
@@ -1904,6 +1909,40 @@ export async function resolveExecutionRunAdapterConfig(input: {
             adapterType: "codex_local",
             requiredEnvKeys: ["OPENAI_API_KEY"],
             effectiveCodexHome: readiness.effectiveHome,
+            missingBindings: [],
+          },
+        },
+      );
+    }
+  }
+  // Task-bound readiness: before a card is assigned to a host-local Codex agent, run a fresh
+  // probe against the exact managed runtime the card will use, and fail closed on any error.
+  if (
+    !input.managedAiCredentials && (input.adapterType ?? null) === "codex_local" &&
+    input.readinessTaskId && (input.environmentDriver ?? "local") === "local"
+  ) {
+    const probe = await testCodexEnvironment({
+      companyId: input.companyId,
+      adapterType: "codex_local",
+      config: resolvedConfig,
+      taskBinding: { taskId: input.readinessTaskId },
+    });
+    if (probe.status === "fail") {
+      const failedCheck = probe.checks.find((check) => check.level === "error");
+      throw new ConfigurationIncompleteFailure(
+        `configuration incomplete: managed runtime readiness probe failed (${failedCheck?.code ?? "unknown"}).`,
+        {
+          configurationIncomplete: {
+            reason: "managed_runtime_readiness_failed",
+            companyId: input.companyId,
+            agentId: input.agentId ?? null,
+            issueId: input.issueId ?? null,
+            projectId: input.projectId ?? null,
+            routineId: input.routineId ?? null,
+            responsibleUserId: input.responsibleUserId ?? null,
+            adapterType: "codex_local",
+            probeTaskId: input.readinessTaskId,
+            probeChecks: probe.checks.map(({ code, level, message }) => ({ code, level, message })),
             missingBindings: [],
           },
         },
