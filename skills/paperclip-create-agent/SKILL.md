@@ -8,7 +8,7 @@ description: >
 
 # Paperclip Create Agent Skill
 
-Use this skill when you are asked to hire/create an agent.
+Use this skill only for an explicitly authorized hire. Reuse an existing suitable agent; a delivery request does not itself authorize extra agents. New instructions must use the current engagement, not historical issue IDs or target URLs. Remove conflicting inherited rules rather than appending overrides. Embed the current shared happy-path delivery policy and role boundary; do not add identity-readback or preparation-only gates.
 
 ## Preconditions
 
@@ -124,7 +124,7 @@ curl -sS -X POST "$PAPERCLIP_API_URL/api/companies/$PAPERCLIP_COMPANY_ID/agent-h
     "capabilities": "Owns technical roadmap, architecture, staffing, execution",
     "desiredSkills": ["vercel-labs/agent-browser/agent-browser"],
     "adapterType": "codex_local",
-    "adapterConfig": {"cwd": "/abs/path/to/repo", "model": "o4-mini"},
+    "adapterConfig": {"cwd": "/abs/path/to/repo", "model": "<instance-managed-model>"},
     "instructionsBundle": {"files": {"AGENTS.md": "You are the CTO..."}},
     "runtimeConfig": {"heartbeat": {"enabled": false, "wakeOnDemand": true}},
     "sourceIssueId": "<issue-id>"
