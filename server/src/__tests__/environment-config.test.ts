@@ -36,6 +36,23 @@ describe("environment config helpers", () => {
     });
   });
 
+  it("keeps an SSH workspaceMode of in_place and rejects unknown modes", () => {
+    const base = {
+      host: "ssh.example.test",
+      username: "ssh-user",
+      remoteWorkspacePath: "/srv/paperclip/workspace",
+    };
+    expect(
+      normalizeEnvironmentConfig({ driver: "ssh", config: { ...base, workspaceMode: "in_place" } }),
+    ).toMatchObject({ workspaceMode: "in_place" });
+    expect(
+      normalizeEnvironmentConfig({ driver: "ssh", config: base }),
+    ).not.toHaveProperty("workspaceMode");
+    expect(() =>
+      normalizeEnvironmentConfig({ driver: "ssh", config: { ...base, workspaceMode: "shared" } }),
+    ).toThrow(HttpError);
+  });
+
   it("rejects raw SSH private keys in the stored config shape", () => {
     expect(() =>
       normalizeEnvironmentConfig({
