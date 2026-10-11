@@ -162,5 +162,15 @@ export const heartbeatRuns = pgTable(
       sql`(${table.contextSnapshot} ->> 'taskKey')`,
       table.createdAt.desc(),
     ),
+    // run-secret-redaction valuesForIssue ORs issueId with paperclipIssue.id;
+    // without this second expression index the OR forces a full scan that
+    // detoasts every run snapshot in the company on each comment read.
+    companyCtxPaperclipIssueCreatedIdx: index(
+      "heartbeat_runs_company_ctx_paperclip_issue_created_idx",
+    ).on(
+      table.companyId,
+      sql`((${table.contextSnapshot} -> 'paperclipIssue') ->> 'id')`,
+      table.createdAt.desc(),
+    ),
   }),
 );
