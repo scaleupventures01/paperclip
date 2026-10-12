@@ -440,5 +440,156 @@ describeEmbeddedPostgres("heartbeat issue rewake throttle (515)", () => {
       expect(wake).not.toBeNull();
       expect((await latestWakeRequest(agentId))?.reason).not.toBe("issue_rewake_throttled");
     });
+
+    // agentos#515 round 2. Live ordering (measured on production, 640 of 1338
+    // runs in 24h): a run's own issue.comment_added activity row is written
+    // 0.1 to 3 s AFTER heartbeat_runs.finished_at. Activity written by the
+    // sampled runs themselves is not "new input since the last run"; genuine
+    // input (a user, or activity with no run id or another run's id) still is.
+    // Comments whose trimmed body starts with "{" or "[" are compared on the
+    // whole body, whitespace-normalised, not on their first line.
+    describe("515-r2", () => {
+      const ACTIVITY_AFTER_FINISH_MS = [600, 1_800, 2_900];
+
+      async function seedRun(input: {
+        companyId: string;
+        agentId: string;
+        issueId: string;
+        finishedSecondsAgo: number;
+        body: string | null;
+        activityAfterFinishMs: number | null;
+      }) {
+        const runId = await seedTerminalRun({
+          companyId: input.companyId,
+          agentId: input.agentId,
+          issueId: input.issueId,
+          finishedSecondsAgo: input.finishedSecondsAgo,
+        });
+        const finishedAtMs = Date.now() - input.finishedSecondsAgo * 1000;
+        const commentAt = new Date(finishedAtMs - 1_000);
+        if (input.body !== null) {
+          await db.insert(issueComments).values({
+            companyId: input.companyId,
+            issueId: input.issueId,
+            authorAgentId: input.agentId,
+            createdByRunId: runId,
+            body: input.body,
+            createdAt: commentAt,
+            updatedAt: commentAt,
+          });
+        }
+        const activityAt = input.activityAfterFinishMs === null
+          ? commentAt
+          : new Date(finishedAtMs + input.activityAfterFinishMs);
+        await db.insert(activityLog).values({
+          companyId: input.companyId,
+          actorType: "agent",
+          actorId: input.agentId,
+          agentId: input.agentId,
+          runId,
+          action: "issue.comment_added",
+          entityType: "issue",
+          entityId: input.issueId,
+          createdAt: activityAt,
+        });
+        return runId;
+      }
+
+      async function seedRunsWithActivityAfterFinish(companyId: string, agentId: string, issueId: string) {
+        await seedPriorAgentComment({
+          companyId,
+          agentId,
+          issueId,
+          body: `${REPEATED_FIRST_LINE}\n\nchecked at run 0`,
+          secondsAgo: 120,
+        });
+        const finishes = [70, 40, 10];
+        for (let index = 0; index < finishes.length; index += 1) {
+          await seedRun({
+            companyId,
+            agentId,
+            issueId,
+            finishedSecondsAgo: finishes[index]!,
+            body: `${REPEATED_FIRST_LINE}\n\nchecked at run ${index + 1}`,
+            activityAfterFinishMs: ACTIVITY_AFTER_FINISH_MS[index]!,
+          });
+        }
+      }
+
+      function jsonBody(decision: string) {
+        return `{\n  "schema": "agentos.delivery-manager-decision/v1",\n  "decision": "${decision}"\n}`;
+      }
+
+      it("515-r2 throttle-activity-after-finish throttles when each run's own comment activity lands after its finishedAt", async () => {
+        const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
+        await seedRunsWithActivityAfterFinish(companyId, agentId, issueId);
+
+        const wake = await withKillSwitch(undefined, () => continuationWake(agentId, issueId));
+
+        const latest = await latestWakeRequest(agentId);
+        expect(latest?.reason).toBe("issue_rewake_throttled");
+        expect(latest?.status).toBe("skipped");
+        expect(wake).toBeNull();
+      });
+
+      it("515-r2 throttle-genuine-new-input (control) does not throttle when a user commented after the newest run finished", async () => {
+        const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
+        await seedRunsWithActivityAfterFinish(companyId, agentId, issueId);
+        await db.insert(activityLog).values({
+          companyId,
+          actorType: "user",
+          actorId: "responsible-user",
+          agentId: null,
+          runId: null,
+          action: "issue.comment_added",
+          entityType: "issue",
+          entityId: issueId,
+          createdAt: new Date(Date.now() - 3_000),
+        });
+
+        const wake = await withKillSwitch(undefined, () => continuationWake(agentId, issueId));
+
+        expect(wake).not.toBeNull();
+        expect((await latestWakeRequest(agentId))?.reason).not.toBe("issue_rewake_throttled");
+      });
+
+      it("515-r2 throttle-missing-comment-row (control) does not throttle comment-only runs whose comment rows are absent", async () => {
+        const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
+        for (const finishedSecondsAgo of [70, 40, 10]) {
+          await seedRun({
+            companyId,
+            agentId,
+            issueId,
+            finishedSecondsAgo,
+            body: null,
+            activityAfterFinishMs: null,
+          });
+        }
+
+        const wake = await withKillSwitch(undefined, () => continuationWake(agentId, issueId));
+
+        expect(wake).not.toBeNull();
+        expect((await latestWakeRequest(agentId))?.reason).not.toBe("issue_rewake_throttled");
+      });
+
+      it("515-r2 throttle-json does not throttle comment-only runs whose JSON comment bodies differ", async () => {
+        const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
+        await seedPriorAgentComment({
+          companyId,
+          agentId,
+          issueId,
+          body: jsonBody("hold: waiting on build receipt"),
+          secondsAgo: 120,
+        });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 70, body: jsonBody("route to QA") });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 40, body: jsonBody("request rebuild") });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 10, body: jsonBody("approve merge") });
+
+        const wake = await withKillSwitch(undefined, () => continuationWake(agentId, issueId));
+
+        expect(wake).not.toBeNull();
+        expect((await latestWakeRequest(agentId))?.reason).not.toBe("issue_rewake_throttled");
+      });
+    });
   });
 });
