@@ -356,6 +356,12 @@ import {
   isThrottleCandidateIssueRewake,
 } from "./issue-rewake-throttle.js";
 import {
+  AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT,
+  judgedCommentHistory,
+  progressCommentIds,
+  repeatedCommentCountsAsProgress,
+} from "./comment-first-line-progress.js";
+import {
   logActivity,
   publishPluginDomainEvent,
   type LogActivityInput,
@@ -27832,7 +27838,7 @@ export function heartbeatService(
                 (sampleRun) => sampleRun.id,
               );
               const progressRows = await tx
-                .select({ runId: activityLog.runId })
+                .select({ runId: activityLog.runId, action: activityLog.action })
                 .from(activityLog)
                 .where(
                   and(
@@ -27846,6 +27852,67 @@ export function heartbeatService(
                     ),
                   ),
                 );
+              // agentos#515: a run whose only progress is comments that repeat
+              // the first line of the agent's previous comment on this issue
+              // made no progress. Any other progress action still counts, and
+              // a run whose comment row cannot be found keeps counting.
+              const runIdsWithIssueProgress = new Set<string>();
+              const commentOnlyRunIds = new Set<string>();
+              for (const row of progressRows) {
+                if (!row.runId) continue;
+                if (row.action === "issue.comment_added") {
+                  commentOnlyRunIds.add(row.runId);
+                } else {
+                  runIdsWithIssueProgress.add(row.runId);
+                }
+              }
+              for (const runId of runIdsWithIssueProgress) {
+                commentOnlyRunIds.delete(runId);
+              }
+              if (commentOnlyRunIds.size > 0) {
+                if (repeatedCommentCountsAsProgress()) {
+                  for (const runId of commentOnlyRunIds) {
+                    runIdsWithIssueProgress.add(runId);
+                  }
+                } else {
+                  const agentCommentHistory = await tx
+                    .select({
+                      id: issueComments.id,
+                      body: issueComments.body,
+                      createdByRunId: issueComments.createdByRunId,
+                    })
+                    .from(issueComments)
+                    .where(
+                      and(
+                        eq(issueComments.companyId, agent.companyId),
+                        eq(issueComments.issueId, issue.id),
+                        eq(issueComments.authorAgentId, agentId),
+                      ),
+                    )
+                    .orderBy(
+                      desc(issueComments.createdAt),
+                      desc(issueComments.id),
+                    )
+                    .limit(AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT);
+                  const newCommentIds = progressCommentIds(agentCommentHistory);
+                  const runsWithFoundComment = new Set<string>();
+                  // The extra fetched row is only a predecessor; a run whose
+                  // comment is only there was not judged and keeps counting.
+                  for (const comment of judgedCommentHistory(agentCommentHistory)) {
+                    const runId = comment.createdByRunId;
+                    if (!runId || !commentOnlyRunIds.has(runId)) continue;
+                    runsWithFoundComment.add(runId);
+                    if (newCommentIds.has(comment.id)) {
+                      runIdsWithIssueProgress.add(runId);
+                    }
+                  }
+                  for (const runId of commentOnlyRunIds) {
+                    if (!runsWithFoundComment.has(runId)) {
+                      runIdsWithIssueProgress.add(runId);
+                    }
+                  }
+                }
+              }
               const lastRunFinishedAt =
                 recentTerminalRuns[0]?.finishedAt ?? null;
               const newInputRows = lastRunFinishedAt
@@ -27862,6 +27929,13 @@ export function heartbeatService(
                           activityLog.action,
                           ISSUE_NEW_INPUT_ACTIVITY_ACTIONS,
                         ),
+                        // agentos#515: a sampled run's own activity (often
+                        // written just after finished_at) is not new input.
+                        // A NULL run_id (user or system input) still counts.
+                        or(
+                          isNull(activityLog.runId),
+                          notInArray(activityLog.runId, sampleRunIds),
+                        ),
                         wakeCommentId && opts.requestedByActorType === "agent"
                           ? ne(activityLog.actorType, "agent")
                           : undefined,
@@ -27873,11 +27947,7 @@ export function heartbeatService(
               const throttleDecision = evaluateIssueRewakeThrottle({
                 now: throttleNow,
                 recentTerminalRuns,
-                runIdsWithIssueProgress: new Set(
-                  progressRows
-                    .map((row) => row.runId)
-                    .filter((runId): runId is string => Boolean(runId)),
-                ),
+                runIdsWithIssueProgress,
                 // For an agent comment wake, the query excludes agent-authored
                 // activity while preserving genuinely new user/system input.
                 // Presentation/author metadata therefore cannot smuggle human
