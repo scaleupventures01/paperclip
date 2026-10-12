@@ -76,6 +76,11 @@ import {
 import { appendHeartbeatRunEvent } from "../heartbeat-run-events.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { budgetService } from "../budgets.js";
+import {
+  AGENT_ISSUE_COMMENT_HISTORY_LIMIT,
+  progressCommentIds,
+  repeatedCommentCountsAsProgress,
+} from "../comment-first-line-progress.js";
 import { unadmittedChatWakeupCondition } from "../durable-chat-wakeup.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import {
@@ -1930,15 +1935,18 @@ export function recoveryService(
   // Returns true if the assignee posted a comment, OR any attachment was added
   // to the issue, within `windowMs`. Used to suppress false-positive recovery
   // issues for batch workflows that genuinely advance every heartbeat.
-  async function hasRecentVisibleProgress(
+  // agentos#515: a comment counts only if, within the window, at least one
+  // assignee comment's first line differs from that agent's comment just
+  // before it (which may be older than the window). The kill switch
+  // STRANDED_REPEATED_COMMENT_IS_PROGRESS=1 restores any-comment-counts.
+  async function hasRecentAssigneeCommentProgress(
     companyId: string,
     issueId: string,
     assigneeAgentId: string,
-    windowMs: number,
+    since: Date,
   ) {
-    const since = new Date(Date.now() - windowMs);
-    const [comment, attachment] = await Promise.all([
-      db
+    if (repeatedCommentCountsAsProgress()) {
+      const comment = await db
         .select({ id: issueComments.id })
         .from(issueComments)
         .where(
@@ -1950,7 +1958,47 @@ export function recoveryService(
           ),
         )
         .limit(1)
-        .then((rows) => rows[0] ?? null),
+        .then((rows) => rows[0] ?? null);
+      return Boolean(comment);
+    }
+    const history = await db
+      .select({
+        id: issueComments.id,
+        body: issueComments.body,
+        createdAt: issueComments.createdAt,
+      })
+      .from(issueComments)
+      .where(
+        and(
+          eq(issueComments.companyId, companyId),
+          eq(issueComments.issueId, issueId),
+          eq(issueComments.authorAgentId, assigneeAgentId),
+        ),
+      )
+      .orderBy(desc(issueComments.createdAt), desc(issueComments.id))
+      .limit(AGENT_ISSUE_COMMENT_HISTORY_LIMIT);
+    const newCommentIds = progressCommentIds(history);
+    return history.some(
+      (comment) =>
+        comment.createdAt.getTime() > since.getTime() &&
+        newCommentIds.has(comment.id),
+    );
+  }
+
+  async function hasRecentVisibleProgress(
+    companyId: string,
+    issueId: string,
+    assigneeAgentId: string,
+    windowMs: number,
+  ) {
+    const since = new Date(Date.now() - windowMs);
+    const [comment, attachment] = await Promise.all([
+      hasRecentAssigneeCommentProgress(
+        companyId,
+        issueId,
+        assigneeAgentId,
+        since,
+      ),
       db
         .select({ id: issueAttachments.id })
         .from(issueAttachments)
