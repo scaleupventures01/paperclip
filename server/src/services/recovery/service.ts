@@ -77,7 +77,7 @@ import { appendHeartbeatRunEvent } from "../heartbeat-run-events.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { budgetService } from "../budgets.js";
 import {
-  AGENT_ISSUE_COMMENT_HISTORY_LIMIT,
+  AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT,
   progressCommentIds,
   repeatedCommentCountsAsProgress,
 } from "../comment-first-line-progress.js";
@@ -1936,8 +1936,9 @@ export function recoveryService(
   // to the issue, within `windowMs`. Used to suppress false-positive recovery
   // issues for batch workflows that genuinely advance every heartbeat.
   // agentos#515: a comment counts only if, within the window, at least one
-  // assignee comment's first line differs from that agent's comment just
-  // before it (which may be older than the window). The kill switch
+  // assignee comment differs (commentProgressKey: first line, or the whole
+  // body for a JSON body) from that agent's comment just before it (which may
+  // be older than the window). The kill switch
   // STRANDED_REPEATED_COMMENT_IS_PROGRESS=1 restores any-comment-counts.
   async function hasRecentAssigneeCommentProgress(
     companyId: string,
@@ -1976,7 +1977,7 @@ export function recoveryService(
         ),
       )
       .orderBy(desc(issueComments.createdAt), desc(issueComments.id))
-      .limit(AGENT_ISSUE_COMMENT_HISTORY_LIMIT);
+      .limit(AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT);
     const newCommentIds = progressCommentIds(history);
     return history.some(
       (comment) =>
