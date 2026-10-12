@@ -15179,6 +15179,93 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       expect(result.continuationRequeued).toBe(1);
       expect(await readIssueStatus(issueId)).toBe("in_progress");
     });
+
+    // agentos#515 round 2. (a) Judging "is this comment new" over a bounded
+    // history must not count the oldest row in the bound as new just because
+    // its predecessor was cut off (SCAA-2117 posts about every 30 s, 58
+    // in-window comments vs a 50-row bound). (b) A comment whose trimmed body
+    // starts with "{" or "[" is compared on its whole body, whitespace-
+    // normalised, not on its first line ("{").
+    describe("515-r2", () => {
+      function jsonBody(decision: string) {
+        return `{\n  "schema": "agentos.delivery-manager-decision/v1",\n  "decision": "${decision}"\n}`;
+      }
+
+      it("515-r2 sweep-bound escalates when more in-window identical comments exist than the history bound", async () => {
+        const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+        const now = Date.now();
+        const rows: Array<typeof issueComments.$inferInsert> = [];
+        // Older identical comments, outside the 30 min window.
+        for (const minutesAgo of [122, 121, 120]) {
+          const createdAt = new Date(now - minutesAgo * 60 * 1000);
+          rows.push({
+            companyId,
+            issueId,
+            authorAgentId: agentId,
+            body: `${REPEATED_FIRST_LINE}\n\nchecked ${minutesAgo} min ago`,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        }
+        // 60 identical-first-line comments inside the window, 25 s apart
+        // (newest 10 s ago, oldest 1485 s ago, under the 1800 s window).
+        for (let index = 0; index < 60; index += 1) {
+          const createdAt = new Date(now - (10 + index * 25) * 1000);
+          rows.push({
+            companyId,
+            issueId,
+            authorAgentId: agentId,
+            body: `${REPEATED_FIRST_LINE}\n\nchecked at tick ${index}`,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        }
+        await db.insert(issueComments).values(rows);
+        const heartbeat = heartbeatService(db);
+
+        const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+        expect(result.recentProgressExempted).toBe(0);
+        expect(result.escalated).toBe(1);
+        expect(result.continuationRequeued).toBe(0);
+        expect(await readIssueStatus(issueId)).toBe("blocked");
+      });
+
+      it("515-r2 sweep-json-differs still exempts and re-queues when in-window JSON comment bodies differ", async () => {
+        const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+        await seedAgentComments(companyId, issueId, agentId, [
+          { body: jsonBody("hold: waiting on build receipt"), minutesAgo: 120 },
+          { body: jsonBody("route to QA"), minutesAgo: 20 },
+          { body: jsonBody("approve merge"), minutesAgo: 5 },
+        ]);
+        const heartbeat = heartbeatService(db);
+
+        const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+        expect(result.escalated).toBe(0);
+        expect(result.recentProgressExempted).toBe(1);
+        expect(result.continuationRequeued).toBe(1);
+        expect(await readIssueStatus(issueId)).toBe("in_progress");
+      });
+
+      it("515-r2 sweep-json-identical (control) escalates when the same JSON body repeats", async () => {
+        const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+        const body = jsonBody("hold: waiting on build receipt");
+        await seedAgentComments(companyId, issueId, agentId, [
+          { body, minutesAgo: 120 },
+          { body, minutesAgo: 20 },
+          { body, minutesAgo: 5 },
+        ]);
+        const heartbeat = heartbeatService(db);
+
+        const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+        expect(result.recentProgressExempted).toBe(0);
+        expect(result.escalated).toBe(1);
+        expect(result.continuationRequeued).toBe(0);
+        expect(await readIssueStatus(issueId)).toBe("blocked");
+      });
+    });
   });
 
   it("does not reconcile user-assigned work through the agent stranded-work recovery path", async () => {
