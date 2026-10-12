@@ -356,7 +356,8 @@ import {
   isThrottleCandidateIssueRewake,
 } from "./issue-rewake-throttle.js";
 import {
-  AGENT_ISSUE_COMMENT_HISTORY_LIMIT,
+  AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT,
+  judgedCommentHistory,
   progressCommentIds,
   repeatedCommentCountsAsProgress,
 } from "./comment-first-line-progress.js";
@@ -27892,10 +27893,12 @@ export function heartbeatService(
                       desc(issueComments.createdAt),
                       desc(issueComments.id),
                     )
-                    .limit(AGENT_ISSUE_COMMENT_HISTORY_LIMIT);
+                    .limit(AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT);
                   const newCommentIds = progressCommentIds(agentCommentHistory);
                   const runsWithFoundComment = new Set<string>();
-                  for (const comment of agentCommentHistory) {
+                  // The extra fetched row is only a predecessor; a run whose
+                  // comment is only there was not judged and keeps counting.
+                  for (const comment of judgedCommentHistory(agentCommentHistory)) {
                     const runId = comment.createdByRunId;
                     if (!runId || !commentOnlyRunIds.has(runId)) continue;
                     runsWithFoundComment.add(runId);
@@ -27925,6 +27928,13 @@ export function heartbeatService(
                         inArray(
                           activityLog.action,
                           ISSUE_NEW_INPUT_ACTIVITY_ACTIONS,
+                        ),
+                        // agentos#515: a sampled run's own activity (often
+                        // written just after finished_at) is not new input.
+                        // A NULL run_id (user or system input) still counts.
+                        or(
+                          isNull(activityLog.runId),
+                          notInArray(activityLog.runId, sampleRunIds),
                         ),
                         wakeCommentId && opts.requestedByActorType === "agent"
                           ? ne(activityLog.actorType, "agent")
