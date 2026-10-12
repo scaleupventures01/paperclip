@@ -26,6 +26,7 @@ import {
   agentRuntimeState,
   agentWakeupRequests,
   approvals,
+  assets,
   authUsers,
   budgetPolicies,
   chatActions,
@@ -55,6 +56,7 @@ import {
   heartbeatRuns,
   issueComments,
   issueApprovals,
+  issueAttachments,
   issueDocuments,
   issuePlanDecompositions,
   issueRecoveryActions,
@@ -15027,6 +15029,156 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       .where(eq(issues.id, issueId))
       .then((rows) => rows[0] ?? null);
     expect(issue?.status).toBe("blocked");
+  });
+
+  // agentos#515: a comment that only repeats the first line of the same
+  // agent's previous comment is not visible progress, so it must not exempt a
+  // repeated productive continuation from escalation.
+  describe("515 repeated identical comment does not exempt stranded escalation", () => {
+    const REPEATED_FIRST_LINE =
+      "waiting on SCAA-3598: its status is blocked after re-reading it before acting";
+    const KILL_SWITCH_ENV = "STRANDED_REPEATED_COMMENT_IS_PROGRESS";
+
+    async function seedRepeatedProductiveContinuation() {
+      return seedStrandedIssueFixture({
+        status: "in_progress",
+        runStatus: "succeeded",
+        retryReason: "issue_continuation_needed",
+        runSource: "issue.productive_terminal_continuation_recovery",
+        livenessState: "advanced",
+      });
+    }
+
+    async function seedAgentComments(
+      companyId: string,
+      issueId: string,
+      agentId: string,
+      comments: Array<{ body: string; minutesAgo: number }>,
+    ) {
+      for (const comment of comments) {
+        const createdAt = new Date(Date.now() - comment.minutesAgo * 60 * 1000);
+        await db.insert(issueComments).values({
+          companyId,
+          issueId,
+          authorAgentId: agentId,
+          body: comment.body,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+    }
+
+    // One identical comment before the exemption window and two inside it, so
+    // every in-window comment repeats its predecessor's first line. Later lines
+    // vary so the test proves FIRST-LINE comparison.
+    const repeatedComments = [
+      { body: `${REPEATED_FIRST_LINE}\n\nchecked at run 0`, minutesAgo: 120 },
+      { body: `${REPEATED_FIRST_LINE}\n\nchecked at run 1, blocker still open`, minutesAgo: 20 },
+      {
+        body: `  ${REPEATED_FIRST_LINE.replace(": its", ":   its")}  \nchecked at run 2 (different detail)`,
+        minutesAgo: 5,
+      },
+    ];
+
+    async function withKillSwitch<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+      const previous = process.env[KILL_SWITCH_ENV];
+      if (value === undefined) delete process.env[KILL_SWITCH_ENV];
+      else process.env[KILL_SWITCH_ENV] = value;
+      try {
+        return await fn();
+      } finally {
+        if (previous === undefined) delete process.env[KILL_SWITCH_ENV];
+        else process.env[KILL_SWITCH_ENV] = previous;
+      }
+    }
+
+    async function readIssueStatus(issueId: string) {
+      return db
+        .select({ status: issues.status })
+        .from(issues)
+        .where(eq(issues.id, issueId))
+        .then((rows) => rows[0]?.status ?? null);
+    }
+
+    it("515-B escalates to blocked when the assignee's in-window comments all repeat one first line", async () => {
+      const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+      await seedAgentComments(companyId, issueId, agentId, repeatedComments);
+      const heartbeat = heartbeatService(db);
+
+      const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+      expect(result.recentProgressExempted).toBe(0);
+      expect(result.escalated).toBe(1);
+      expect(result.continuationRequeued).toBe(0);
+      expect(await readIssueStatus(issueId)).toBe("blocked");
+    });
+
+    it("515-B-control still exempts and re-queues when the in-window comments have differing first lines", async () => {
+      const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+      await seedAgentComments(companyId, issueId, agentId, [
+        { body: "frame 01/08 generated\nshared settings", minutesAgo: 120 },
+        { body: "frame 02/08 generated\nshared settings", minutesAgo: 20 },
+        { body: "frame 03/08 generated\nshared settings", minutesAgo: 5 },
+      ]);
+      const heartbeat = heartbeatService(db);
+
+      const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+      expect(result.escalated).toBe(0);
+      expect(result.recentProgressExempted).toBe(1);
+      expect(result.continuationRequeued).toBe(1);
+      expect(await readIssueStatus(issueId)).toBe("in_progress");
+    });
+
+    it("515-B-attachment still exempts when identical comments come with an attachment in the window", async () => {
+      const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+      await seedAgentComments(companyId, issueId, agentId, repeatedComments);
+      const assetId = randomUUID();
+      await db.insert(assets).values({
+        id: assetId,
+        companyId,
+        provider: "local_disk",
+        objectKey: `test/${assetId}.png`,
+        contentType: "image/png",
+        byteSize: 4,
+        sha256: `sha256-${assetId}`,
+        originalFilename: "frame.png",
+        createdByAgentId: agentId,
+      });
+      try {
+        await db.insert(issueAttachments).values({
+          companyId,
+          issueId,
+          assetId,
+        });
+        const heartbeat = heartbeatService(db);
+
+        const result = await withKillSwitch(undefined, () => heartbeat.reconcileStrandedAssignedIssues());
+
+        expect(result.escalated).toBe(0);
+        expect(result.recentProgressExempted).toBe(1);
+        expect(result.continuationRequeued).toBe(1);
+        expect(await readIssueStatus(issueId)).toBe("in_progress");
+      } finally {
+        // The shared afterEach does not clear assets; deleting the asset
+        // cascades to its attachment so company cleanup stays clean.
+        await db.delete(issueAttachments).where(eq(issueAttachments.assetId, assetId));
+        await db.delete(assets).where(eq(assets.id, assetId));
+      }
+    });
+
+    it("515-D kill switch STRANDED_REPEATED_COMMENT_IS_PROGRESS=1 restores the comment exemption in the stranded sweep", async () => {
+      const { companyId, agentId, issueId } = await seedRepeatedProductiveContinuation();
+      await seedAgentComments(companyId, issueId, agentId, repeatedComments);
+      const heartbeat = heartbeatService(db);
+
+      const result = await withKillSwitch("1", () => heartbeat.reconcileStrandedAssignedIssues());
+
+      expect(result.escalated).toBe(0);
+      expect(result.recentProgressExempted).toBe(1);
+      expect(result.continuationRequeued).toBe(1);
+      expect(await readIssueStatus(issueId)).toBe("in_progress");
+    });
   });
 
   it("does not reconcile user-assigned work through the agent stranded-work recovery path", async () => {
