@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server
+
+[14:41:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"fedde99c-c03d-4c09-81f2-710794369baa","agentId":"93e17c4c-be96-4192-8092-9437230e6846","runId":"5c778a0b-eb03-4022-9147-b056e87af23a"}[39m
+[14:41:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"fedde99c-c03d-4c09-81f2-710794369baa","agentId":"93e17c4c-be96-4192-8092-9437230e6846","runId":"54e92252-1d71-4eae-83a2-0d98bc470118"}[39m
+[14:41:41] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"95c2a469-e2f1-4fff-b648-9f48131e8b86"}[39m
+    err: {
+      "type": "Error",
+      "message": "continuation_source_context_missing",
+      "stack":
+          Error: continuation_source_context_missing
+              at buildExecutionContinuation (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/execution-continuation.ts:208:11)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/heartbeat.ts:20786:13)
+    }
+[14:41:41] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"8a75b79c-e45d-4572-93c3-7445e4872c92"}[39m
+    err: {
+      "type": "Error",
+      "message": "continuation_source_context_missing",
+      "stack":
+          Error: continuation_source_context_missing
+              at buildExecutionContinuation (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/execution-continuation.ts:208:11)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/heartbeat.ts:20786:13)
+    }
+[14:41:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"7b330099-5f29-45b1-80bb-baac67270dc0","agentId":"9830dbb2-3bb2-41c0-b445-6b97d1673a27","runId":"438e0247-0a50-4fbd-91ec-339123d9ad2f"}[39m
+[14:41:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"7b330099-5f29-45b1-80bb-baac67270dc0","agentId":"9830dbb2-3bb2-41c0-b445-6b97d1673a27","runId":"815f7695-2fd2-42bb-ab28-aa4eb59397c8"}[39m
+[14:41:44] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"54501f42-4f0a-4690-8700-39b13cdab70f","agentId":"360515ad-6899-435f-92a1-0c085e8ac910","runId":"df40ea73-6cf9-472c-ad4c-05e2f71ed212"}[39m
+[14:41:44] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"54501f42-4f0a-4690-8700-39b13cdab70f","agentId":"360515ad-6899-435f-92a1-0c085e8ac910","runId":"3ed8e5c0-2d77-4b48-9420-bfd9a68df307"}[39m
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  14:41:11
+   Duration  34.72s (transform 11.17s, setup 461ms, import 21.70s, tests 10.83s, environment 0ms)
+
+exit=0

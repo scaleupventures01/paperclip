@@ -1,0 +1,83 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server
+
+[14:43:37] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"0b6529e3-0030-4a89-8972-d974e45e54c9","agentId":"0fcd837b-bee9-4e93-bd2f-c9897df60aec","runId":"f2a2ce81-4710-4571-869c-c1be28afa536"}[39m
+[14:43:37] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"0b6529e3-0030-4a89-8972-d974e45e54c9","agentId":"0fcd837b-bee9-4e93-bd2f-c9897df60aec","runId":"09383825-ad2a-4c84-b5b3-32470d1b2ceb"}[39m
+[14:43:38] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"b7dd9915-4d28-4d0a-8347-a75631f02bc6","agentId":"f7c6e10c-86e8-4515-aac1-117ec6fe1631","runId":"ebfc55c3-e555-40a8-8fc1-05ed7b24aca0"}[39m
+[14:43:38] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"b7dd9915-4d28-4d0a-8347-a75631f02bc6","agentId":"f7c6e10c-86e8-4515-aac1-117ec6fe1631","runId":"ce8a1315-b0c0-41e5-9315-7a6ea27721fa"}[39m
+ × src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-A throttles issue_continuation_needed when every recent run only repeated the same comment first line 1317ms
+   → expected 'issue_continuation_needed' to be 'issue_rewake_throttled' // Object.is equality
+[14:43:39] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"a5c85eb1-c7b6-4d00-bddc-6107a530deec","agentId":"b13c69a2-50be-4de1-bb2e-ac504f88c7e2","runId":"0fcbb3a0-0af0-4167-ab88-1e38143116a5"}[39m
+[14:43:39] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"a5c85eb1-c7b6-4d00-bddc-6107a530deec","agentId":"b13c69a2-50be-4de1-bb2e-ac504f88c7e2","runId":"9fe5303d-3c17-4ade-ad2e-726bff013cf1"}[39m
+ ✓ src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-A-control does not throttle when each run's comment has a different first line 709ms
+ ✓ src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-C still counts a real status change in a repeated-comment run as progress 1186ms
+[14:43:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3318d9c5-11dd-4dbd-beda-fc61af5c89c2","agentId":"6b28933d-e0df-42c6-92d7-5e6fbf4a567b","runId":"b26290d6-7eeb-4c86-8103-527ca0384a44"}[39m
+[14:43:41] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3318d9c5-11dd-4dbd-beda-fc61af5c89c2","agentId":"6b28933d-e0df-42c6-92d7-5e6fbf4a567b","runId":"5a121ebd-836b-4b9e-b5a6-05d050dda5bf"}[39m
+ ✓ src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-C still counts a child issue created in a repeated-comment run as progress 1659ms
+[14:43:41] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"5801ed03-0596-4dc1-8693-a8ae084a7863","agentId":"37caeb52-c325-4b14-90e2-2ebf583a175b","runId":"b25b4ff1-2a78-40a2-8248-4a31bd955e2e"}[39m
+[14:43:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"5801ed03-0596-4dc1-8693-a8ae084a7863","agentId":"37caeb52-c325-4b14-90e2-2ebf583a175b","runId":"cec20eca-7a49-4166-b2ab-0c2027e2cdaa"}[39m
+ ✓ src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-D kill switch STRANDED_REPEATED_COMMENT_IS_PROGRESS=1 restores comment-as-progress in the throttle 1896ms
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > skips event-free re-wakes after consecutive no-progress runs and admits them again on new input
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > does not throttle system comment-driven wakes even during a no-progress streak
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > keeps agent comments throttled without hiding genuinely new human input
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > keeps agent-authored explicit resume comments inside the no-progress cooldown
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > does not throttle the wake that follows a failed run
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > does not throttle when a recent run produced issue-visible progress
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > does not count progress on another issue toward the current issue
+ ↓ src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle > counts a long-running session that finished inside the lookback window
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > isThrottleCandidateIssueRewake > throttles state-poll reasons and reason-less invokes 5ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > isThrottleCandidateIssueRewake > keeps agent comments throttle-eligible without granting human comment privileges 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > isThrottleCandidateIssueRewake > never throttles trusted explicit escalation wakes 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > isThrottleCandidateIssueRewake > keeps agent-authored explicit resume comments throttle-eligible 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > isThrottleCandidateIssueRewake > passes event-shaped wake reasons through 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > computeIssueRewakeCooldownMs > starts at the base cooldown and doubles per extra no-progress run, capped 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > allows when there is no run history 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > allows below the no-progress threshold 2ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > blocks inside the cooldown once the streak reaches the threshold 4ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > allows again after the cooldown elapses 1ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > escalates the cooldown as the streak grows 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > resets at the most recent run with issue-visible progress 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > does not delay recovery after a failed run 0ms
+ ✓ src/__tests__/issue-rewake-throttle.test.ts > evaluateIssueRewakeThrottle > allows when new issue input landed after the last run 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-issue-rewake-throttle.test.ts > heartbeat issue rewake throttle
+Error: Hook timed out in 20000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ src/__tests__/heartbeat-issue-rewake-throttle.test.ts:65:3
+     63|   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatab…
+     64|
+     65|   beforeAll(async () => {
+       |   ^
+     66|     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-heartb…
+     67|     db = createDb(tempDb.connectionString);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts > heartbeat issue rewake throttle (515) > 515 repeated identical comment is not progress > 515-A throttles issue_continuation_needed when every recent run only repeated the same comment first line
+AssertionError: expected 'issue_continuation_needed' to be 'issue_rewake_throttled' // Object.is equality
+
+Expected: "issue_rewake_throttled"
+Received: "issue_continuation_needed"
+
+ ❯ src/__tests__/heartbeat-issue-rewake-throttle-515.test.ts:346:30
+    344|
+    345|       const latest = await latestWakeRequest(agentId);
+    346|       expect(latest?.reason).toBe("issue_rewake_throttled");
+       |                              ^
+    347|       expect(latest?.status).toBe("skipped");
+    348|       expect(wake).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  1 failed | 18 passed | 8 skipped (27)
+   Start at  14:43:09
+   Duration  72.10s (transform 18.66s, setup 1.31s, import 40.53s, tests 27.35s, environment 0ms)
+
+exit=1

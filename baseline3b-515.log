@@ -1,0 +1,25 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server
+
+[14:42:37] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"22565beb-915c-4f29-ae67-583cf1f19b2d"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/wt-515/server/src/services/heartbeat.ts:20659:29)
+      "status": 409
+    }
+[14:42:40] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"22565beb-915c-4f29-ae67-583cf1f19b2d","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 292 skipped (294)
+   Start at  14:41:48
+   Duration  59.76s (transform 26.40s, setup 77ms, import 35.27s, tests 23.86s, environment 0ms)
+
+exit=0
