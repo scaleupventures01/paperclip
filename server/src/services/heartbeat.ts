@@ -26477,6 +26477,42 @@ export function heartbeatService(
         },
       });
     };
+    // agentos#596: the invokability check below reads the agent before the
+    // queueing transaction opens, so a pause can commit in between. Each
+    // queueing transaction calls this right before it creates queued rows. It
+    // re-reads the status with the transaction and, when the agent is no longer
+    // directly invokable, records a skipped request instead. Returns true when
+    // the caller must not queue.
+    const skipWhenAgentNoLongerInvokable = async (tx: Db) => {
+      const current = await tx
+        .select({ status: agents.status })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .then((rows) => rows[0] ?? null);
+      if (current && !DIRECT_NON_INVOKABLE_STATUSES.has(current.status)) {
+        return false;
+      }
+      // A saved execution-wait request stays deferred; the next admission
+      // attempt rejects it at the invokability check.
+      if (current && !executionWaitRequestId) {
+        await tx.insert(agentWakeupRequests).values({
+          ...durableReceiptFields,
+          companyId: agent.companyId,
+          agentId,
+          source,
+          triggerDetail,
+          reason: "agent.not_invokable",
+          payload,
+          status: "skipped",
+          requestedByActorType: opts.requestedByActorType ?? null,
+          requestedByActorId: opts.requestedByActorId ?? null,
+          idempotencyKey: opts.idempotencyKey ?? null,
+          error: "Agent is not invokable in its current state",
+          finishedAt: new Date(),
+        });
+      }
+      return true;
+    };
 
     const schedulingSuppression = await getSchedulingSuppression();
     if (schedulingSuppression.suppressed) {
@@ -28040,6 +28076,14 @@ export function heartbeatService(
             }
           }
 
+          // Re-check before the queueing tail. This holds only the issue row
+          // lock; the plain agent read takes no agent lock, so it cannot
+          // deadlock with a pause that updates the agent and then its issues.
+          // It sits ahead of admitExplicitNativeContinuation, which writes.
+          if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+            return { kind: "skipped" as const };
+          }
+
           const dailyCapBlock = await getHeartbeatDailyCapBlock(
             agent,
             policy,
@@ -28388,6 +28432,11 @@ export function heartbeatService(
       await tx.execute(
         sql`select id from agents where id = ${agentId} and company_id = ${agent.companyId} for update`,
       );
+      // The agent row is locked above; re-read its status rather than trust
+      // the object read before this transaction (agentos#596).
+      if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+        return { kind: "skipped" as const };
+      }
 
       const dailyCapBlock = await getHeartbeatDailyCapBlock(
         agent,
