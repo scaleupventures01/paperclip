@@ -5659,6 +5659,13 @@ export function agentRoutes(
       return;
     }
 
+    // A paused agent holds no queued or running work, matching
+    // POST /agents/:id/pause. Run on every PATCH that leaves the agent paused,
+    // including a repeat, so it also sweeps rows that raced in (agentos#596).
+    if (agent.status === "paused") {
+      await heartbeat.cancelActiveForAgent(id);
+    }
+
     await logActivity(db, {
       companyId: agent.companyId,
       actorType: actor.actorType,
