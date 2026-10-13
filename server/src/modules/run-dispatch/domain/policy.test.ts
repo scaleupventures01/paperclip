@@ -62,6 +62,7 @@ function baseStalenessFacts(): QueuedRunFacts {
     continuationParkApplies: false,
     continuationParksExecutor: false,
     continuationSummaryBody: null,
+    continuationDurableWaitReason: null,
     wakeReason: null,
     retryReason: null,
     reviewParticipant: NO_PARTICIPANT,
@@ -345,6 +346,15 @@ describe("decideQueuedRunStaleness", () => {
         continuationParkApplies: true,
         continuationParksExecutor: true,
         continuationSummaryBody: "Waiting for reviewer approval before continuing.",
+        wakeReason: "issue_continuation_needed",
+      } satisfies Partial<QueuedRunFacts>,
+      errorCode: "issue_continuation_waiting_on_review",
+    },
+    {
+      name: "issue_continuation_waiting_on_review (canonical durable wait case)",
+      overrides: {
+        continuationParkApplies: true,
+        continuationDurableWaitReason: "child",
         wakeReason: "issue_continuation_needed",
       } satisfies Partial<QueuedRunFacts>,
       errorCode: "issue_continuation_waiting_on_review",

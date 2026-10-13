@@ -698,6 +698,12 @@ If a repository is detached or its source configuration changes, its previous ta
 
 Agent, project, environment, secret, skill, and workspace config edits are sampled at the next run boundary. A heartbeat that is already running finishes with the config it started with.
 
+### Provider usage circuit breaker
+
+Immediately before a provider handoff, Paperclip atomically admits the run against rolling provider limits. The default GLM policy enforces both a 30-minute burst window and a 6-hour accumulation window across issue, agent, and company scopes. Admissions and blocks are recorded on the heartbeat run under `contextSnapshot.providerUsageAdmission`; a blocked run ends as `cancelled` with `errorCode=provider_usage_limited`, no provider call is made, and the agent enters the non-invokable `error` state for operator review. This durable hold prevents timers and recovery wakes from generating an endless stream of blocked runs. Comment IDs, wake IDs, and retry reasons do not create a fresh allowance.
+
+Override the complete policy list with `PAPERCLIP_PROVIDER_USAGE_LIMITS_JSON`. The value must be a JSON array whose entries contain `providerKey`, `windowMs`, `issueMaxRuns`, `issueMaxTokens`, `agentMaxRuns`, `agentMaxTokens`, `companyMaxRuns`, and `companyMaxTokens`, all with positive integer limits. Invalid or empty configuration fails closed to the built-in GLM policies. Providers without a matching policy remain unaffected. Set an agent's `adapterConfig.usageProviderKey` only when its billing provider cannot be derived from its provider/model configuration.
+
 When effective run config changes, Paperclip may intentionally skip a saved adapter session, refresh persisted workspace runtime config, replace a reused execution workspace, or avoid reusing a sandbox/environment lease. Fresh execution can lose adapter-specific session, workspace, or sandbox state; correctness of the next run's config takes priority over continuity. Plain environment values affect freshness through value hashes; run result JSON and workspace operation logs expose only the non-sensitive freshness decision categories, without storing secret values, full env maps, provider credentials, or private path details.
 
 ## Workspace Git Scan Protection

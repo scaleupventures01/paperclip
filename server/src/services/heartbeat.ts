@@ -34,6 +34,7 @@ import {
 } from "./adapter-execution-control.js";
 import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
+import { admitProviderUsage, resolveUsageProviderKey } from "./provider-usage-breaker.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
@@ -22353,6 +22354,57 @@ export function heartbeatService(
           ))
         )
           return { dispatched: false };
+        const providerUsageAdmission = await admitProviderUsage({
+          db,
+          runId: run.id,
+          companyId: run.companyId,
+          agentId: run.agentId,
+          issueId,
+          providerKey: resolveUsageProviderKey({
+            adapterType: agent.adapterType,
+            adapterConfig: parseObject(agent.adapterConfig),
+          }),
+        });
+        if (!providerUsageAdmission.decision.allowed) {
+          const block = providerUsageAdmission.decision;
+          const reason =
+            `Provider usage circuit breaker blocked ${providerUsageAdmission.providerKey} work: ` +
+            `${block.scope} ${block.metric} reached ${block.observed} of ${block.limit} in the rolling window`;
+          await setRunStatus(run.id, "cancelled", {
+            finishedAt: new Date(),
+            error: reason,
+            errorCode: "provider_usage_limited",
+          });
+          await setWakeupStatus(run.wakeupRequestId, "cancelled", {
+            finishedAt: new Date(),
+            error: reason,
+          });
+          const limitedRun = await getRun(run.id);
+          if (limitedRun) {
+            await appendRunEvent(limitedRun, {
+              eventType: "provider.usage_limited",
+              stream: "system",
+              level: "warn",
+              message: reason,
+              payload: {
+                providerKey: providerUsageAdmission.providerKey,
+                scope: block.scope,
+                metric: block.metric,
+                observed: block.observed,
+                limit: block.limit,
+              },
+            });
+            await releaseIssueExecutionAndPromote(limitedRun, {
+              suppressImmediateRecovery: true,
+            });
+          }
+          // Keep the circuit open after the blocked run. Returning the agent to
+          // idle would let every timer or recovery wake create another blocked
+          // run indefinitely; error is the existing non-invokable operator-hold
+          // state and preserves the reason on the agent record.
+          await finalizeAgentStatus(agent.id, "failed", reason);
+          return { dispatched: false };
+        }
         if (
           !issueId ||
           (!isResolvedInteractionContinuationWakeContext(context) &&

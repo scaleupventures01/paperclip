@@ -119,6 +119,7 @@ function createFakeTransaction(overrides: Partial<WakeQueueTransaction> = {}): W
     claimDeferredWakeForPromotion: vi.fn(async () => true),
     finalizePromotedWake: vi.fn(async (input) => runSummary(input.wakeId)),
     hasExistingExecutionPath: vi.fn(async () => false),
+    getDurableWaitingPath: vi.fn(async () => ({ hasDurableWaitingPath: false, durablePathReason: null })),
     hasExplicitBlockerPath: vi.fn(async () => false),
     isAutomaticRecoverySuppressedByPauseHold: vi.fn(async () => false),
     isImmediateRecoverySourceBlocked: vi.fn(async () => false),
@@ -658,6 +659,26 @@ describe("releaseIssueExecution", () => {
     expect(queueCall.responsibleUserId).toBe("resolved-user");
     expect(queueCall.contextSnapshot).toBe(resolveCall.contextSnapshot);
   });
+
+  it.each(["child", "interaction", "approval", "monitor", "execution_stage"])(
+    "does not queue immediate recovery while a canonical %s wait owns the next action",
+    async (durablePathReason) => {
+      const queueImmediateRecoveryRun = vi.fn(async () => runSummary("immediate-recovery"));
+      const transaction = createFakeTransaction({
+        getDurableWaitingPath: vi.fn(async () => ({ hasDurableWaitingPath: true, durablePathReason })),
+        queueImmediateRecoveryRun,
+      });
+      const releaseIssueExecution = createReleaseIssueExecution({
+        issueLock: createFakeIssueLock(createFakeHost(), transaction),
+        recovery: createFakeRecovery(),
+      });
+
+      const result = await releaseIssueExecution({ companyId: RUN.companyId, runId: RUN.id, now: new Date() });
+
+      expect(result.outcome.kind).toBe("released");
+      expect(queueImmediateRecoveryRun).not.toHaveBeenCalled();
+    },
+  );
 
   it("throws WakeQueueApplicationError with code responsible_user_unresolved for a recovery run, without queuing it", async () => {
     const transaction = createFakeTransaction();

@@ -198,6 +198,7 @@ export function decideWakeOutcome(facts: DeferredWakeOutcomeFacts): DeferredWake
 /** Shared between the review-participant and immediate branches; the caller derives every field from the same expression regardless of which branch applies. */
 export type ReleaseRecoverySharedFacts = {
   hasExistingExecutionPath: boolean;
+  hasDurableWaitingPath: boolean;
   hasPersistedMonitor: boolean;
   suppressedByPauseHold: boolean;
   isStrandedRecoveryOrigin: boolean;
@@ -401,7 +402,12 @@ export function decideReleaseRecovery(facts: ReleaseRecoveryFacts): ReleaseRecov
   if (immediate.isDispositionRepairRetry) return { kind: "released" };
   if (!immediate.applies) return { kind: "released" };
   if (facts.suppressImmediateRecovery) return { kind: "released" };
-  if (shared.hasExistingExecutionPath || shared.hasPersistedMonitor || immediate.hasExplicitBlockerPath) {
+  if (
+    shared.hasExistingExecutionPath ||
+    shared.hasDurableWaitingPath ||
+    shared.hasPersistedMonitor ||
+    immediate.hasExplicitBlockerPath
+  ) {
     return { kind: "released" };
   }
   if (shared.suppressedByPauseHold) return { kind: "released" };
