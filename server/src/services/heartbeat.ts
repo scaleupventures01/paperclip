@@ -17286,6 +17286,18 @@ export function heartbeatService(
       await cancelRunInternal(
         run.id,
         `Cancelled because the agent is not invokable: ${invokability.reason}`,
+        invokability.reason === "paused" ? { errorCode: "agent_paused" } : {},
+      );
+      return null;
+    }
+    // Every queued run reaches execution through this claim, whichever
+    // producer inserted it, so the fleet release gate is enforced here too.
+    const claimFleetGate = evaluateFleetReleaseGate(run.agentId);
+    if (!claimFleetGate.allowed) {
+      await cancelQueuedRunAtClaim(
+        run,
+        "fleet_release_gate_not_allowed",
+        `Cancelled before start: ${claimFleetGate.message}`,
       );
       return null;
     }
@@ -17968,6 +17980,61 @@ export function heartbeatService(
         issueId,
         unresolvedBlockerIssueIds,
       },
+    });
+
+    return cancelled;
+  }
+
+  // agentos#596: cancel a queued run at claim, before any adapter work, the
+  // same way cancelQueuedRunForBlockedDependencies does (run cancelled,
+  // wakeup skipped, issue execution lock released).
+  async function cancelQueuedRunAtClaim(
+    run: typeof heartbeatRuns.$inferSelect,
+    errorCode: "fleet_release_gate_not_allowed" | "agent_paused",
+    reason: string,
+  ) {
+    const now = new Date();
+    const cancelled = await setRunStatus(run.id, "cancelled", {
+      finishedAt: now,
+      error: reason,
+      errorCode,
+      resultJson: {
+        ...parseObject(run.resultJson),
+        stopReason: errorCode,
+      },
+    });
+    if (!cancelled) return null;
+
+    await setWakeupStatus(run.wakeupRequestId, "skipped", {
+      finishedAt: now,
+      error: reason,
+    });
+
+    const issueId = readNonEmptyString(parseObject(run.contextSnapshot).issueId);
+    if (issueId) {
+      await db
+        .update(issues)
+        .set({
+          executionRunId: null,
+          executionAgentNameKey: null,
+          executionLockedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(issues.companyId, run.companyId),
+            eq(issues.id, issueId),
+            eq(issues.executionRunId, run.id),
+          ),
+        );
+    }
+
+    await appendRunEvent(cancelled, {
+      eventType: "lifecycle",
+      stream: "system",
+      level: "warn",
+      message: reason,
+      payload: { errorCode },
     });
 
     return cancelled;
@@ -19853,6 +19920,37 @@ export function heartbeatService(
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
       if (!agent) return [];
+      // agentos#596: a queued run for an agent the fleet release gate excludes,
+      // or for a paused agent, must not sit waiting for a slot. Cancel every
+      // such queued run here, before the slot check, so none can start later.
+      const startFleetGate = evaluateFleetReleaseGate(agentId);
+      const queuedHold = !startFleetGate.allowed
+        ? {
+            errorCode: "fleet_release_gate_not_allowed" as const,
+            reason: `Cancelled before start: ${startFleetGate.message}`,
+          }
+        : agent.status === "paused"
+          ? {
+              errorCode: "agent_paused" as const,
+              reason: "Cancelled before start because the agent is paused",
+            }
+          : null;
+      if (queuedHold) {
+        const heldRuns = await db
+          .select()
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.agentId, agentId),
+              eq(heartbeatRuns.status, "queued"),
+              cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
+            ),
+          );
+        for (const heldRun of heldRuns) {
+          await cancelQueuedRunAtClaim(heldRun, queuedHold.errorCode, queuedHold.reason);
+        }
+        return [];
+      }
       const invokability = await getAgentInvokability(agent);
       if (!invokability.invokable) {
         if (shouldCancelRunsForNonInvokableAgent(invokability)) {
