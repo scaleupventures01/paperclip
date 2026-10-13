@@ -29,6 +29,7 @@ import { evaluateAgentInvokabilityFromDb } from "../../../services/agent-invokab
 import { issueTreeControlService, isVerifiedIssueTreeControlInteractionWake } from "../../../services/issue-tree-control.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "../../../services/recovery/pause-hold-guard.js";
 import { classifyContinuationFailure } from "../../../services/recovery/service.js";
+import { collectDispositionRepairSourceState } from "../../../services/recovery/disposition-repair.js";
 import { issueService } from "../../../services/issues.js";
 import { issueRecoveryActionService } from "../../../services/issue-recovery-actions.js";
 import { readContinuationAttempt } from "../../../services/recovery/run-liveness-continuations.js";
@@ -516,6 +517,21 @@ function buildTransaction(tx: Db, deps: WakeQueuePostgresAdapterDeps, db: Db, ru
         .limit(1)
         .then((rows) => rows[0] ?? null);
       return row !== null;
+    },
+
+    async getDurableWaitingPath({ companyId, issueId }) {
+      const issue = await tx
+        .select()
+        .from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId)))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (!issue) return { hasDurableWaitingPath: false, durablePathReason: null };
+      const state = await collectDispositionRepairSourceState(tx, { issue });
+      return {
+        hasDurableWaitingPath: state.hasDurableWaitingPath,
+        durablePathReason: state.durablePathReason,
+      };
     },
 
     async hasExplicitBlockerPath({ companyId, issueId }) {

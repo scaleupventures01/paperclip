@@ -159,6 +159,8 @@ export type QueuedRunFacts = {
   /** The pre-classified verdict on whatever continuation summary body applies; only meaningful when continuationParkApplies is true. */
   continuationParksExecutor: boolean;
   continuationSummaryBody: string | null;
+  /** Canonical typed wait that appeared after this generic continuation was queued. */
+  continuationDurableWaitReason: string | null;
   wakeReason: string | null;
   retryReason: string | null;
 
@@ -559,6 +561,20 @@ export function decideQueuedRunStaleness(
         wakeReason: facts.wakeReason,
         retryReason: facts.retryReason,
         nextAction: facts.continuationSummaryBody,
+      },
+    };
+  }
+
+  if (facts.continuationParkApplies && facts.continuationDurableWaitReason) {
+    return {
+      stale: true,
+      errorCode: "issue_continuation_waiting_on_review",
+      reason: "Cancelled because a durable wait owns the next action before the generic continuation could start",
+      details: {
+        issueId: facts.issueId,
+        wakeReason: facts.wakeReason,
+        retryReason: facts.retryReason,
+        durablePathReason: facts.continuationDurableWaitReason,
       },
     };
   }

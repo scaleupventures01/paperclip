@@ -292,6 +292,7 @@ const baseReleaseRecoveryFacts: ReleaseRecoveryFacts = {
   },
   shared: {
     hasExistingExecutionPath: false,
+    hasDurableWaitingPath: false,
     hasPersistedMonitor: false,
     suppressedByPauseHold: false,
     isStrandedRecoveryOrigin: false,
@@ -326,6 +327,15 @@ describe("decideReleaseRecovery", () => {
         ...baseReleaseRecoveryFacts,
         immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
         shared: { ...baseReleaseRecoveryFacts.shared, hasExistingExecutionPath: true },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: immediate recovery applies but a canonical durable wait owns the next action",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: { ...baseReleaseRecoveryFacts.shared, hasDurableWaitingPath: true },
       },
       expected: { kind: "released" },
     },

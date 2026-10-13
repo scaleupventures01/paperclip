@@ -214,6 +214,7 @@ import {
   redactDetectedSuccessfulRunProgressSummaryForBoard,
   redactSuccessfulRunHandoffEvidence,
 } from "../services/heartbeat.ts";
+import { admitProviderUsage } from "../services/provider-usage-breaker.ts";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.ts";
 import {
   claimNativeRestartRecoveries,
@@ -1329,7 +1330,11 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
       returnOwnerAgentId: input.returnOwnerAgentId ?? input.agentId,
       cause: input.cause ?? "stranded_assigned_issue",
       attemptCount: 1,
-      maxAttempts: null,
+      maxAttempts:
+        (input.cause ?? "stranded_assigned_issue") ===
+        SUCCESSFUL_RUN_MISSING_STATE_REASON
+          ? 5
+          : null,
     });
     expect(action.evidence).toMatchObject({
       sourceIssueId: input.issueId,
@@ -1483,6 +1488,170 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
 
     return { companyId, agentId, runId, wakeupRequestId, issueId };
   }
+
+  it("blocks the seventh GLM issue run at the final provider-dispatch boundary", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    await db.update(agents).set({
+      adapterType: "opencode_local",
+      adapterConfig: { provider: "opencode", model: "zai/glm-5.3-flash" },
+    }).where(eq(agents.id, agentId));
+    await db.update(heartbeatRuns).set({ createdAt: now, updatedAt: now }).where(eq(heartbeatRuns.id, runId));
+    await db.insert(heartbeatRuns).values(Array.from({ length: 6 }, (_, index) => ({
+      id: randomUUID(),
+      companyId,
+      agentId,
+      invocationSource: "recovery",
+      status: "succeeded",
+      startedAt: new Date(now.getTime() - (index + 1) * 1_000),
+      finishedAt: new Date(now.getTime() - index * 1_000),
+      contextSnapshot: {
+        issueId,
+        providerUsageAdmission: {
+          status: "admitted",
+          providerKey: "glm",
+          admittedAt: new Date(now.getTime() - (index + 1) * 1_000).toISOString(),
+        },
+      },
+      createdAt: new Date(now.getTime() - (index + 1) * 1_000),
+      updatedAt: now,
+    })));
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId);
+    await heartbeat.waitForRunExecutionDrain(runId);
+
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+    expect(await heartbeat.getRun(runId)).toMatchObject({
+      status: "cancelled",
+      errorCode: "provider_usage_limited",
+      contextSnapshot: {
+        providerUsageAdmission: {
+          status: "blocked",
+          providerKey: "glm",
+          block: { scope: "issue", metric: "runs", observed: 6, limit: 6 },
+        },
+      },
+    });
+    expect(await db.select({ status: agents.status, errorReason: agents.errorReason })
+      .from(agents).where(eq(agents.id, agentId)).then((rows) => rows[0])).toMatchObject({
+      status: "error",
+      errorReason: expect.stringContaining("Provider usage circuit breaker blocked glm work"),
+    });
+  });
+
+  it("atomically admits only one of two concurrent GLM runs competing for the final issue slot", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const competingRunId = randomUUID();
+    const now = new Date();
+    await db.update(heartbeatRuns).set({ createdAt: now, updatedAt: now }).where(eq(heartbeatRuns.id, runId));
+    await db.insert(heartbeatRuns).values([
+      ...Array.from({ length: 5 }, (_, index) => ({
+        id: randomUUID(), companyId, agentId, invocationSource: "recovery", status: "succeeded",
+        contextSnapshot: { issueId, providerUsageAdmission: { status: "admitted", providerKey: "glm" } },
+        createdAt: new Date(now.getTime() - (index + 1) * 1_000), updatedAt: now,
+      })),
+      { id: competingRunId, companyId, agentId, invocationSource: "recovery", status: "running",
+        contextSnapshot: { issueId }, createdAt: now, updatedAt: now },
+    ]);
+
+    const results = await Promise.all([
+      admitProviderUsage({ db, runId, companyId, agentId, issueId, providerKey: "glm", now }),
+      admitProviderUsage({ db, runId: competingRunId, companyId, agentId, issueId, providerKey: "glm", now }),
+    ]);
+
+    expect(results.filter((result) => result.decision.allowed)).toHaveLength(1);
+    expect(results.filter((result) => !result.decision.allowed)).toHaveLength(1);
+    expect(results.find((result) => !result.decision.allowed)?.decision).toMatchObject({
+      scope: "issue", metric: "runs", observed: 6, limit: 6,
+    });
+  });
+
+  it("blocks slow GLM accumulation across six hours even when the 30-minute burst window is clear", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    await db.update(heartbeatRuns).set({ createdAt: now, updatedAt: now }).where(eq(heartbeatRuns.id, runId));
+    await db.insert(heartbeatRuns).values(Array.from({ length: 10 }, (_, index) => {
+      const admittedAt = new Date(now.getTime() - (index + 1) * 31 * 60 * 1000);
+      return {
+        id: randomUUID(), companyId, agentId, invocationSource: "recovery", status: "succeeded" as const,
+        contextSnapshot: {
+          issueId,
+          providerUsageAdmission: {
+            status: "admitted",
+            providerKey: "glm",
+            admittedAt: admittedAt.toISOString(),
+          },
+        },
+        createdAt: admittedAt,
+        updatedAt: admittedAt,
+      };
+    }));
+
+    const result = await admitProviderUsage({
+      db,
+      runId,
+      companyId,
+      agentId,
+      issueId,
+      providerKey: "glm",
+      now,
+    });
+
+    expect(result.policy?.windowMs).toBe(6 * 60 * 60 * 1000);
+    expect(result.decision).toMatchObject({
+      allowed: false,
+      scope: "issue",
+      metric: "runs",
+      observed: 10,
+      limit: 10,
+    });
+  });
+
+  it("attributes OpenAI-compatible transport tokens to the admitted GLM provider", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    const admittedRunId = randomUUID();
+    await db.update(heartbeatRuns).set({ createdAt: now, updatedAt: now }).where(eq(heartbeatRuns.id, runId));
+    await db.insert(heartbeatRuns).values({
+      id: admittedRunId,
+      companyId,
+      agentId,
+      invocationSource: "recovery",
+      status: "succeeded",
+      contextSnapshot: {
+        issueId,
+        providerUsageAdmission: { status: "admitted", providerKey: "glm", admittedAt: now.toISOString() },
+      },
+      createdAt: new Date(now.getTime() - 1_000),
+      updatedAt: now,
+    });
+    await db.insert(costEvents).values({
+      id: randomUUID(),
+      companyId,
+      agentId,
+      issueId,
+      heartbeatRunId: admittedRunId,
+      provider: "openai",
+      model: "glm-5.3-flash",
+      inputTokens: 25_000_000,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      costCents: 0,
+      occurredAt: new Date(now.getTime() - 500),
+    });
+
+    const result = await admitProviderUsage({ db, runId, companyId, agentId, issueId, providerKey: "glm", now });
+
+    expect(result.decision).toMatchObject({
+      allowed: false,
+      scope: "issue",
+      metric: "tokens",
+      observed: 25_000_000,
+      limit: 25_000_000,
+    });
+  });
 
   it("persists the normalized failure without permanently blocking the conversation", async () => {
     mockAdapterExecute.mockResolvedValueOnce({
@@ -12639,7 +12808,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     if (next) await waitForRunToSettle(heartbeat, next.id);
   });
 
-  it("resumes a shared-workspace lead when its child needs review", async () => {
+  it("does not resume a shared-workspace lead while its child needs human review", async () => {
     const { companyId, agentId, issueId, runId } = await seedStrandedIssueFixture({ status: "in_progress", runStatus: "succeeded", livenessState: "advanced" });
     await db.update(heartbeatRuns).set({ contextSnapshot: { issueId, paperclipWorkspace: { mode: "shared_workspace" } } }).where(eq(heartbeatRuns.id, runId));
     const projectId = randomUUID(), workspaceId = randomUUID(), childId = randomUUID(), workerId = randomUUID();
@@ -12651,9 +12820,8 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     await db.insert(issueThreadInteractions).values({ companyId, issueId: childId, kind: "request_confirmation", status: "pending", addresseeAgentId: agentId, payload: { prompt: "Review this delivery" } });
     const heartbeat = heartbeatService(db);
     const result = await heartbeat.reconcileStrandedAssignedIssues();
-    expect(result.continuationRequeued).toBe(1);
-    const next = (await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId))).find((r) => r.id !== runId);
-    if (next) await waitForRunToSettle(heartbeat, next.id);
+    expect(result.continuationRequeued).toBe(0);
+    expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, agentId))).toHaveLength(1);
   });
 
   it("leaves the productive-but-stranded continuation path unchanged under the new classifier", async () => {

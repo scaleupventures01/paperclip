@@ -495,11 +495,15 @@ export function createPostgresRunDispatchAdapter(
     const issueQuery = dbOrTx
       .select({
         id: issues.id,
+        companyId: issues.companyId,
         status: issues.status,
         assigneeAgentId: issues.assigneeAgentId,
+        assigneeUserId: issues.assigneeUserId,
         executionRunId: issues.executionRunId,
         checkoutRunId: issues.checkoutRunId,
+        executionPolicy: issues.executionPolicy,
         executionState: issues.executionState,
+        monitorNextCheckAt: issues.monitorNextCheckAt,
       })
       .from(issues)
       .where(and(eq(issues.id, issueId), eq(issues.companyId, input.companyId)));
@@ -552,6 +556,7 @@ export function createPostgresRunDispatchAdapter(
     );
     let continuationSummaryBody: string | null = null;
     let continuationParksExecutor = false;
+    let continuationDurableWaitReason: string | null = null;
     if (continuationParkApplies) {
       const queuedWake = parseObject(context.paperclipWake);
       const queuedContinuationSummary =
@@ -562,6 +567,8 @@ export function createPostgresRunDispatchAdapter(
         : await getIssueContinuationSummaryDocument(dbOrTx, issueId);
       continuationSummaryBody = queuedContinuationSummary ?? currentContinuationSummary?.body ?? null;
       continuationParksExecutor = continuationSummaryParksExecutor(continuationSummaryBody);
+      const sourceState = await collectDispositionRepairSourceState(dbOrTx, { issue });
+      continuationDurableWaitReason = sourceState.durablePathReason;
     }
 
     const recoveryActionId = readNonEmptyString(context.recoveryActionId);
@@ -615,6 +622,7 @@ export function createPostgresRunDispatchAdapter(
       continuationParkApplies,
       continuationParksExecutor,
       continuationSummaryBody,
+      continuationDurableWaitReason,
       wakeReason,
       retryReason,
       reviewParticipant: issue

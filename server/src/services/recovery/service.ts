@@ -5238,6 +5238,12 @@ export function recoveryService(
           result.recentProgressExempted += 1;
         }
 
+        const continuationSourceState = await collectDispositionRepairSourceState(db, { issue });
+        if (continuationSourceState.hasDurableWaitingPath) {
+          result.skipped += 1;
+          continue;
+        }
+
         if (await isInvocationBudgetBlocked(issue, agentId)) {
           result.skipped += 1;
           continue;
@@ -5353,6 +5359,12 @@ export function recoveryService(
             }
           }
         }
+      }
+
+      const continuationSourceState = await collectDispositionRepairSourceState(db, { issue });
+      if (continuationSourceState.hasDurableWaitingPath) {
+        result.skipped += 1;
+        continue;
       }
 
       if (await isInvocationBudgetBlocked(issue, agentId)) {

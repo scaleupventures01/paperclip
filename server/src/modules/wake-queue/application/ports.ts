@@ -188,6 +188,11 @@ export interface WakeQueueTransaction {
     excludeRunId: string;
     agentId: string | null;
   }): Promise<boolean>;
+  /** Canonical typed wait state; raw issue status alone never authorizes a generic continuation. */
+  getDurableWaitingPath(input: { companyId: string; issueId: string }): Promise<{
+    hasDurableWaitingPath: boolean;
+    durablePathReason: string | null;
+  }>;
   /** An open, non-hidden issue that still lists this issue as a `blocks` predecessor. */
   hasExplicitBlockerPath(input: { companyId: string; issueId: string }): Promise<boolean>;
   isAutomaticRecoverySuppressedByPauseHold(input: { companyId: string; issueId: string }): Promise<boolean>;

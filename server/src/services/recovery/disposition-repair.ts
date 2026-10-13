@@ -87,7 +87,7 @@ export async function collectDispositionRepairSourceState(
   const [blockers, children, interactions, linkedApprovals, workProducts, activeRuns, queuedWakes] =
     await Promise.all([
       db
-        .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId })
+        .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId, originKind: issues.originKind })
         .from(issueRelations)
         .innerJoin(
           issues,
@@ -103,7 +103,7 @@ export async function collectDispositionRepairSourceState(
           ),
         ),
       db
-        .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId })
+        .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId, originKind: issues.originKind })
         .from(issues)
         .where(
           and(
@@ -193,19 +193,24 @@ export async function collectDispositionRepairSourceState(
   const pendingApproval = linkedApprovals.some((row) =>
     row.status === "pending" || row.status === "revision_requested",
   );
+  const continuationChildren = children.filter(
+    (row) => row.originKind !== "issue_productivity_review",
+  );
   const durablePathReason = issue.assigneeUserId
     ? "user_owner"
     : blockers.length > 0
       ? "blocker"
-      : issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > Date.now()
-        ? "monitor"
-        : pendingExecutionState?.status === "pending"
-          ? "execution_stage"
-          : pendingInteraction
-            ? "interaction"
-            : pendingApproval
-              ? "approval"
-              : null;
+      : continuationChildren.length > 0
+        ? "child"
+        : issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > Date.now()
+          ? "monitor"
+          : pendingExecutionState?.status === "pending"
+            ? "execution_stage"
+            : pendingInteraction
+              ? "interaction"
+              : pendingApproval
+                ? "approval"
+                : null;
 
   const durableState = {
     source: {

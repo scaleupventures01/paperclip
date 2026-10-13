@@ -541,6 +541,13 @@ async function runReleaseRecoveryTail(
         })
       : false;
 
+  const durableWaitingPath = immediateApplies && !reviewParticipantApplies
+    ? await transaction.getDurableWaitingPath({
+        companyId: issue.companyId,
+        issueId: issue.id,
+      })
+    : { hasDurableWaitingPath: false, durablePathReason: null };
+
   const hasExplicitBlockerPath =
     immediateApplies && !reviewParticipantApplies
       ? await transaction.hasExplicitBlockerPath({
@@ -598,6 +605,7 @@ async function runReleaseRecoveryTail(
     },
     shared: {
       hasExistingExecutionPath,
+      hasDurableWaitingPath: durableWaitingPath.hasDurableWaitingPath,
       hasPersistedMonitor: Boolean(issue.monitorNextCheckAt),
       suppressedByPauseHold,
       isStrandedRecoveryOrigin,
