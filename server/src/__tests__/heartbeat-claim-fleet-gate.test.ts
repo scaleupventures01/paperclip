@@ -51,6 +51,32 @@ vi.mock("../adapters/index.ts", async () => {
   };
 });
 
+// Lets a test change the gate file after startNextQueuedRunForAgent has read
+// it but before claimQueuedRun runs, so the claim-level check is exercised on
+// its own. startNextQueuedRunForAgent calls evaluateAgentInvokabilityFromDb
+// between the two.
+const gateFlip = vi.hoisted(() => ({ hook: null as null | (() => void) }));
+
+vi.mock("../services/agent-invokability.js", async () => {
+  const actual = await vi.importActual<typeof import("../services/agent-invokability.js")>(
+    "../services/agent-invokability.js",
+  );
+  return {
+    ...actual,
+    evaluateAgentInvokabilityFromDb: async (
+      ...args: Parameters<typeof actual.evaluateAgentInvokabilityFromDb>
+    ) => {
+      const result = await actual.evaluateAgentInvokabilityFromDb(...args);
+      const hook = gateFlip.hook;
+      if (hook) {
+        gateFlip.hook = null;
+        hook();
+      }
+      return result;
+    },
+  };
+});
+
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
@@ -85,6 +111,7 @@ describeEmbeddedPostgres("queued run claim honors the fleet release gate and pau
 
   beforeEach(() => {
     mockAdapterExecute.mockClear();
+    gateFlip.hook = null;
   });
 
   afterEach(async () => {
@@ -268,6 +295,24 @@ describeEmbeddedPostgres("queued run claim honors the fleet release gate and pau
     expect(await readRun(planted.runId)).toMatchObject({ status: "cancelled", errorCode: "agent_paused", startedAt: null });
     expect(await readWake(planted.wakeupRequestId)).toEqual({ status: "skipped" });
     expect(await readIssueLock(planted.issueId)).toEqual({ executionRunId: null });
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+  });
+
+  it("cancels at claimQueuedRun when the agent leaves the allowlist after the start check", async () => {
+    const { companyId, agentId } = await seedAgent("idle");
+    const planted = await insertPromotedWakeQueuedRun(companyId, agentId);
+    writeGate([agentId]);
+    gateFlip.hook = () => writeGate([]);
+
+    await heartbeat.resumeQueuedRuns();
+    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+
+    expect(gateFlip.hook).toBeNull();
+    expect(await readRun(planted.runId)).toMatchObject({
+      status: "cancelled",
+      errorCode: "fleet_release_gate_not_allowed",
+      startedAt: null,
+    });
     expect(mockAdapterExecute).not.toHaveBeenCalled();
   });
 
