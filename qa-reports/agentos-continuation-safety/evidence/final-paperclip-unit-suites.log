@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server
+
+
+ Test Files  4 passed (4)
+      Tests  196 passed (196)
+   Start at  10:17:39
+   Duration  4.52s (transform 2.17s, setup 192ms, import 3.94s, tests 25ms, environment 0ms)
+

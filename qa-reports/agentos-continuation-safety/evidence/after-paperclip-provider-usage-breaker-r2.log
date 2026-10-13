@@ -1,0 +1,13 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+[10:02:52] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3e55a5f3-48e3-44e2-b1e3-b1933ad2b8b8","agentId":"dc10fdce-77c7-4caf-b41c-4e397733fdf7","runId":"4fddd418-dc22-46e3-bce7-fdd7d8802961"}[39m
+
+ Test Files  2 passed (2)
+      Tests  10 passed | 301 skipped (311)
+   Start at  10:01:31
+   Duration  83.70s (transform 44.21s, setup 318ms, import 78.15s, tests 4.95s, environment 0ms)
+

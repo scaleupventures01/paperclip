@@ -1,0 +1,645 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server
+
+[10:05:46] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"8e00e875-d3c0-49cd-a398-84c490efc47c","agentId":"9fce4eec-4d04-46ee-ba60-9ff0cfabe0c2","runId":"75c148c3-0389-4540-b519-b863bceaa475"}[39m
+[10:05:47] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"15e24146-c029-406e-8a63-e15bee7729af","agentId":"2ea9c922-da33-4b2f-be96-e7e13c7e8cbd","runId":"5607ee6f-82a9-4d6c-a852-f7f595696090"}[39m
+[10:05:48] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"ba28603c-c778-4f87-a4a2-919bdc056360","agentId":"e199ebee-dbe1-4bff-a3b0-3309c61ab802","runId":"a51e723f-cb0e-4881-bbe8-b59dcb00c714"}[39m
+[10:05:49] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"ff3c2cea-51fc-402d-8b53-c64d5255a047"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Low-trust execution requires isolated workspaces to be enabled.",
+      "stack":
+          Error: Low-trust execution requires isolated workspaces to be enabled.
+              at unprocessable (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:41:10)
+              at assertLowTrustWorkspaceIsolation (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/low-trust-runtime-containment.ts:61:11)
+              at preflightLowTrustWorkspaceIsolation (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:2380:9)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at resolveWorkspaceAfterLowTrustPreflight (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:2410:37)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:21539:11)
+      "status": 422,
+      "details": {
+        "code": "low_trust_isolation_unavailable"
+      }
+    }
+[10:05:50] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"f11db47d-14db-4993-acad-966129b6e630","agentId":"4c61d519-d9bc-4031-a76d-9931e01e9085","runId":"3d9d823f-86b3-490b-bec1-530b8ed77d94"}[39m
+[10:05:52] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["23b0acbe-a537-4614-a979-5cf3d26d3d26"]}[39m
+[10:05:58] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"b7b1fe18-e7ee-440c-a027-856645e04c95"}[39m
+[10:05:58] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["b7b1fe18-e7ee-440c-a027-856645e04c95"]}[39m
+[10:05:59] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"1f5c9bc5-df9b-4faf-afc4-7980831c3628"}[39m
+[10:05:59] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["1f5c9bc5-df9b-4faf-afc4-7980831c3628"]}[39m
+[10:05:59] [33mWARN[39m: [36mretained native session cleanup failed[39m [90m{"runId":"63a0677f-f5db-4976-a3b0-d7e42f42bf9b"}[39m
+    err: {
+      "type": "Error",
+      "message": "maintenance-test-closed-failure",
+      "stack":
+          Error: maintenance-test-closed-failure
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:1994:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    }
+[10:05:59] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"9433de50-0fef-44ec-afe5-ef929baa5706"}[39m
+[10:05:59] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["9433de50-0fef-44ec-afe5-ef929baa5706"]}[39m
+[10:06:07] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"4e9b20f0-e5e6-4271-a66f-82e66aa290f9"}[39m
+[10:06:07] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["4e9b20f0-e5e6-4271-a66f-82e66aa290f9"]}[39m
+[10:06:09] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["b535d58f-2c6d-4a0e-8ec1-330daddccbef"]}[39m
+[10:06:10] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["af5127dc-8149-4143-8b74-5ae40a5b7413"]}[39m
+[10:06:10] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["86572203-f81a-461a-8c7a-f33326d0acfa"]}[39m
+[10:06:11] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["db59ba48-bcc9-4508-8819-39a706a3e354"]}[39m
+[10:06:17] [32mINFO[39m: [36mhot-restart shutdown snapshot captured; skipping graceful run drain[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["2e61e55d-23f6-4e0a-8875-3df959ece69c"],"detachedNativeSessions":{"detachedRunIds":[],"inactiveRunIds":[],"unsupportedRunIds":[]}}[39m
+[10:06:17] [33mWARN[39m: [36mserver-stdio agent run prevents hot-restart adoption; using graceful drain and retry[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["10978d34-c1f7-485a-9269-1db1e616798c"],"activeServerStdioRunIds":["10978d34-c1f7-485a-9269-1db1e616798c"],"drainReason":"active_acp_run"}[39m
+[10:06:17] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["10978d34-c1f7-485a-9269-1db1e616798c"],"retryRunIds":["f23799c8-d3e3-47b3-b8e4-a9879376ad9c"]}[39m
+[10:06:20] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":[],"finalizedWhileDownRunIds":["10978d34-c1f7-485a-9269-1db1e616798c"],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:20] [33mWARN[39m: [36mserver-stdio agent run prevents hot-restart adoption; using graceful drain and retry[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["6fda0e7a-5ea4-4db7-b978-b6c67311fd74"],"activeServerStdioRunIds":["6fda0e7a-5ea4-4db7-b978-b6c67311fd74"],"drainReason":"active_acp_run"}[39m
+[10:06:20] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":[],"finalizedWhileDownRunIds":[],"lostRunIds":["6fda0e7a-5ea4-4db7-b978-b6c67311fd74"],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:21] [33mWARN[39m: [36mserver-stdio agent run prevents hot-restart adoption; using graceful drain and retry[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["01c93606-f7cb-425a-b4ed-059872642cbc","a803f6da-d761-4e9c-80b2-1c43d9f1def7"],"activeServerStdioRunIds":["01c93606-f7cb-425a-b4ed-059872642cbc"],"drainReason":"active_acp_run"}[39m
+[10:06:21] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["01c93606-f7cb-425a-b4ed-059872642cbc"],"retryRunIds":["c53e47e4-7249-4777-ada2-e92fc362625c"]}[39m
+[10:06:23] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":["a803f6da-d761-4e9c-80b2-1c43d9f1def7"],"finalizedWhileDownRunIds":["01c93606-f7cb-425a-b4ed-059872642cbc"],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:23] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":["c2bb362f-cb97-4492-9995-1c65c1dac4c8"],"finalizedWhileDownRunIds":[],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:24] [33mWARN[39m: [36mhot-restart intent present but shutdown snapshot is missing; no runs can be adopted[39m [90m{"previousServerPid":20529,"preflightActiveRunIds":["602d91ac-9878-4003-ba25-5436058806f0"],"drainReason":null}[39m
+[10:06:24] [31mERROR[39m: [36mhot-restart shutdown snapshot omitted live preflight runs; reporting them as lost[39m [90m{"previousServerPid":20529,"lostRunIds":["602d91ac-9878-4003-ba25-5436058806f0"]}[39m
+[10:06:24] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":[],"finalizedWhileDownRunIds":[],"lostRunIds":["602d91ac-9878-4003-ba25-5436058806f0"],"missingSnapshotRunIds":["602d91ac-9878-4003-ba25-5436058806f0"],"skippedRunIds":[]}[39m
+[10:06:24] [33mWARN[39m: [36mhot-restart intent present but shutdown snapshot is missing; no runs can be adopted[39m [90m{"previousServerPid":20529,"preflightActiveRunIds":["2218bc7d-6bb4-4671-88f5-57db0e0c73f5"],"drainReason":null}[39m
+[10:06:24] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":[],"finalizedWhileDownRunIds":["2218bc7d-6bb4-4671-88f5-57db0e0c73f5"],"lostRunIds":[],"missingSnapshotRunIds":["2218bc7d-6bb4-4671-88f5-57db0e0c73f5"],"skippedRunIds":[]}[39m
+[10:06:26] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"8b819ead-a40b-4157-b140-aed8b5000e3e","agentId":"47247d08-26de-429d-aad7-064380557dd9","runId":"3fb75f82-c077-457a-a4b0-4662eb3e3db9"}[39m
+[10:06:26] [32mINFO[39m: [36mhot-restart shutdown snapshot captured; skipping graceful run drain[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["3fb75f82-c077-457a-a4b0-4662eb3e3db9"],"detachedNativeSessions":{"detachedRunIds":[],"inactiveRunIds":[],"unsupportedRunIds":[]}}[39m
+[10:06:26] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":["3fb75f82-c077-457a-a4b0-4662eb3e3db9"],"finalizedWhileDownRunIds":[],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:27] [32mINFO[39m: [36mhot-restart shutdown snapshot captured; skipping graceful run drain[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["6d8e59b6-f911-43ae-830b-a25a66e2b5ee"],"detachedNativeSessions":{"detachedRunIds":[],"inactiveRunIds":[],"unsupportedRunIds":[]}}[39m
+[10:06:27] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":["6d8e59b6-f911-43ae-830b-a25a66e2b5ee"],"finalizedWhileDownRunIds":[],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:28] [32mINFO[39m: [36mhot-restart shutdown snapshot captured; skipping graceful run drain[39m [90m{"signal":"SIGTERM","previousServerPid":20529,"activeRunIds":["61900be2-d4d7-4132-b487-3906d95c75c5"],"detachedNativeSessions":{"detachedRunIds":[],"inactiveRunIds":[],"unsupportedRunIds":[]}}[39m
+[10:06:28] [32mINFO[39m: [36mhot-restart adoption report written[39m [90m{"previousServerPid":20529,"newServerPid":20529,"adoptedRunIds":["61900be2-d4d7-4132-b487-3906d95c75c5"],"finalizedWhileDownRunIds":[],"lostRunIds":[],"missingSnapshotRunIds":[],"skippedRunIds":[]}[39m
+[10:06:29] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["041bbde0-211a-4a9f-97d1-f1edeef4a834"],"retryRunIds":[]}[39m
+[10:06:30] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["73ff0320-1bf6-4513-8b8e-0e129d50b2c7"],"retryRunIds":[]}[39m
+[10:06:31] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["36e10967-90f4-411d-b0a5-a34e2650b438"],"retryRunIds":[]}[39m
+[10:06:33] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["0c5782cd-ebe7-4059-9052-56cf5ec5e775"]}[39m
+[10:06:50] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["63f2e494-0076-4fa9-9d06-29aeda05f96b"]}[39m
+[10:06:52] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["0034ddab-d4ca-41bb-8fc1-aaf5e917313f"]}[39m
+[10:06:56] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["e14a9c1a-9de9-4919-8130-e110475f9ca1"]}[39m
+[10:07:06] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"5349a273-3ed8-483e-baa7-ce900ba14a29","agentId":"882f10e9-8d3f-461a-8d70-4f6cfc162126","runId":"43d39b23-f543-4fbf-877f-42d65dd18cf5"}[39m
+[10:07:08] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"d4832052-63e9-4f05-a464-c0306523f8e5","agentId":"4c91eb1f-4da8-44ea-9089-b87d39faaa29","runId":"5a88f600-8d41-495b-97b0-769887719bf2"}[39m
+[10:07:14] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"cb292b57-076a-4927-9401-6b1bf6c724c6"}[39m
+    err: {
+      "type": "EnvironmentRunError",
+      "message": "Failed to acquire lease for environment \"Kubernetes Sandbox\" (sandbox): Sandbox provider \"kubernetes\" is installed via plugin \"paperclip.kubernetes-sandbox-provider\", but its worker is not running.: Sandbox provider \"kubernetes\" is installed via plugin \"paperclip.kubernetes-sandbox-provider\", but its worker is not running.",
+      "stack":
+          EnvironmentRunError: Failed to acquire lease for environment "Kubernetes Sandbox" (sandbox): Sandbox provider "kubernetes" is installed via plugin "paperclip.kubernetes-sandbox-provider", but its worker is not running.
+              at acquireLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:217:13)
+              at Object.acquireForRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:282:25)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22187:31)
+          caused by: Error: Sandbox provider "kubernetes" is installed via plugin "paperclip.kubernetes-sandbox-provider", but its worker is not running.
+              at Object.acquireRunLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-runtime.ts:1807:17)
+              at Object.acquireRunLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-runtime.ts:3710:21)
+              at acquireLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:215:14)
+              at Object.acquireForRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:282:25)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22187:31)
+      "code": "lease_acquire_failed",
+      "environmentId": "e073b4bd-5cd4-4dde-b5ea-43bcc23a9809",
+      "driver": "sandbox",
+      "name": "EnvironmentRunError"
+    }
+[10:07:15] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"a57e0283-c9cb-420d-aeb7-c9780fd6d2dd"}[39m
+    err: {
+      "type": "EnvironmentRunError",
+      "message": "Failed to acquire lease for environment \"Kubernetes Sandbox\" (sandbox): Sandbox provider \"kubernetes\" is installed via plugin \"paperclip.kubernetes-sandbox-provider\", but that plugin is currently error.: Sandbox provider \"kubernetes\" is installed via plugin \"paperclip.kubernetes-sandbox-provider\", but that plugin is currently error.",
+      "stack":
+          EnvironmentRunError: Failed to acquire lease for environment "Kubernetes Sandbox" (sandbox): Sandbox provider "kubernetes" is installed via plugin "paperclip.kubernetes-sandbox-provider", but that plugin is currently error.
+              at acquireLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:217:13)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at Object.acquireForRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:282:25)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22187:31)
+          caused by: Error: Sandbox provider "kubernetes" is installed via plugin "paperclip.kubernetes-sandbox-provider", but that plugin is currently error.
+              at Object.acquireRunLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-runtime.ts:1795:17)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at Object.acquireRunLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-runtime.ts:3710:21)
+              at acquireLease (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:215:14)
+              at Object.acquireForRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/environment-run-orchestrator.ts:282:25)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22187:31)
+      "code": "lease_acquire_failed",
+      "environmentId": "314e8b08-6eba-4426-a5aa-d04036f8e09c",
+      "driver": "sandbox",
+      "name": "EnvironmentRunError"
+    }
+[10:07:16] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"aaa5d979-60ff-40c4-8f98-15196366d053","agentId":"3bfcdb70-de00-4d85-a7af-b1546ce79189","runId":"6ca1e24a-ef8a-48f7-85e1-718e2758c52b"}[39m
+[10:07:16] [31mERROR[39m: [36mheartbeat execution failed[39m [90m{"runId":"6ca1e24a-ef8a-48f7-85e1-718e2758c52b"}[39m
+    err: {
+      "type": "Error",
+      "message": "Sandbox provider \"kubernetes\" is not installed or its plugin worker is not running.",
+      "stack":
+          Error: Sandbox provider "kubernetes" is not installed or its plugin worker is not running.
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:4783:7
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[10:07:19] [33mWARN[39m: [36mreaped orphaned heartbeat runs[39m [90m{"reapedCount":1,"runIds":["be388a6e-fc62-498b-a4c5-f0ca42f6cfb7"]}[39m
+[10:07:20] [31mERROR[39m: [36mheartbeat execution failed[39m [90m{"runId":"f77b4c6f-2986-4286-bfed-d64cddaeffde"}[39m
+    err: {
+      "type": "WorkspaceValidationFailure",
+      "message": "Issue T7E1AE2-1 is linked to a project workspace but has no project id; refusing to launch codex_local from fallback cwd.",
+      "stack":
+          WorkspaceValidationFailure: Issue T7E1AE2-1 is linked to a project workspace but has no project id; refusing to launch codex_local from fallback cwd.
+              at fail (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:3179:11)
+              at assertGitSensitiveAdapterWorkspaceValid (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:3213:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:23015:15)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+      "code": "workspace_validation_failed",
+      "resultJson": {
+        "workspaceValidation": {
+          "reason": "missing_project_id",
+          "adapterType": "codex_local",
+          "issueId": "d81405de-9045-41ac-a9c8-6f042e49613e",
+          "issueIdentifier": "T7E1AE2-1",
+          "issueProjectId": null,
+          "issueProjectWorkspaceId": "13f6f804-8efc-4b98-ae18-aa33c27c95bd",
+          "resolvedWorkspaceSource": "agent_home",
+          "resolvedProjectId": null,
+          "resolvedProjectWorkspaceId": null,
+          "resolvedWorkspaceCwd": "/Users/niaopenclaw/.paperclip/instances/default/workspaces/c7705ae8-1e94-4953-b9d1-08d7f3ed9cd0",
+          "executionWorkspaceCwd": "/Users/niaopenclaw/.paperclip/instances/default/workspaces/c7705ae8-1e94-4953-b9d1-08d7f3ed9cd0",
+          "executionWorkspaceStrategy": "project_primary",
+          "executionWorkspaceProjectId": null,
+          "executionWorkspaceProjectWorkspaceId": null,
+          "persistedExecutionWorkspaceId": null,
+          "persistedWorkspaceCwd": null,
+          "persistedWorkspaceStrategy": null,
+          "persistedProjectId": null,
+          "persistedProjectWorkspaceId": null,
+          "persistedProviderRef": null
+        }
+      },
+      "name": "WorkspaceValidationFailure"
+    }
+[10:07:20] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"93a13890-e05a-4cab-a46f-7064cd753261"}[39m
+    err: {
+      "type": "ConfigurationIncompleteFailure",
+      "message": "configuration incomplete: secret \"unbound-runtime-901a3869-04cf-4e38-bc59-69cc67cfdb60\" not bound at agent env.UNBOUND_API_KEY",
+      "stack":
+          ConfigurationIncompleteFailure: configuration incomplete: secret "unbound-runtime-901a3869-04cf-4e38-bc59-69cc67cfdb60" not bound at agent env.UNBOUND_API_KEY
+              at resolveExecutionRunAdapterConfig (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:1738:13)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:21322:9)
+      "code": "configuration_incomplete",
+      "resultJson": {
+        "configurationIncomplete": {
+          "reason": "secret_binding_missing",
+          "companyId": "4572673a-87d6-42c9-abab-de18e052a2b7",
+          "agentId": "f89b3c1d-189c-4a7b-9321-28ffc2f7a4bc",
+          "issueId": "3c581298-7c70-44ba-8f50-644b10320bad",
+          "projectId": null,
+          "routineId": null,
+          "missingBindings": [
+            {
+              "consumerType": "agent",
+              "consumerId": "f89b3c1d-189c-4a7b-9321-28ffc2f7a4bc",
+              "configPath": "env.UNBOUND_API_KEY",
+              "envKey": "UNBOUND_API_KEY",
+              "bindingType": "secret_ref",
+              "secretId": "251a518f-12c1-4c87-ab4e-3204ea180dba",
+              "secretName": "unbound-runtime-901a3869-04cf-4e38-bc59-69cc67cfdb60"
+            }
+          ]
+        }
+      },
+      "name": "ConfigurationIncompleteFailure"
+    }
+[10:07:21] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"bff1fec2-8fc6-41af-88b1-383a8737c4c6","agentId":"f9e9d348-0432-4fe5-9019-587bce4ee9cd","runId":"e5332026-a0d7-4a6c-aecd-50aaf75472e1"}[39m
+[10:07:21] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"bff1fec2-8fc6-41af-88b1-383a8737c4c6","agentId":"f9e9d348-0432-4fe5-9019-587bce4ee9cd","runId":"7ff5c8f8-ce8e-40b0-bc2b-3ad16ade6fdc"}[39m
+[10:07:22] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3991288f-1a0e-4890-aecd-4cebd670a069","agentId":"5645f24b-b65c-4794-b5da-ed4b7d8adf40","runId":"87c6155b-b208-4209-9c5b-d35a40e4e481"}[39m
+[10:07:22] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3991288f-1a0e-4890-aecd-4cebd670a069","agentId":"5645f24b-b65c-4794-b5da-ed4b7d8adf40","runId":"0a5ed140-ce1e-4b02-9c93-940cbfc30a4e"}[39m
+[10:07:23] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"f170721d-bdfe-438c-8f98-79f7087b7869","agentId":"78f0c236-9730-40ce-bbc7-046070bfae9f","runId":"96cc0049-8ea8-4fbc-a302-b777cba95540"}[39m
+[10:07:23] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"f170721d-bdfe-438c-8f98-79f7087b7869","agentId":"78f0c236-9730-40ce-bbc7-046070bfae9f","runId":"7ecf53b0-fb04-41cd-ada2-d0c48877f52b"}[39m
+[10:07:24] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"6c964908-8a64-4280-aed9-7bd77b10247d","agentId":"64e9637d-3714-46be-ac16-a1bcdd8ab539","runId":"67ca9c6c-2b6e-4b0e-93ab-13b414032eed"}[39m
+[10:07:24] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"6c964908-8a64-4280-aed9-7bd77b10247d","agentId":"64e9637d-3714-46be-ac16-a1bcdd8ab539","runId":"9376bfba-3626-421e-af4a-3b456015b165"}[39m
+[10:07:24] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"6c964908-8a64-4280-aed9-7bd77b10247d","agentId":"64e9637d-3714-46be-ac16-a1bcdd8ab539","runId":"7d358675-a184-4abe-8f05-b876c6b1033d"}[39m
+[10:07:26] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"9593b92d-be9b-4828-b3d3-6d850fc76387"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:07:26] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"9593b92d-be9b-4828-b3d3-6d850fc76387","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:07:27] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"b0382147-c29f-4b34-ad18-5adae66f51ff"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:07:27] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"b0382147-c29f-4b34-ad18-5adae66f51ff","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:07:29] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"b59fa934-0aaa-4cbb-8793-ce58774a72f3","agentId":"c786ec84-2b2d-4169-8d51-bed328fbeee3","runId":"fc50eae3-7de8-4e17-b314-61519c251788"}[39m
+[10:07:29] [31mERROR[39m: [36mqueued heartbeat execution failed[39m [90m{"runId":"fc50eae3-7de8-4e17-b314-61519c251788"}[39m
+    err: {
+      "type": "Error",
+      "message": "fixture_deadline_cleanup_failure",
+      "stack":
+          Error: fixture_deadline_cleanup_failure
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:6952:48
+              at Mock (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/@vitest+spy@4.1.11/node_modules/@vitest/spy/dist/index.js:332:34)
+              at Object.where (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:6958:39)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:26014:14)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    }
+[10:07:29] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"17246d31-553c-4434-98ac-ca2e6d6de0e2","agentId":"ecb11c48-b08e-42a9-b344-9edb42dff669","runId":"d7042e99-7798-42bc-b88b-daa2a04fd962"}[39m
+[10:07:29] [32mINFO[39m: [36mskipping late run finalization because the run already left running state[39m [90m{"runId":"d7042e99-7798-42bc-b88b-daa2a04fd962","attemptedStatus":"cancelled","currentStatus":"cancelled"}[39m
+[10:07:30] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"17246d31-553c-4434-98ac-ca2e6d6de0e2","agentId":"ecb11c48-b08e-42a9-b344-9edb42dff669","runId":"d7a9d8fd-3721-4f28-9f08-7ee5918ec317"}[39m
+[10:07:30] [31mERROR[39m: [36mfailed to retry interrupted comment queue[39m [90m{"runId":"8862193b-5930-4315-85d2-1f8cab833393"}[39m
+    err: {
+      "type": "Error",
+      "message": "temporary queue promotion outage",
+      "stack":
+          Error: temporary queue promotion outage
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:7023:79
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+    }
+[10:07:30] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"d8ab3ae8-f358-4a98-aeb7-b57f4cd85433","agentId":"0b3db008-2daa-4b1a-b45a-e4fce05d91eb","runId":"67a628a6-3403-49c8-8356-9b9a5db201f0"}[39m
+[10:07:31] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2c49353f-3c10-494e-90ad-ac1aeaf2eb8c","agentId":"4a3d5860-1704-4813-a900-18b4958f7512","runId":"f99ef43e-6fbf-49a6-8c86-92ccfac59104"}[39m
+[10:07:31] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2c49353f-3c10-494e-90ad-ac1aeaf2eb8c","agentId":"4a3d5860-1704-4813-a900-18b4958f7512","runId":"137b8f52-b1fa-4405-8713-335a83669f0b"}[39m
+[10:07:33] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"3cb6280c-1d03-4f02-b258-b13a74850e04","agentId":"621da043-2f67-4803-a71d-0513662feef7","runId":"eccd5b02-4792-401d-9d1f-4c8585eb976d"}[39m
+[10:07:33] [33mWARN[39m: [36mexecution-start aborted: agent not invokable[39m [90m{"agentId":"ada8dcbe-c8df-49bb-8621-9d137098e58e","runId":"368cc6a1-1e5a-4a56-adcb-c032aef65bda","previousStatus":"paused"}[39m
+[10:07:34] [33mWARN[39m: [36mexecution-start aborted: agent not invokable[39m [90m{"agentId":"d7e4eee5-f218-469b-8978-e434f8c1dbb5","runId":"7349676e-4127-4ceb-bc13-15da929f4fed","previousStatus":"paused"}[39m
+[10:07:35] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"0a833c1e-aa09-4604-a992-611ece2d82f9","agentId":"a978e23f-4f40-4ee6-8d51-afb404b72809","runId":"27ee15a2-ccd1-4cf1-a522-757143634c6c"}[39m
+[10:07:35] [32mINFO[39m: [36mskipping late run finalization because the run already left running state[39m [90m{"runId":"27ee15a2-ccd1-4cf1-a522-757143634c6c","attemptedStatus":"cancelled","currentStatus":"cancelled"}[39m
+[10:07:36] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"e9c23f19-150b-4bdf-be0e-04f01b5073fb","agentId":"cd12c77b-7dff-4345-b6d7-efdb19559de0","runId":"4897ebe4-0e69-4943-b920-f9f3fe161f98"}[39m
+[10:07:36] [32mINFO[39m: [36mskipping late run finalization because the run already left running state[39m [90m{"runId":"4897ebe4-0e69-4943-b920-f9f3fe161f98","attemptedStatus":"cancelled","currentStatus":"cancelled"}[39m
+[10:07:38] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"5286371b-53fd-465c-9c75-dd737537f38e","agentId":"301d5b45-1be8-4306-945c-e0cbb266ee54","runId":"3ea9b8ef-9c54-471a-85bd-dd0a78e34bc2"}[39m
+[10:07:39] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"ed3ccec7-ca19-4c38-b5de-286951ca3479","agentId":"2dda32ec-45cf-4ea1-a8ec-19011a48346c","runId":"69729b0b-9574-4de1-959b-82e42599cb65"}[39m
+[10:07:39] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"dd614fdc-3200-49b2-bed3-3e567fff1279","agentId":"4ce5824f-3b68-4a75-98b2-63e83f964b06","runId":"00bb4b8c-014e-4aba-94e3-0e37f24be6ce"}[39m
+[10:07:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"beddbaf4-1aba-4e06-90a0-35344814a866","agentId":"4339f9bd-3216-4908-810b-4ab26a6d90e6","runId":"c61218dc-70dc-4da3-9fc0-3c16bd012af9"}[39m
+[10:07:41] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"12e451f7-df26-4226-ae3b-72258310037f","agentId":"014a9afa-abbb-4d62-b1d7-65e560e7d106","runId":"bfbfdd49-e487-4e1f-adb6-4ca0f1113a24"}[39m
+[10:07:41] [31mERROR[39m: [36mheartbeat execution failed[39m [90m{"runId":"bfbfdd49-e487-4e1f-adb6-4ca0f1113a24"}[39m
+    err: {
+      "type": "Error",
+      "message": "process adapter reported its signal as an exception",
+      "stack":
+          Error: process adapter reported its signal as an exception
+              at Object.<anonymous> (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:7558:17)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    }
+[10:07:41] [32mINFO[39m: [36mskipping late adapter failure finalization because the run already left running state[39m [90m{"runId":"bfbfdd49-e487-4e1f-adb6-4ca0f1113a24","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:07:42] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"0477a6d9-54d4-405c-a639-94fcc50fa1f4","agentId":"e89d2a38-aa12-40a4-b218-b3ff83ae90d9","runId":"4ce6354b-84cf-4213-b199-7951c6a7cf0c"}[39m
+[10:07:42] [31mERROR[39m: [36mheartbeat execution failed[39m [90m{"runId":"4ce6354b-84cf-4213-b199-7951c6a7cf0c"}[39m
+    err: {
+      "type": "Error",
+      "message": "process adapter reported its signal as an exception",
+      "stack":
+          Error: process adapter reported its signal as an exception
+              at Object.<anonymous> (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/__tests__/heartbeat-process-recovery.test.ts:7558:17)
+    }
+[10:07:42] [32mINFO[39m: [36mskipping late adapter failure finalization because the run already left running state[39m [90m{"runId":"4ce6354b-84cf-4213-b199-7951c6a7cf0c","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:07:42] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"13d83e78-907e-4508-98d0-4d9eace58c6c","agentId":"2b4a10f8-cfed-4e91-ac02-6942a08c829d","runId":"0c17c3db-03cf-49b8-b177-3b46ac0ce6d7"}[39m
+[10:07:43] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"0c17c3db-03cf-49b8-b177-3b46ac0ce6d7"}[39m
+[10:07:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"c761a8d5-9efe-4cb3-b2cb-51a9e74ba95c","agentId":"d84447ec-af43-4ca3-adee-fc0abe5d1b95","runId":"d4a20949-4f60-46c0-8ea8-fba1a91ff1b8"}[39m
+[10:07:43] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"d4a20949-4f60-46c0-8ea8-fba1a91ff1b8"}[39m
+[10:07:44] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"46d4881e-6c06-43f7-b331-7fa67af0ea03","agentId":"6ac76ef6-1070-477f-b7d0-3f230b0f60b9","runId":"a6897e21-e392-497e-8444-07bdfa641ce4"}[39m
+[10:07:44] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"a6897e21-e392-497e-8444-07bdfa641ce4"}[39m
+[10:07:45] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"36874b8e-2ec8-410e-81fd-89e3d1b83693","agentId":"cbb36135-3e8f-46d1-b9bd-f58354a5d002","runId":"721fa6e1-17a9-429e-8cd8-12b8ab69ba45"}[39m
+[10:07:45] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"721fa6e1-17a9-429e-8cd8-12b8ab69ba45"}[39m
+[10:07:46] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"8733f421-4d23-4892-879c-96f35ea03440","agentId":"61212dd3-fed6-47ff-8324-ab830614d4d3","runId":"db964e85-694f-4c67-a11d-f67493d5b132"}[39m
+[10:07:46] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"db964e85-694f-4c67-a11d-f67493d5b132"}[39m
+[10:07:46] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"28df8997-8f5c-4529-9bc8-66c7713595f2","agentId":"96d00f4b-ca30-4eeb-abea-14d6baa3c5bd","runId":"de62fc91-ecfd-4f5a-8d73-c72ceb0b5fa9"}[39m
+[10:07:47] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"de62fc91-ecfd-4f5a-8d73-c72ceb0b5fa9"}[39m
+[10:07:47] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"db7d8ce7-6320-4c74-a986-bf2a0667b983","agentId":"7b13b3f8-937f-44e4-b477-1c4023cc78f3","runId":"630b7b44-50ac-4c36-afba-7f395c9aae94"}[39m
+[10:07:47] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"630b7b44-50ac-4c36-afba-7f395c9aae94"}[39m
+[10:07:48] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"f272c899-c6aa-420d-bc38-4f74b2ec1778","agentId":"a3052a81-02ce-46e6-9f38-d4a9c3809d16","runId":"13a8086a-21cf-4bba-a5bc-54d86724d63f"}[39m
+[10:07:48] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"13a8086a-21cf-4bba-a5bc-54d86724d63f"}[39m
+[10:07:49] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"590e4d0e-da1a-4672-b444-2257cfc4136e","agentId":"faf16bf4-8ff1-45e3-a6af-9baf634c8fcf","runId":"f9d24d64-76f9-487f-9bcf-9a01cde4c6e5"}[39m
+[10:07:49] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"f9d24d64-76f9-487f-9bcf-9a01cde4c6e5"}[39m
+[10:07:50] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"70dd7500-eee8-4619-aafe-b1a77e7b05d6","agentId":"28a9bac6-a736-40af-b182-5e415232d94d","runId":"0866493d-3148-42e9-9b99-f6e56ad7a580"}[39m
+[10:07:50] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"0866493d-3148-42e9-9b99-f6e56ad7a580"}[39m
+[10:07:50] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"bcdd34c9-ff35-416b-9cd0-0de6800c549e","agentId":"6aebe3a5-b811-44f6-95a9-fcf4052bd243","runId":"673ba768-3159-4c4f-be24-9fad63ee9d3c"}[39m
+[10:07:51] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"67743bda-5dcc-4000-8834-c1e1a9bb6cf7","agentId":"2df90613-72a5-4a66-bfad-8bbdb5d51aec","runId":"2e973a76-6a17-4812-bc7c-abb45da16ed2"}[39m
+[10:07:51] [33mWARN[39m: [36mrun failure report has no task id, skipping Sentry report[39m [90m{"runId":"2e973a76-6a17-4812-bc7c-abb45da16ed2"}[39m
+[10:07:51] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"bf97d83a-7671-4d92-a5ab-1cdea5d4caf0","agentId":"ac7a8d36-b4c4-43cd-8a43-9dc1ca98812e","runId":"0c0e70bc-e85c-41ec-ac2f-ecf3b5952aec"}[39m
+[10:07:53] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["f305c7db-8ef4-400e-9fb7-79a082e3ef78"],"retryRunIds":["7d1e42a1-52bf-4b8a-ad77-8bb06a224956"]}[39m
+[10:07:54] [33mWARN[39m: [36minterrupted running heartbeat runs for graceful shutdown[39m [90m{"signal":"SIGTERM","interrupted":1,"interruptedRunIds":["37b128cd-7a52-4c84-be25-ec75880fd58d"],"retryRunIds":["69872179-20a8-451f-8c1f-306db44a78fb"]}[39m
+[10:07:56] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"6ea78b10-6aeb-4909-8a48-cc9286888799","agentId":"65338648-8980-4c34-bb21-288df12a4353","runId":"8073edc7-e92a-4c9a-be9c-2a53c8ff9c36"}[39m
+[10:07:57] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"6ea78b10-6aeb-4909-8a48-cc9286888799","agentId":"65338648-8980-4c34-bb21-288df12a4353","runId":"b866cf4b-8ae5-4b71-a204-2b2225badc43"}[39m
+[10:08:01] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"96b2c3f0-02d4-4e9c-801a-94b5b4b6bcf0","agentId":"6ab6d4da-a3c2-4eab-a0ac-6ccf64bb3576","runId":"ffbdc4ac-3f37-4c3c-8285-29209ca1fda0"}[39m
+[10:08:01] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"96b2c3f0-02d4-4e9c-801a-94b5b4b6bcf0","agentId":"6ab6d4da-a3c2-4eab-a0ac-6ccf64bb3576","runId":"b4c27f33-8968-4614-9380-d024f18c5ffb"}[39m
+[10:08:03] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"75d73384-a6ae-4606-a8e6-1f4c3442680a","agentId":"cf4c4006-36e1-4534-b531-4b7bee2af6e6","runId":"ea30e209-7fba-4a57-85e7-0b5bbbdfc9ed"}[39m
+[10:08:04] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"75d73384-a6ae-4606-a8e6-1f4c3442680a","agentId":"cf4c4006-36e1-4534-b531-4b7bee2af6e6","runId":"91d77381-7fde-4e7f-8098-4407fc0fc2a6"}[39m
+[10:08:05] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"230231b0-657e-4853-bbb3-adac37874721","agentId":"5f062b27-c319-4444-9ebd-ca65fa0df396","runId":"78ea1b5f-1e02-4bb6-b735-acee286fdf77"}[39m
+[10:08:05] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"230231b0-657e-4853-bbb3-adac37874721","agentId":"5f062b27-c319-4444-9ebd-ca65fa0df396","runId":"c5b76e89-9d5b-457c-826f-4aea544db319"}[39m
+[10:08:05] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"4ad2bb3d-5ca4-4a6e-bb6f-13a8952ccade"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:05] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"4ad2bb3d-5ca4-4a6e-bb6f-13a8952ccade","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:06] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"8e30865a-5405-405b-950e-f814bf788b22"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:06] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"8e30865a-5405-405b-950e-f814bf788b22","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:06] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"e2f58b5e-423b-4696-a60d-9912099fa8d4"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:06] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"e2f58b5e-423b-4696-a60d-9912099fa8d4","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:07] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"470de991-e62f-4111-b2e0-23178805d3c4","agentId":"c880b6e5-3357-4391-ab43-c6e9485af0f2","runId":"4392984c-53dd-4842-8bfd-4aaa045d79f8"}[39m
+[10:08:08] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"7767b5cf-d7a5-4109-b9be-753ae8fe88c3","agentId":"2c1537be-4be0-4b2d-8ddf-cc83582d2108","runId":"83abd9a9-4997-4e36-a0d8-faa73169b875"}[39m
+[10:08:08] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"d0275a8c-729f-4de8-8317-46159aedf845","agentId":"ce56546d-525c-4f93-a494-9a05c804070f","runId":"10f16b6d-e991-4265-aa37-46e0aab53e06"}[39m
+[10:08:09] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"d0275a8c-729f-4de8-8317-46159aedf845","agentId":"ce56546d-525c-4f93-a494-9a05c804070f","runId":"d5651f84-c8b5-4c53-8c47-e6e30582b40e"}[39m
+[10:08:13] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"8639b27f-babb-48e8-9e1e-6a7a4e053fde"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:13] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"8639b27f-babb-48e8-9e1e-6a7a4e053fde","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:15] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"8d262da4-7dd4-4d6f-b295-d860e979a366","agentId":"2917e647-177c-44bf-83cc-f6d99d9c6b0b","runId":"a816a52c-07dd-47e0-96b8-8ce566102abd"}[39m
+[10:08:15] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"8d262da4-7dd4-4d6f-b295-d860e979a366","agentId":"2917e647-177c-44bf-83cc-f6d99d9c6b0b","runId":"d6c0a686-7b29-4ea0-9425-e550e3fa1d5d"}[39m
+[10:08:16] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"1bf59d72-a52b-4f1f-8af4-502fe124c727","agentId":"37c0e854-1322-4a67-8c1f-22baa4e719d5","runId":"7f9841a1-4f41-4af7-aa32-c9359fba792b"}[39m
+[10:08:17] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"bc9c5fca-94a6-44dd-91c0-b1221461e3f4"}[39m
+    err: {
+      "type": "Error",
+      "message": "Legacy controller lease lost",
+      "stack":
+          Error: Legacy controller lease lost
+              at lost (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/legacy-controller-lease.ts:73:55)
+              at Object.assertOwned (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/legacy-controller-lease.ts:94:7)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22186:9)
+    }
+[10:08:17] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"bc9c5fca-94a6-44dd-91c0-b1221461e3f4","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:17] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"250be1e6-5260-491b-9dfc-063a2ff1ff82","agentId":"9568bc79-0dc4-4fe5-998e-ca28d47d7d70","runId":"c87dff8e-b6ce-4183-b8fa-f05db71a6841"}[39m
+[10:08:17] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"6f7d0454-d8e7-449c-8fb1-4c27ac5936a6"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:17] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"6f7d0454-d8e7-449c-8fb1-4c27ac5936a6","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:18] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2b836d71-7a21-4ae0-9ee3-303afffb1664","agentId":"70d3a8ef-dc94-4057-aed8-04913ba53fd4","runId":"f1497ceb-48c6-4aeb-8200-0dbe61888e2d"}[39m
+[10:08:18] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2b836d71-7a21-4ae0-9ee3-303afffb1664","agentId":"70d3a8ef-dc94-4057-aed8-04913ba53fd4","runId":"5021d4b5-50ba-4c8e-9267-e7dd150f0444"}[39m
+[10:08:25] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"1d018caa-0757-4a8e-9c96-6fdde73f2bb6","agentId":"7a2a1f02-5189-470c-a832-674df7f4c38e","runId":"04f6f1dc-37bb-4e42-9c27-2b965387e090"}[39m
+[10:08:26] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"26230d46-9f3f-4f9b-824d-814f4497fb61","agentId":"aaa91a56-f4eb-49a1-a252-8ef388687a72","runId":"d797ff0c-a4fa-41a2-a156-04ea5aa51e12"}[39m
+[10:08:27] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"c4b5b2d9-69f4-42c3-9e58-87af46da5534","agentId":"87eb0f35-26d6-47a2-b9bc-e6e82889b313","runId":"44854bae-b8e6-46d7-b7c8-329f315fa9c4"}[39m
+[10:08:28] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"03877871-a88d-4f15-92a8-07ebc9cb5ceb","agentId":"0187fcf9-ecc8-49a2-a995-348e17f215b8","runId":"a4162a38-a876-41cd-be98-51faddab9094"}[39m
+[10:08:29] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"7fa83929-68be-4ddc-bd7d-6cb3050300fe","agentId":"09cd230f-9768-4bd7-849c-0352fbd9f1ed","runId":"39d30fcb-d7f4-4322-9ebb-dfbab0a9ea20"}[39m
+[10:08:30] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"0f94df13-937d-43e0-a43e-b92816dcc882","agentId":"d9de908b-69bb-45c4-9eb5-abed1b57db3f","runId":"e3feb746-dea8-4afa-8bae-bf378cbecd1b"}[39m
+[10:08:31] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"b39de3ae-7683-43f1-9b29-3240f52bb765","agentId":"a13b6a4a-7622-42cd-a9f0-243175d78d5e","runId":"41da700a-112b-477b-8370-6eea1e64512f"}[39m
+[10:08:32] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"27407ffc-83a3-4c4d-af10-67d943124a1d","agentId":"8aa920c1-dc49-40d8-9fee-4878640783bf","runId":"bc2d3a00-1742-4645-96da-c2f78835df9d"}[39m
+[10:08:32] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"4304e358-bd6f-46a5-9a51-3cab55452589","agentId":"1d67ecc8-8f8f-4649-8e3d-a936405fcb15","runId":"978c9e73-96fd-4337-b151-f14239033db0"}[39m
+[10:08:33] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"d82dac60-017c-4b06-8711-099f8b49f77c","agentId":"f17e0bac-cdce-4f20-9b22-4268bccece29","runId":"5e901432-7a7e-4c75-9b82-3f04f6ac32b3"}[39m
+[10:08:33] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"19f2c70d-a46b-4b27-a952-6316f2f2ae6d","agentId":"28cd2988-bbb7-420b-8982-09cb24602be3","runId":"a5fe3cea-4a63-4d65-8206-8d27caf503a9"}[39m
+[10:08:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"1cafcc96-0951-48ca-a20b-43c12207c41a","agentId":"3a82c071-f490-4230-8719-e8470fef56ce","runId":"51d56464-af2a-4c6b-8f35-c86daece7d1f"}[39m
+[10:08:40] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2acbfde2-4392-497d-9a31-d55e4bce6085","agentId":"aa78ad08-07b3-476b-87b1-dcfdc58bad1d","runId":"0db2d5dd-ddeb-406c-a8a9-93abfd542bec"}[39m
+[10:08:41] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"2acbfde2-4392-497d-9a31-d55e4bce6085","agentId":"aa78ad08-07b3-476b-87b1-dcfdc58bad1d","runId":"03185390-d25f-4977-b504-04df2f4de64b"}[39m
+[10:08:42] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"88fe59a0-f19a-4289-9bf2-4fa8dac08df5","agentId":"64bcb376-227d-44ad-b2d1-dad53fe1da9b","runId":"4f3fdc9a-961e-49e2-9bbd-8947ef83f787"}[39m
+[10:08:42] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"88fe59a0-f19a-4289-9bf2-4fa8dac08df5","agentId":"64bcb376-227d-44ad-b2d1-dad53fe1da9b","runId":"268abdf9-6f62-4286-8cc2-9f3a5459717d"}[39m
+[10:08:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"9154574a-088b-477d-aab7-7c8d0ed6abef","agentId":"a2b17535-6072-47b6-8b0e-9b1b2ea9d70b","runId":"5a1bf1da-bfb2-4514-84ce-9c35435f25f1"}[39m
+[10:08:43] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"9154574a-088b-477d-aab7-7c8d0ed6abef","agentId":"a2b17535-6072-47b6-8b0e-9b1b2ea9d70b","runId":"a8020396-570e-442a-a2be-00b35fcbcc83"}[39m
+[10:08:43] [31mERROR[39m: [36mheartbeat execution failed[39m [90m{"runId":"697c873c-17c1-46a2-b9f0-3ddaf2e1e859"}[39m
+    err: {
+      "type": "WorkspaceValidationFailure",
+      "message": "Issue T65DE8F-1 expected a project workspace, but codex_local would launch from agent fallback cwd \"/Users/niaopenclaw/.paperclip/instances/default/workspaces/02dac497-87cd-49e6-bceb-c326af804ed2\".",
+      "stack":
+          WorkspaceValidationFailure: Issue T65DE8F-1 expected a project workspace, but codex_local would launch from agent fallback cwd "/Users/niaopenclaw/.paperclip/instances/default/workspaces/02dac497-87cd-49e6-bceb-c326af804ed2".
+              at fail (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:3179:11)
+              at assertGitSensitiveAdapterWorkspaceValid (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:3278:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:23015:15)
+      "code": "workspace_validation_failed",
+      "resultJson": {
+        "workspaceValidation": {
+          "reason": "fallback_agent_home_cwd",
+          "adapterType": "codex_local",
+          "issueId": "94679cb4-b5ae-461e-aec2-f9b428bfdc7c",
+          "issueIdentifier": "T65DE8F-1",
+          "issueProjectId": "d0255fc0-133c-4261-abf9-ccc7b0123efe",
+          "issueProjectWorkspaceId": "893e8adb-5bd8-4075-bd78-1a6bca6d379d",
+          "resolvedWorkspaceSource": "project_primary",
+          "resolvedProjectId": "d0255fc0-133c-4261-abf9-ccc7b0123efe",
+          "resolvedProjectWorkspaceId": "893e8adb-5bd8-4075-bd78-1a6bca6d379d",
+          "resolvedWorkspaceCwd": "/Users/niaopenclaw/.paperclip/instances/default/workspaces/02dac497-87cd-49e6-bceb-c326af804ed2",
+          "executionWorkspaceCwd": "/Users/niaopenclaw/.paperclip/instances/default/workspaces/02dac497-87cd-49e6-bceb-c326af804ed2",
+          "executionWorkspaceStrategy": "project_primary",
+          "executionWorkspaceProjectId": "d0255fc0-133c-4261-abf9-ccc7b0123efe",
+          "executionWorkspaceProjectWorkspaceId": "893e8adb-5bd8-4075-bd78-1a6bca6d379d",
+          "persistedExecutionWorkspaceId": "3a6655b7-6b40-4ec0-9768-85554e450701",
+          "persistedWorkspaceCwd": "/Users/niaopenclaw/.paperclip/instances/default/workspaces/02dac497-87cd-49e6-bceb-c326af804ed2",
+          "persistedWorkspaceStrategy": "project_primary",
+          "persistedProjectId": "d0255fc0-133c-4261-abf9-ccc7b0123efe",
+          "persistedProjectWorkspaceId": "893e8adb-5bd8-4075-bd78-1a6bca6d379d",
+          "persistedProviderRef": null
+        }
+      },
+      "name": "WorkspaceValidationFailure"
+    }
+[10:08:44] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"50105cd8-120b-4906-a51f-7921481dc46a","agentId":"f402b650-bed4-4079-b34e-beaeca2841b0","runId":"af846856-c44c-4b5b-bf42-86ac78b8535b"}[39m
+[10:08:46] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"5237c9ea-7cb3-482f-8362-dfc722fd7762"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:46] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"5237c9ea-7cb3-482f-8362-dfc722fd7762","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:08:47] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"03cd263e-1952-48eb-8c6c-7c56181aa905"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:08:47] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"03cd263e-1952-48eb-8c6c-7c56181aa905","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:00] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"e11ffb02-6bd6-455e-97ee-263da5696a5e","agentId":"ec6817a9-b4fa-4443-8fbd-e621973a52ce","runId":"3de1d986-bac4-469e-b9a4-4d632733f1bf"}[39m
+[10:09:01] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"49c79078-b77f-47e7-a475-34b15daea001","agentId":"8f65c875-7d8d-47fb-995f-a4b04d97c6bb","runId":"a69790fb-32ec-457c-9c2d-54c347f29631"}[39m
+[10:09:05] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"5d6013b6-1855-4063-9bf3-9976d213a38c"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:05] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"5d6013b6-1855-4063-9bf3-9976d213a38c","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:05] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"0b17a435-0985-45e8-9763-44a619488bf7"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:05] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"0b17a435-0985-45e8-9763-44a619488bf7","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:06] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"fa5a68e9-1530-4e09-9049-4ad3a4c60ab3"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:06] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"fa5a68e9-1530-4e09-9049-4ad3a4c60ab3","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:06] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"caa8ff02-4b14-4fad-9143-3ab7ca6f2915"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:06] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"caa8ff02-4b14-4fad-9143-3ab7ca6f2915","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:07] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"05148474-0cf7-4522-9f1e-413fb7fe1fcd"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:07] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"05148474-0cf7-4522-9f1e-413fb7fe1fcd","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:08] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"ff465b45-5bcf-44a0-b05e-6776f6f95823"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:08] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"ff465b45-5bcf-44a0-b05e-6776f6f95823","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:08] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"bd40557e-9442-4ed1-849c-2850945b5f4f"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:08] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"bd40557e-9442-4ed1-849c-2850945b5f4f","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[10:09:09] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"d6d77bf5-91fa-409d-905b-639bd6a1aef9"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[10:09:09] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"d6d77bf5-91fa-409d-905b-639bd6a1aef9","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+
+ Test Files  1 passed (1)
+      Tests  304 passed (304)
+   Start at  10:05:36
+   Duration  214.63s (transform 5.77s, setup 35ms, import 8.49s, tests 206.01s, environment 0ms)
+

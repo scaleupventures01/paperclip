@@ -1,0 +1,27 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+ ❯ |@paperclipai/server| src/services/provider-usage-breaker.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/services/provider-usage-breaker.test.ts [ server/src/services/provider-usage-breaker.test.ts ]
+Error: Cannot find module './provider-usage-breaker.js' imported from /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/provider-usage-breaker.test.ts
+ ❯ src/services/provider-usage-breaker.test.ts:2:1
+      1| import { describe, expect, it } from "vitest";
+      2| import {
+       | ^
+      3|   decideProviderUsageAdmission,
+      4|   providerUsagePoliciesFromEnv,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:53:11
+   Duration  181ms (transform 15ms, setup 74ms, import 0ms, tests 0ms, environment 0ms)
+

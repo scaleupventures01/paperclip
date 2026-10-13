@@ -1,0 +1,12 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 302 skipped (303)
+   Start at  09:55:04
+   Duration  8.82s (transform 3.75s, setup 53ms, import 6.45s, tests 2.23s, environment 0ms)
+

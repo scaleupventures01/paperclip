@@ -1,0 +1,10 @@
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server
+
+[10:13:21] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"7e516a2f-727c-4e5c-9b27-2a73275fb097","agentId":"daa57d86-9b5c-4953-a2c4-9969d6290d60","runId":"92cad281-247f-4bf6-9c91-0182b834274c"}[39m
+
+ Test Files  2 passed (2)
+      Tests  12 passed | 301 skipped (313)
+   Start at  10:13:09
+   Duration  15.42s (transform 5.83s, setup 224ms, import 10.17s, tests 4.74s, environment 0ms)
+

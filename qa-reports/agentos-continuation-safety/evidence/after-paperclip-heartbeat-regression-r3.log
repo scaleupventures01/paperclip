@@ -1,0 +1,41 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+[09:59:22] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"44023771-3577-4a99-95cc-e74b900ec188","agentId":"079185a4-25df-46fd-93f1-b7d115979608","runId":"70377a9c-6a4b-45f0-9c13-8614f6cd19f4"}[39m
+[09:59:22] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"39df8261-2ab3-4ca2-8906-f8ac0cecc787"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[09:59:22] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"39df8261-2ab3-4ca2-8906-f8ac0cecc787","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+[09:59:23] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"11963616-7d92-4115-9749-7f5fcb1c1fbe","agentId":"5e1e2629-a0ca-4ff0-a8a9-8bca2c1e1211","runId":"a8d0235e-78ac-4e9e-8186-93599fc6d3b7"}[39m
+[09:59:23] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"91462271-1647-4a2f-9508-9ec066be4f60"}[39m
+    err: {
+      "type": "Error",
+      "message": "Legacy controller lease lost",
+      "stack":
+          Error: Legacy controller lease lost
+              at lost (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/legacy-controller-lease.ts:73:55)
+              at Object.assertOwned (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/legacy-controller-lease.ts:94:7)
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:22186:9)
+    }
+[09:59:23] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"91462271-1647-4a2f-9508-9ec066be4f60","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+
+ Test Files  1 passed (1)
+      Tests  7 passed | 296 skipped (303)
+   Start at  09:59:13
+   Duration  11.20s (transform 3.66s, setup 58ms, import 6.06s, tests 5.00s, environment 0ms)
+

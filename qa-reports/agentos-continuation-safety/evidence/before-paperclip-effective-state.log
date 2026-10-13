@@ -1,0 +1,74 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+[09:50:08] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"c89e8819-0384-4621-abe2-03d2f49633c0"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20665:29)
+      "status": 409
+    }
+[09:50:08] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"c89e8819-0384-4621-abe2-03d2f49633c0","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts (301 tests | 1 failed | 300 skipped) 2979ms
+     × does not resume a shared-workspace lead while its child needs human review 600ms
+ ❯ |@paperclipai/server| src/modules/wake-queue/domain/policy.test.ts (70 tests | 1 failed | 69 skipped) 4ms
+     × released: immediate recovery applies but a canonical durable wait owns the next action 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts > heartbeat orphaned process recovery > does not resume a shared-workspace lead while its child needs human review
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/__tests__/heartbeat-process-recovery.test.ts:12654:41
+    12652|     const heartbeat = heartbeatService(db);
+    12653|     const result = await heartbeat.reconcileStrandedAssignedIssues();
+    12654|     expect(result.continuationRequeued).toBe(0);
+       |                                         ^
+    12655|     expect(await db.select().from(heartbeatRuns).where(eq(heartbeatRun…
+    12656|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |@paperclipai/server| src/modules/wake-queue/domain/policy.test.ts > decideReleaseRecovery > released: immediate recovery applies but a canonical durable wait owns the next action
+AssertionError: expected { kind: 'queue_recovery' } to deeply equal { kind: 'released' }
+
+- Expected
++ Received
+
+  {
+-   "kind": "released",
++   "kind": "queue_recovery",
+  }
+
+ ❯ src/modules/wake-queue/domain/policy.test.ts:470:53
+    468|   for (const testCase of cases) {
+    469|     it(testCase.name, () => {
+    470|       expect(decideReleaseRecovery(testCase.facts)).toEqual(testCase.e…
+       |                                                     ^
+    471|     });
+    472|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 1 skipped (3)
+      Tests  2 failed | 427 skipped (429)
+   Start at  09:49:56
+   Duration  14.40s (transform 3.59s, setup 163ms, import 10.98s, tests 2.98s, environment 0ms)
+

@@ -1,0 +1,260 @@
+server/src/adapters/registry.ts(426,62): error TS2307: Cannot find module '@paperclipai/paperclip-runner/live' or its corresponding type declarations.
+server/src/app.ts(171,42): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/realtime/runner-prp-ws.test.ts(7,40): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/realtime/runner-prp-ws.test.ts(341,14): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+server/src/routes/plugins.ts(65,70): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/routes/plugins.ts(66,58): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/routes/plugins.ts(1286,15): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1290,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1291,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1296,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1297,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1302,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1303,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1308,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1309,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1314,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1315,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1320,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1321,22): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1928,11): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1929,11): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(1932,48): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/plugins.ts(2398,13): error TS18046: 'rpcErr' is of type 'unknown'.
+server/src/routes/plugins.ts(2510,9): error TS18046: 'err' is of type 'unknown'.
+server/src/routes/project-tools.ts(22,29): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/activity-log.ts(6,34): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/environment-custom-images.ts(26,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/environment-runtime.ts(30,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/environment-runtime.ts(2875,57): error TS7006: Parameter 'header' implicitly has an 'any' type.
+server/src/services/external-objects.ts(16,92): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/native-runtime/completion-contracts.test.ts(129,34): error TS7006: Parameter 'c' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(314,77): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(335,40): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(335,84): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(340,99): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(341,63): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(380,16): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/evidence-classifier.ts(381,13): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/managed-native-credentials.ts(46,26): error TS7006: Parameter 'input' implicitly has an 'any' type.
+server/src/services/native-runtime/native-completion-feedback.ts(74,59): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-completion-feedback.ts(75,109): error TS7006: Parameter 'id' implicitly has an 'any' type.
+server/src/services/native-runtime/native-completion-feedback.ts(85,10): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/native-completion-feedback.ts(88,10): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/native-completion-feedback.ts(90,34): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+server/src/services/native-runtime/native-deliverable-feedback.ts(101,51): error TS7031: Binding element 'evidenceRefs' implicitly has an 'any' type.
+server/src/services/native-runtime/native-execution-input.test.ts(254,12): error TS7006: Parameter 'response' implicitly has an 'any' type.
+server/src/services/native-runtime/native-provider-capacity.integration.test.ts(19,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/native-question-bridge.test.ts(18,31): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/native-question-bridge.ts(101,43): error TS7006: Parameter 'question' implicitly has an 'any' type.
+server/src/services/native-runtime/native-question-bridge.ts(103,79): error TS7006: Parameter 'option' implicitly has an 'any' type.
+server/src/services/native-runtime/native-question-bridge.ts(119,61): error TS7006: Parameter 'option' implicitly has an 'any' type.
+server/src/services/native-runtime/native-question-bridge.ts(230,35): error TS7006: Parameter 'question' implicitly has an 'any' type.
+server/src/services/native-runtime/native-run-coordinator-store.ts(96,6): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-run-coordinator-store.ts(101,8): error TS7006: Parameter 'criterionId' implicitly has an 'any' type.
+server/src/services/native-runtime/native-run-coordinator-store.ts(101,21): error TS7006: Parameter 'index' implicitly has an 'any' type.
+server/src/services/native-runtime/native-run-finalizer.ts(23,49): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/native-session-executor.test.ts(35,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/native-session-executor.test.ts(2754,16): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(661,48): error TS7006: Parameter 'question' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(684,41): error TS7006: Parameter 'option' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(978,56): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(1026,56): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(1124,56): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(1159,8): error TS7006: Parameter 'response' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(1163,11): error TS7006: Parameter 'response' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(1988,50): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(3360,27): error TS7006: Parameter 'receipt' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(3369,27): error TS7006: Parameter 'event' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(5291,72): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+server/src/services/native-runtime/native-session-executor.ts(5312,5): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+server/src/services/native-runtime/native-session-executor.ts(5962,9): error TS18046: 'error' is of type 'unknown'.
+server/src/services/native-runtime/native-session-executor.ts(5967,9): error TS18046: 'error' is of type 'unknown'.
+server/src/services/native-runtime/native-session-executor.ts(6376,41): error TS2345: Argument of type 'Promise<{ turnId: string; }> | undefined' is not assignable to parameter of type 'Promise<{ turnId: string; }>'.
+  Type 'undefined' is not assignable to type 'Promise<{ turnId: string; }>'.
+server/src/services/native-runtime/native-session-executor.ts(6377,10): error TS18048: 'delivery' is possibly 'undefined'.
+server/src/services/native-runtime/native-session-executor.ts(6384,10): error TS18048: 'delivery' is possibly 'undefined'.
+server/src/services/native-runtime/native-session-executor.ts(6402,5): error TS2322: Type '{ turnId: string; } | undefined' is not assignable to type '{ turnId: string; }'.
+  Type 'undefined' is not assignable to type '{ turnId: string; }'.
+server/src/services/native-runtime/native-session-executor.ts(8205,37): error TS7031: Binding element 'event' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8207,44): error TS7031: Binding element 'terminalEvent' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8236,34): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8252,57): error TS7031: Binding element 'stage' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8252,64): error TS7031: Binding element 'error' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8261,42): error TS7006: Parameter 'reason' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8267,39): error TS7006: Parameter 'continuity' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8291,31): error TS7006: Parameter 'session' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(8617,21): error TS18046: 'error' is of type 'unknown'.
+server/src/services/native-runtime/native-session-executor.ts(8621,21): error TS18046: 'error' is of type 'unknown'.
+server/src/services/native-runtime/native-session-executor.ts(10077,14): error TS7006: Parameter 'requestedSignal' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(10455,113): error TS7006: Parameter 'skill' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(10456,55): error TS2345: Argument of type '(key: string) => boolean' is not assignable to parameter of type '(value: unknown, index: number, array: unknown[]) => unknown'.
+  Types of parameters 'key' and 'value' are incompatible.
+    Type 'unknown' is not assignable to type 'string'.
+server/src/services/native-runtime/native-session-executor.ts(10649,52): error TS7006: Parameter 'skill' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(10649,59): error TS7006: Parameter 'index' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12160,32): error TS7006: Parameter 'result' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12180,29): error TS7006: Parameter 'recoveryContext' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12299,24): error TS7006: Parameter 'message' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12322,16): error TS7006: Parameter 'criterion' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12379,42): error TS7006: Parameter 'authority' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12379,53): error TS7006: Parameter 'attachmentIdentity' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12661,25): error TS7006: Parameter 'sessionInput' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12662,28): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12662,38): error TS7006: Parameter 'options' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-executor.ts(12666,36): error TS7006: Parameter 'sessionInput' implicitly has an 'any' type.
+server/src/services/native-runtime/native-session-resume.test.ts(32,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/native-session-resume.test.ts(986,35): error TS7006: Parameter 'value' implicitly has an 'any' type.
+server/src/services/native-runtime/native-tool-trace.ts(4,79): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/native-runtime/native-warm-transition-restart.integration.test.ts(22,45): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/paperclip-control-plane-port.test.ts(734,25): error TS7006: Parameter 'input' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-real-server.integration.test.ts(108,34): error TS7006: Parameter 'prp' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-real-server.integration.test.ts(111,53): error TS7006: Parameter 'request' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-real-server.integration.test.ts(180,36): error TS7006: Parameter 'prp' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-real-server.integration.test.ts(186,57): error TS7006: Parameter 'request' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.test.ts(373,10): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.ts(160,20): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.ts(161,17): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.ts(179,10): error TS7006: Parameter 'descriptor' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.ts(190,14): error TS7006: Parameter 'descriptor' implicitly has an 'any' type.
+server/src/services/native-runtime/paperclip-runner-tool-authority.ts(352,8): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-api-catalog.ts(96,68): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-api.integration.test.ts(62,33): error TS7006: Parameter 'prp' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-api.integration.test.ts(65,52): error TS7006: Parameter 'request' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-prp-coordinator.test.ts(25,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/services/native-runtime/runner-prp-coordinator.ts(283,34): error TS7006: Parameter 'event' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-prp-coordinator.ts(296,37): error TS7006: Parameter 'call' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-semantic-authority.ts(83,25): error TS7006: Parameter 'runId' implicitly has an 'any' type.
+server/src/services/native-runtime/runner-semantic-authority.ts(111,23): error TS7006: Parameter 'invocation' implicitly has an 'any' type.
+server/src/services/native-runtime/runtime-context.test.ts(306,32): error TS7006: Parameter 'skill' implicitly has an 'any' type.
+server/src/services/plugin-environment-driver.ts(22,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-event-bus.ts(24,47): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-host-services.ts(29,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-host-services.ts(81,44): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-host-services.ts(1421,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1434,23): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1471,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1475,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1486,22): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1492,29): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1505,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1515,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1521,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1530,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1542,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1545,21): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1551,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1554,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1560,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1567,46): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-host-services.ts(1581,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1599,21): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1607,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1623,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1648,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1662,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1697,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1697,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1708,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1711,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1718,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1723,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1729,28): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1752,33): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1774,34): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1799,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1810,30): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1820,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1834,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1846,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1851,30): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1859,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1867,27): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1874,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1885,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1890,30): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1895,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1903,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1909,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1915,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1951,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1988,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(1994,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2007,25): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2028,28): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2047,33): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2081,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2164,27): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2230,28): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2235,72): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+server/src/services/plugin-host-services.ts(2300,37): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2375,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2381,27): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2467,31): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2490,30): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2496,32): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2581,29): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2587,34): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2642,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2650,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2657,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2721,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2728,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2735,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2761,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2780,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2789,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2795,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2802,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2809,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2833,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2838,30): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2843,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2851,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2863,17): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2869,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2881,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2890,25): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2913,23): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2918,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2934,25): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(2953,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3002,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3030,24): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3045,23): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3061,30): error TS7006: Parameter 'grant' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3078,27): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3097,23): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3102,26): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3155,31): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3171,31): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3187,25): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3221,20): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3252,18): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3276,25): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-host-services.ts(3392,19): error TS7006: Parameter 'params' implicitly has an 'any' type.
+server/src/services/plugin-loader.ts(35,40): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-local-folders.ts(11,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-local-folders.ts(611,59): error TS7006: Parameter 'item' implicitly has an 'any' type.
+server/src/services/plugin-tool-dispatcher.ts(30,49): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-tool-registry.ts(26,68): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-worker-manager.ts(46,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/plugin-worker-manager.ts(60,8): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/services/project-tools.ts(8,50): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/project-tools.ts(11,9): error TS7006: Parameter 'tool' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.test.ts(51,52): error TS7006: Parameter 'file' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.ts(85,33): error TS7006: Parameter 'file' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.ts(97,53): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.ts(97,58): error TS7006: Parameter 'file' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.ts(98,53): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+server/src/services/provider-trace-workspace-diff-reprojection.ts(98,58): error TS7006: Parameter 'file' implicitly has an 'any' type.
+server/src/services/question-response-delivery.ts(206,8): error TS7006: Parameter 'optionId' implicitly has an 'any' type.
+server/src/services/tool-gateway.ts(66,37): error TS2307: Cannot find module '@paperclipai/plugin-sdk' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(10,35): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(58,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(60,10): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(62,10): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(94,20): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/index.ts(95,13): error TS2307: Cannot find module '@paperclipai/paperclip-runner' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/testing.ts(9,42): error TS2307: Cannot find module '@paperclipai/paperclip-runner/testing' or its corresponding type declarations.
+server/src/vendor/paperclip-runner/testing.ts(21,8): error TS2307: Cannot find module '@paperclipai/paperclip-runner/testing' or its corresponding type declarations.

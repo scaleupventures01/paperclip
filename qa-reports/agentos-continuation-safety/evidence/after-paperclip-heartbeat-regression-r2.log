@@ -1,0 +1,118 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013
+
+[09:58:46] [33mWARN[39m: [36mruntime connection tools could not be delivered[39m [90m{"companyId":"55924bd7-39d3-4491-b7ee-5c309fbad542","agentId":"d7a8e899-93e9-43d9-9fa2-1b59cdce2dcb","runId":"00a794ce-f428-4cec-8cf3-da66c43576bd"}[39m
+[09:58:46] [31mERROR[39m: [36mheartbeat execution setup failed[39m [90m{"runId":"55a67fa5-57ee-43d3-9e19-69420d8c8e74"}[39m
+    err: {
+      "type": "HttpError",
+      "message": "Cannot retain policy for an inactive execution",
+      "stack":
+          Error: Cannot retain policy for an inactive execution
+              at conflict (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/errors.ts:29:10)
+              at /Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/run-trust-preset.ts:35:21
+              at processTicksAndRejections (node:internal/process/task_queues:104:5)
+              at scope (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:279:18)
+              at Proxy.begin (file:///Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/node_modules/.pnpm/postgres@3.4.9_patch_hash=sryle6qd5qfmnxvoebal4gashi/node_modules/postgres/src/index.js:257:14)
+              at executeRun (/Users/niaopenclaw/Domains/paperclip/.worktrees/incident-safety-20261013/server/src/services/heartbeat.ts:20666:29)
+      "status": 409
+    }
+[09:58:46] [32mINFO[39m: [36mskipping late setup failure finalization because the run already left running state[39m [90m{"runId":"55a67fa5-57ee-43d3-9e19-69420d8c8e74","attemptedStatus":"failed","currentStatus":"cancelled"}[39m
+ ❯ |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts (303 tests | 3 failed | 296 skipped) 7606ms
+     × escalates an exhausted failed successful-run handoff without using generic continuation recovery first 475ms
+     × escalates an exhausted successful handoff run that still leaves no disposition 384ms
+     × enqueues one bounded plan-only continuation with legacy productivity review present: true 3363ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts > heartbeat orphaned process recovery > escalates an exhausted failed successful-run handoff without using generic continuation recovery first
+AssertionError: expected { …(26) } to match object { …(12) }
+(33 matching properties omitted from actual)
+
+- Expected
++ Received
+
+@@ -1,11 +1,11 @@
+  {
+    "attemptCount": 1,
+    "cause": "successful_run_missing_state",
+    "companyId": "748d58bf-607e-4b53-a366-52a76ff77c18",
+    "kind": "missing_disposition",
+-   "maxAttempts": null,
++   "maxAttempts": 5,
+    "ownerAgentId": null,
+    "ownerType": "board",
+    "previousOwnerAgentId": "0abf5c4a-8254-4bc2-bbcb-221e1d4b4537",
+    "recoveryIssueId": null,
+    "returnOwnerAgentId": "0abf5c4a-8254-4bc2-bbcb-221e1d4b4537",
+
+ ❯ expectSourceScopedStrandedRecoveryAction src/__tests__/heartbeat-process-recovery.test.ts:1321:20
+    1319|       );
+    1320|
+    1321|     expect(action).toMatchObject({
+       |                    ^
+    1322|       companyId: input.companyId,
+    1323|       sourceIssueId: input.issueId,
+ ❯ src/__tests__/heartbeat-process-recovery.test.ts:5823:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts > heartbeat orphaned process recovery > escalates an exhausted successful handoff run that still leaves no disposition
+AssertionError: expected { …(26) } to match object { …(12) }
+(33 matching properties omitted from actual)
+
+- Expected
++ Received
+
+@@ -1,11 +1,11 @@
+  {
+    "attemptCount": 1,
+    "cause": "successful_run_missing_state",
+    "companyId": "f8913942-00b8-4007-9eb2-5aab94ede094",
+    "kind": "missing_disposition",
+-   "maxAttempts": null,
++   "maxAttempts": 5,
+    "ownerAgentId": null,
+    "ownerType": "board",
+    "previousOwnerAgentId": "5637689c-8f0a-4e5d-addd-9a2381cbcf66",
+    "recoveryIssueId": null,
+    "returnOwnerAgentId": "5637689c-8f0a-4e5d-addd-9a2381cbcf66",
+
+ ❯ expectSourceScopedStrandedRecoveryAction src/__tests__/heartbeat-process-recovery.test.ts:1321:20
+    1319|       );
+    1320|
+    1321|     expect(action).toMatchObject({
+       |                    ^
+    1322|       companyId: input.companyId,
+    1323|       sourceIssueId: input.issueId,
+ ❯ src/__tests__/heartbeat-process-recovery.test.ts:5953:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |@paperclipai/server| src/__tests__/heartbeat-process-recovery.test.ts > heartbeat orphaned process recovery > enqueues one bounded plan-only continuation with legacy productivity review present: true
+AssertionError: expected null to be truthy
+
+- Expected:
+true
+
++ Received:
+null
+
+ ❯ src/__tests__/heartbeat-process-recovery.test.ts:10575:26
+    10573|       );
+    10574|     });
+    10575|     expect(livenessWake).toBeTruthy();
+       |                          ^
+    10576|     expect(livenessWake?.payload).toMatchObject({
+    10577|       issueId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 4 passed | 296 skipped (303)
+   Start at  09:58:36
+   Duration  13.97s (transform 3.43s, setup 73ms, import 6.20s, tests 7.61s, environment 0ms)
+
