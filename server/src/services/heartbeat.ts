@@ -14075,6 +14075,19 @@ export function heartbeatService(
       });
       return null;
     }
+    // This retry inserts its run directly, not through enqueueWakeup, so the
+    // fleet release gate is checked here too (agentos#596).
+    const commentRetryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!commentRetryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Missing-comment retry suppressed: ${commentRetryFleetGate.message}`,
+        payload: { reason: FLEET_RELEASE_GATE_SKIP_REASON },
+      });
+      return null;
+    }
 
     const contextSnapshot = parseObject(run.contextSnapshot);
     const taskKey = deriveTaskKeyWithHeartbeatFallback(contextSnapshot, null);
@@ -15426,6 +15439,24 @@ export function heartbeatService(
           issueId,
         };
       }
+    }
+    // The retry run is inserted here, not through enqueueWakeup, so the fleet
+    // release gate is checked here too (agentos#596).
+    const retryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!retryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Scheduled retry suppressed: ${retryFleetGate.message}`,
+        payload: { retryReason, scheduledRetryAttempt: nextAttempt, maxAttempts },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason: retryFleetGate.message,
+        errorCode: "fleet_release_gate_not_allowed" as const,
+        issueId,
+      };
     }
 
     const schedule =
