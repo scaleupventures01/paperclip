@@ -679,6 +679,66 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
       expect(resolved).toMatchObject({ outcome: "cancelled", errorCode: "issue_assignee_changed" });
     });
 
+    it.each(["issue_children_completed", "issue_blockers_resolved"])(
+      "cancels an automatic %s wake when a human interaction became the durable next action",
+      async (wakeReason) => {
+        const { companyId, agentId } = await seedCompanyAndAgent();
+        const issueId = randomUUID();
+        await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId: agentId });
+        await db.insert(issueThreadInteractions).values({
+          id: randomUUID(),
+          companyId,
+          issueId,
+          kind: "request_confirmation",
+          status: "pending",
+          addresseeUserId: "responsible-user",
+          requestedResolverPolicy: "human_only",
+          effectiveResolverPolicy: "human_only",
+          payload: { version: 1, prompt: "Approve the next stage?" },
+        });
+        const runId = await seedRun({
+          companyId,
+          agentId,
+          contextSnapshot: { issueId, wakeReason, source: "issue.update" },
+        });
+
+        const result = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+          runId,
+          companyId,
+          expectedStatus: "queued",
+          now: new Date(),
+        });
+
+        expect(result).toMatchObject({
+          outcome: "cancelled",
+          errorCode: "issue_continuation_waiting_on_review",
+        });
+      },
+    );
+
+    it.each(["issue_children_completed", "issue_blockers_resolved"])(
+      "keeps an automatic %s wake runnable when no durable wait remains",
+      async (wakeReason) => {
+        const { companyId, agentId } = await seedCompanyAndAgent();
+        const issueId = randomUUID();
+        await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId: agentId });
+        const runId = await seedRun({
+          companyId,
+          agentId,
+          contextSnapshot: { issueId, wakeReason, source: "issue.update" },
+        });
+
+        await expect(
+          createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+            runId,
+            companyId,
+            expectedStatus: "queued",
+            now: new Date(),
+          }),
+        ).resolves.toEqual({ outcome: "not_stale" });
+      },
+    );
+
     it("requeues the exact cancelled pending-interaction addressee wake and restores blocked routing data", async () => {
       const { companyId, agentId: assigneeAgentId } = await seedCompanyAndAgent();
       const addresseeAgentId = randomUUID();
