@@ -548,6 +548,10 @@ import {
   DIRECT_NON_INVOKABLE_STATUSES,
   type AgentOrgRow,
 } from "./agent-invokability.js";
+import {
+  evaluateFleetReleaseGate,
+  FLEET_RELEASE_GATE_SKIP_REASON,
+} from "./fleet-release-gate.js";
 import { isHeartbeatWakeOnDemandEnabled } from "./heartbeat-policy.js";
 import {
   isLowTrustQuarantined,
@@ -26483,36 +26487,56 @@ export function heartbeatService(
     // re-reads the status with the transaction and, when the agent is no longer
     // directly invokable, records a skipped request instead. Returns true when
     // the caller must not queue.
+    // The fleet release gate (AgentOS staged rollout allowlist) is evaluated
+    // here too, so a cohort change between the early check and the queueing
+    // transaction is honored for every wake source.
     const skipWhenAgentNoLongerInvokable = async (tx: Db) => {
       const current = await tx
         .select({ status: agents.status })
         .from(agents)
         .where(eq(agents.id, agentId))
         .then((rows) => rows[0] ?? null);
-      if (current && !DIRECT_NON_INVOKABLE_STATUSES.has(current.status)) {
+      const gate = evaluateFleetReleaseGate(agentId);
+      const block = !current
+        ? null
+        : !gate.allowed
+          ? { reason: FLEET_RELEASE_GATE_SKIP_REASON, error: gate.message }
+          : DIRECT_NON_INVOKABLE_STATUSES.has(current.status)
+            ? { reason: "agent.not_invokable", error: "Agent is not invokable in its current state" }
+            : null;
+      if (current && !block) {
         return false;
       }
       // A saved execution-wait request stays deferred; the next admission
-      // attempt rejects it at the invokability check.
-      if (current && !executionWaitRequestId) {
+      // attempt rejects it at the early checks.
+      if (block && !executionWaitRequestId) {
         await tx.insert(agentWakeupRequests).values({
           ...durableReceiptFields,
           companyId: agent.companyId,
           agentId,
           source,
           triggerDetail,
-          reason: "agent.not_invokable",
+          reason: block.reason,
           payload,
           status: "skipped",
           requestedByActorType: opts.requestedByActorType ?? null,
           requestedByActorId: opts.requestedByActorId ?? null,
           idempotencyKey: opts.idempotencyKey ?? null,
-          error: "Agent is not invokable in its current state",
+          error: block.error,
           finishedAt: new Date(),
         });
       }
       return true;
     };
+
+    // Fleet release gate, early check: refuse every wake source, user wakes
+    // included, before any other admission work. Fails closed when the
+    // configured policy file is unreadable or invalid.
+    const fleetGate = evaluateFleetReleaseGate(agentId);
+    if (!fleetGate.allowed) {
+      await writeSkippedRequest(FLEET_RELEASE_GATE_SKIP_REASON, { error: fleetGate.message });
+      return null;
+    }
 
     const schedulingSuppression = await getSchedulingSuppression();
     if (schedulingSuppression.suppressed) {
