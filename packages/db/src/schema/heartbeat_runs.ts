@@ -162,5 +162,17 @@ export const heartbeatRuns = pgTable(
       sql`(${table.contextSnapshot} ->> 'taskKey')`,
       table.createdAt.desc(),
     ),
+    // recovery latestRecoveryActionRun filters context_snapshot ->> 'recoveryActionId'.
+    companyCtxRecoveryActionCreatedIdx: index(
+      "heartbeat_runs_company_ctx_recovery_action_created_idx",
+    ).on(
+      table.companyId,
+      sql`((${table.contextSnapshot} ->> 'recoveryActionId'))`,
+      table.createdAt.desc(),
+    ),
+    // scheduleBoundedRetryForRun and recovery filter retry_of_run_id.
+    companyRetryOfRunIdx: index("heartbeat_runs_company_retry_of_run_idx")
+      .on(table.companyId, table.retryOfRunId)
+      .where(sql`${table.retryOfRunId} is not null`),
   }),
 );

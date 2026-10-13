@@ -27,6 +27,8 @@ d("heartbeat context_snapshot expression index migration", () => {
     expect(names).toContain("heartbeat_runs_company_ctx_issue_created_idx");
     expect(names).toContain("heartbeat_runs_company_ctx_task_created_idx");
     expect(names).toContain("heartbeat_runs_company_ctx_taskkey_created_idx");
+    expect(names).toContain("heartbeat_runs_company_ctx_recovery_action_created_idx");
+    expect(names).toContain("heartbeat_runs_company_retry_of_run_idx");
     expect(names).toContain("agent_wakeup_requests_company_payload_issue_idx");
 
     await sql.unsafe("SET enable_seqscan = off");
@@ -63,6 +65,7 @@ d("heartbeat context_snapshot expression index migration", () => {
     for (const migration of [
       "./migrations/0209_heartbeat_context_snapshot_indexes.sql",
       "./migrations/0210_heartbeat_context_taskkey_index.sql",
+      "./migrations/0285_heartbeat_runs_recovery_retry_indexes.sql",
     ]) {
       const migrationSql = await readFile(
         fileURLToPath(new URL(migration, import.meta.url)),
