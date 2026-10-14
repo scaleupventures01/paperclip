@@ -1068,7 +1068,14 @@ describeEmbeddedPostgres("heartbeat resolved dependency wake reconciliation", ()
     expect(mockAdapterExecute).not.toHaveBeenCalled();
 
     // Control: once the child is done the durable wait is gone, and the parent
-    // is woken exactly once for the same ready state.
+    // is woken exactly once for the same ready state. The woken run finishes the
+    // parent, as in the execution-hold test above, so no unrelated post-run
+    // continuation wake is counted against the adapter.
+    mockAdapterExecute.mockImplementationOnce(async () => {
+      await db.update(issues).set({ status: "done" }).where(eq(issues.id, blockedIssueId));
+      return { exitCode: 0, signal: null, timedOut: false, errorMessage: null,
+        summary: "Finished the dependency-ready parent.", provider: "test", model: "test-model" };
+    });
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, childIssueId));
     let healedAfterChildDone = 0;
     for (let pass = 0; pass < 5; pass++) {
