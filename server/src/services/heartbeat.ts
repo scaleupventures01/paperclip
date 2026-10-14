@@ -1133,6 +1133,45 @@ function readTransientRecoveryContractFromRun(
     : null;
 }
 
+// AgentOS managed launchers (agentos-codex-glm-managed and its siblings) exit
+// 78 (EX_CONFIG) when a required capability is missing and print
+// "capability_missing: ..." on stderr, e.g. an unhealthy Akili lane. Running
+// the agent again produces the identical refusal, so it is never a transient
+// failure and must not spend the bounded retry budget or the provider usage
+// breaker's per-card cap.
+const CAPABILITY_MISSING_ERROR_CODE = "capability_missing";
+const CAPABILITY_MISSING_EXIT_CODE = 78;
+const CAPABILITY_MISSING_MESSAGE_RE = /^\s*capability_missing:/;
+
+function isCapabilityMissingFailure(input: {
+  exitCode?: number | null;
+  errorCode?: string | null;
+  errorMessages: unknown[];
+}) {
+  return (
+    input.errorCode === CAPABILITY_MISSING_ERROR_CODE ||
+    input.exitCode === CAPABILITY_MISSING_EXIT_CODE ||
+    input.errorMessages.some(
+      (value) =>
+        typeof value === "string" && CAPABILITY_MISSING_MESSAGE_RE.test(value),
+    )
+  );
+}
+
+function isCapabilityMissingRun(
+  run: Pick<
+    typeof heartbeatRuns.$inferSelect,
+    "error" | "errorCode" | "exitCode" | "resultJson"
+  >,
+) {
+  const resultJson = parseObject(run.resultJson);
+  return isCapabilityMissingFailure({
+    exitCode: run.exitCode,
+    errorCode: run.errorCode,
+    errorMessages: [run.error, resultJson.errorMessage],
+  });
+}
+
 function isSpawnLikeFailureMessage(value: unknown) {
   if (typeof value !== "string") return false;
   return /failed to start command|spawn\b|\bENOENT\b/i.test(value);
@@ -15325,6 +15364,31 @@ export function heartbeatService(
         opts?.maxAttempts ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
       ),
     );
+    if (
+      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON &&
+      isCapabilityMissingRun(run)
+    ) {
+      const reason =
+        "Transient retry refused: the run failed on a missing capability, which a retry cannot fix";
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: reason,
+        payload: {
+          retryReason,
+          errorCode: CAPABILITY_MISSING_ERROR_CODE,
+          exitCode: run.exitCode ?? null,
+          retryable: false,
+        },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason,
+        errorCode: "non_retryable_capability_missing" as const,
+        issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+      };
+    }
     const nextAttempt =
       (retryReason === WORKSPACE_BUSY_RETRY_REASON ||
       retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
@@ -25011,9 +25075,15 @@ export function heartbeatService(
             : outcome === "cancelled"
               ? (latestRun?.errorCode ?? "cancelled")
               : outcome === "failed"
-                ? (adapterResult.errorCode ??
-                  recordedResponsibleUserDenialCode ??
-                  "adapter_failed")
+                ? isCapabilityMissingFailure({
+                    exitCode: adapterResult.exitCode,
+                    errorCode: adapterResult.errorCode,
+                    errorMessages: [adapterResult.errorMessage],
+                  })
+                  ? CAPABILITY_MISSING_ERROR_CODE
+                  : (adapterResult.errorCode ??
+                    recordedResponsibleUserDenialCode ??
+                    "adapter_failed")
                 : null;
 
         let logSummary: {
@@ -25226,6 +25296,9 @@ export function heartbeatService(
             payload: {
               status,
               exitCode: adapterResult.exitCode,
+              ...(runErrorCode === CAPABILITY_MISSING_ERROR_CODE
+                ? { errorCode: runErrorCode, retryable: false }
+                : {}),
             },
           });
           try {

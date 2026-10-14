@@ -149,6 +149,16 @@ describe("classifyAdapterFailureForRecovery", () => {
     })).toBe(false);
   });
 
+  it("escalates a capability_missing continuation failure instead of retrying it", () => {
+    // AgentOS launcher exit 78 refusal; retrying repeats it and burns the
+    // provider usage breaker's per-card cap (SCAA-4008, 2026-10-13).
+    expect(classifyContinuationFailure({ errorCode: "capability_missing" } as never))
+      .toMatchObject({ kind: "non_retryable", maxAttempts: 0 });
+    // Control: a generic adapter failure keeps the bounded transient budget.
+    expect(classifyContinuationFailure({ errorCode: "adapter_failed" } as never))
+      .toMatchObject({ kind: "transient_infra" });
+  });
+
   it("does not treat a generic capacity limit as provider quota", () => {
     expect(classifyAdapterFailureForRecovery({
       errorCode: "adapter_failed",
