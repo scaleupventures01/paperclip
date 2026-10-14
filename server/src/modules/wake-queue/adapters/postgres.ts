@@ -1,4 +1,5 @@
 import { isAcknowledgedNativeReassignmentStop, isAcknowledgedNativeStop } from "../../../services/acknowledged-native-stop.js";
+import { isLegacyHandoffStop } from "../../../services/handoff-wake-release.js";
 import { instanceSettingsService } from "../../../services/instance-settings.js";
 import { currentConversationCommentCondition } from "../../../services/agent-conversations.js";
 import { getExecutionBlocker } from "../../../services/execution-blocker.js";
@@ -1131,6 +1132,11 @@ export function createPostgresWakeQueueAdapter(db: Db, deps: WakeQueuePostgresAd
             (run.status === "cancelled" &&
             (parseObject(run.resultJson?.executionCancellation).state === "acknowledged" || isAcknowledgedNativeStop(run)) &&
             !interruptedQueue),
+          // A self-reassign is a handoff, not an operator stop: the new owner's
+          // parked wake may drain. The ownership-blocker check below still runs
+          // before any promotion, so nothing moves while the old process or
+          // lease is alive. Kill switch: PAPERCLIP_HANDOFF_WAKE_RELEASE=0.
+          handoffStop: isLegacyHandoffStop(run, issueRow),
         };
         const preDrain = decidePreDrain(preDrainFacts);
 

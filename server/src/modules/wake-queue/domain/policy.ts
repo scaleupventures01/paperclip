@@ -74,6 +74,8 @@ export type PreDrainFacts = {
   legacyExecutionNeedsReconciliation: boolean;
   /** True when the finishing run is cancelled and its stored result carries an acknowledged execution cancellation. */
   executionCancellationAcknowledged: boolean;
+  /** True when the finishing run was stopped because its own agent handed the card to another agent. A handoff is not an operator stop, so the new owner's parked wake may drain. Missing means false. */
+  handoffStop?: boolean;
 };
 
 export type PreDrainDecision =
@@ -112,7 +114,7 @@ export function decidePreDrain(facts: PreDrainFacts): PreDrainDecision {
     return { kind: "released" };
   }
 
-  if (facts.executionCancellationAcknowledged) {
+  if (facts.executionCancellationAcknowledged && facts.handoffStop !== true) {
     return { kind: "released" };
   }
 
