@@ -59,7 +59,6 @@ import { setupEnvironmentCustomImageTerminalWebSocketServer } from "./realtime/e
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { setupRunnerPrpWebSocketServer } from "./realtime/runner-prp-ws.js";
 import { cloudActorHeaderSourceFromHeaders, resolveCloudTenantActor } from "./middleware/auth.js";
-import { startOwnedCancelledRunSweep } from "./services/heartbeat.js";
 import {
   feedbackService,
   applyManagedEnvironments,
@@ -73,6 +72,7 @@ import {
   externalObjectService,
   executionWorkspaceService,
   heartbeatService,
+  startOwnedCancelledRunSweep,
   issueThreadInteractionService,
   githubConnectionEventService,
   issueService,
