@@ -159,7 +159,7 @@ export type QueuedRunFacts = {
   /** The pre-classified verdict on whatever continuation summary body applies; only meaningful when continuationParkApplies is true. */
   continuationParksExecutor: boolean;
   continuationSummaryBody: string | null;
-  /** Canonical typed wait that appeared after this generic continuation was queued. */
+  /** Canonical typed wait that appeared after this automatic continuation was queued. */
   continuationDurableWaitReason: string | null;
   wakeReason: string | null;
   retryReason: string | null;
@@ -569,7 +569,7 @@ export function decideQueuedRunStaleness(
     return {
       stale: true,
       errorCode: "issue_continuation_waiting_on_review",
-      reason: "Cancelled because a durable wait owns the next action before the generic continuation could start",
+      reason: "Cancelled because a durable wait owns the next action before the automatic continuation could start",
       details: {
         issueId: facts.issueId,
         wakeReason: facts.wakeReason,

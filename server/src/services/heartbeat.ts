@@ -548,6 +548,10 @@ import {
   DIRECT_NON_INVOKABLE_STATUSES,
   type AgentOrgRow,
 } from "./agent-invokability.js";
+import {
+  evaluateFleetReleaseGate,
+  FLEET_RELEASE_GATE_SKIP_REASON,
+} from "./fleet-release-gate.js";
 import { isHeartbeatWakeOnDemandEnabled } from "./heartbeat-policy.js";
 import {
   isLowTrustQuarantined,
@@ -14071,6 +14075,19 @@ export function heartbeatService(
       });
       return null;
     }
+    // This retry inserts its run directly, not through enqueueWakeup, so the
+    // fleet release gate is checked here too (agentos#596).
+    const commentRetryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!commentRetryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Missing-comment retry suppressed: ${commentRetryFleetGate.message}`,
+        payload: { reason: FLEET_RELEASE_GATE_SKIP_REASON },
+      });
+      return null;
+    }
 
     const contextSnapshot = parseObject(run.contextSnapshot);
     const taskKey = deriveTaskKeyWithHeartbeatFallback(contextSnapshot, null);
@@ -15422,6 +15439,24 @@ export function heartbeatService(
           issueId,
         };
       }
+    }
+    // The retry run is inserted here, not through enqueueWakeup, so the fleet
+    // release gate is checked here too (agentos#596).
+    const retryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!retryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Scheduled retry suppressed: ${retryFleetGate.message}`,
+        payload: { retryReason, scheduledRetryAttempt: nextAttempt, maxAttempts },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason: retryFleetGate.message,
+        errorCode: "fleet_release_gate_not_allowed" as const,
+        issueId,
+      };
     }
 
     const schedule =
@@ -17251,6 +17286,18 @@ export function heartbeatService(
       await cancelRunInternal(
         run.id,
         `Cancelled because the agent is not invokable: ${invokability.reason}`,
+        invokability.reason === "paused" ? { errorCode: "agent_paused" } : {},
+      );
+      return null;
+    }
+    // Every queued run reaches execution through this claim, whichever
+    // producer inserted it, so the fleet release gate is enforced here too.
+    const claimFleetGate = evaluateFleetReleaseGate(run.agentId);
+    if (!claimFleetGate.allowed) {
+      await cancelQueuedRunAtClaim(
+        run,
+        "fleet_release_gate_not_allowed",
+        `Cancelled before start: ${claimFleetGate.message}`,
       );
       return null;
     }
@@ -17933,6 +17980,61 @@ export function heartbeatService(
         issueId,
         unresolvedBlockerIssueIds,
       },
+    });
+
+    return cancelled;
+  }
+
+  // agentos#596: cancel a queued run at claim, before any adapter work, the
+  // same way cancelQueuedRunForBlockedDependencies does (run cancelled,
+  // wakeup skipped, issue execution lock released).
+  async function cancelQueuedRunAtClaim(
+    run: typeof heartbeatRuns.$inferSelect,
+    errorCode: "fleet_release_gate_not_allowed" | "agent_paused",
+    reason: string,
+  ) {
+    const now = new Date();
+    const cancelled = await setRunStatus(run.id, "cancelled", {
+      finishedAt: now,
+      error: reason,
+      errorCode,
+      resultJson: {
+        ...parseObject(run.resultJson),
+        stopReason: errorCode,
+      },
+    });
+    if (!cancelled) return null;
+
+    await setWakeupStatus(run.wakeupRequestId, "skipped", {
+      finishedAt: now,
+      error: reason,
+    });
+
+    const issueId = readNonEmptyString(parseObject(run.contextSnapshot).issueId);
+    if (issueId) {
+      await db
+        .update(issues)
+        .set({
+          executionRunId: null,
+          executionAgentNameKey: null,
+          executionLockedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(issues.companyId, run.companyId),
+            eq(issues.id, issueId),
+            eq(issues.executionRunId, run.id),
+          ),
+        );
+    }
+
+    await appendRunEvent(cancelled, {
+      eventType: "lifecycle",
+      stream: "system",
+      level: "warn",
+      message: reason,
+      payload: { errorCode },
     });
 
     return cancelled;
@@ -19818,6 +19920,37 @@ export function heartbeatService(
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
       if (!agent) return [];
+      // agentos#596: a queued run for an agent the fleet release gate excludes,
+      // or for a paused agent, must not sit waiting for a slot. Cancel every
+      // such queued run here, before the slot check, so none can start later.
+      const startFleetGate = evaluateFleetReleaseGate(agentId);
+      const queuedHold = !startFleetGate.allowed
+        ? {
+            errorCode: "fleet_release_gate_not_allowed" as const,
+            reason: `Cancelled before start: ${startFleetGate.message}`,
+          }
+        : agent.status === "paused"
+          ? {
+              errorCode: "agent_paused" as const,
+              reason: "Cancelled before start because the agent is paused",
+            }
+          : null;
+      if (queuedHold) {
+        const heldRuns = await db
+          .select()
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.agentId, agentId),
+              eq(heartbeatRuns.status, "queued"),
+              cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
+            ),
+          );
+        for (const heldRun of heldRuns) {
+          await cancelQueuedRunAtClaim(heldRun, queuedHold.errorCode, queuedHold.reason);
+        }
+        return [];
+      }
       const invokability = await getAgentInvokability(agent);
       if (!invokability.invokable) {
         if (shouldCancelRunsForNonInvokableAgent(invokability)) {
@@ -26477,6 +26610,62 @@ export function heartbeatService(
         },
       });
     };
+    // agentos#596: the invokability check below reads the agent before the
+    // queueing transaction opens, so a pause can commit in between. Each
+    // queueing transaction calls this right before it creates queued rows. It
+    // re-reads the status with the transaction and, when the agent is no longer
+    // directly invokable, records a skipped request instead. Returns true when
+    // the caller must not queue.
+    // The fleet release gate (AgentOS staged rollout allowlist) is evaluated
+    // here too, so a cohort change between the early check and the queueing
+    // transaction is honored for every wake source.
+    const skipWhenAgentNoLongerInvokable = async (tx: Db) => {
+      const current = await tx
+        .select({ status: agents.status })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .then((rows) => rows[0] ?? null);
+      const gate = evaluateFleetReleaseGate(agentId);
+      const block = !current
+        ? null
+        : !gate.allowed
+          ? { reason: FLEET_RELEASE_GATE_SKIP_REASON, error: gate.message }
+          : DIRECT_NON_INVOKABLE_STATUSES.has(current.status)
+            ? { reason: "agent.not_invokable", error: "Agent is not invokable in its current state" }
+            : null;
+      if (current && !block) {
+        return false;
+      }
+      // A saved execution-wait request stays deferred; the next admission
+      // attempt rejects it at the early checks.
+      if (block && !executionWaitRequestId) {
+        await tx.insert(agentWakeupRequests).values({
+          ...durableReceiptFields,
+          companyId: agent.companyId,
+          agentId,
+          source,
+          triggerDetail,
+          reason: block.reason,
+          payload,
+          status: "skipped",
+          requestedByActorType: opts.requestedByActorType ?? null,
+          requestedByActorId: opts.requestedByActorId ?? null,
+          idempotencyKey: opts.idempotencyKey ?? null,
+          error: block.error,
+          finishedAt: new Date(),
+        });
+      }
+      return true;
+    };
+
+    // Fleet release gate, early check: refuse every wake source, user wakes
+    // included, before any other admission work. Fails closed when the
+    // configured policy file is unreadable or invalid.
+    const fleetGate = evaluateFleetReleaseGate(agentId);
+    if (!fleetGate.allowed) {
+      await writeSkippedRequest(FLEET_RELEASE_GATE_SKIP_REASON, { error: fleetGate.message });
+      return null;
+    }
 
     const schedulingSuppression = await getSchedulingSuppression();
     if (schedulingSuppression.suppressed) {
@@ -28040,6 +28229,14 @@ export function heartbeatService(
             }
           }
 
+          // Re-check before the queueing tail. This holds only the issue row
+          // lock; the plain agent read takes no agent lock, so it cannot
+          // deadlock with a pause that updates the agent and then its issues.
+          // It sits ahead of admitExplicitNativeContinuation, which writes.
+          if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+            return { kind: "skipped" as const };
+          }
+
           const dailyCapBlock = await getHeartbeatDailyCapBlock(
             agent,
             policy,
@@ -28388,6 +28585,11 @@ export function heartbeatService(
       await tx.execute(
         sql`select id from agents where id = ${agentId} and company_id = ${agent.companyId} for update`,
       );
+      // The agent row is locked above; re-read its status rather than trust
+      // the object read before this transaction (agentos#596).
+      if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+        return { kind: "skipped" as const };
+      }
 
       const dailyCapBlock = await getHeartbeatDailyCapBlock(
         agent,
