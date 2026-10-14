@@ -382,6 +382,59 @@ describe("decideReleaseRecovery", () => {
       expected: { kind: "blocked", notice: "immediate_execution_path" },
     },
     {
+      name: "released: immediate recovery applies but the recovery agent is paused on purpose (its cards stay frozen)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: the review participant is paused on purpose (its cards stay frozen)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        reviewParticipant: { ...baseReleaseRecoveryFacts.reviewParticipant, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: an intentionally paused agent's stranded-recovery origin card is not blocked in place",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          isStrandedRecoveryOrigin: true,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "blocked: immediate recovery applies and the agent is paused but not on purpose (budget)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: false,
+        },
+      },
+      expected: { kind: "blocked", notice: "immediate_execution_path" },
+    },
+    {
       name: "blocked: immediate recovery applies and the run failed workspace validation",
       facts: {
         ...baseReleaseRecoveryFacts,
