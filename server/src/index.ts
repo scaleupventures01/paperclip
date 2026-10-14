@@ -59,6 +59,7 @@ import { setupEnvironmentCustomImageTerminalWebSocketServer } from "./realtime/e
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { setupRunnerPrpWebSocketServer } from "./realtime/runner-prp-ws.js";
 import { cloudActorHeaderSourceFromHeaders, resolveCloudTenantActor } from "./middleware/auth.js";
+import { startOwnedCancelledRunSweep } from "./services/heartbeat.js";
 import {
   feedbackService,
   applyManagedEnvironments,
@@ -1177,6 +1178,9 @@ async function startServerWithDatabaseTeardown(
   const executionControlInterval = setInterval(sweepExecutionControl, EXECUTION_RECONCILIATION_INTERVAL_MS);
   executionControlInterval.unref?.();
   sweepExecutionControl();
+  // A cancel only acts in the process that receives it. Each control plane
+  // stops the runs it executes once they are cancelled in the shared database.
+  const ownedCancelledRunSweep = startOwnedCancelledRunSweep(db as any);
   const startHeartbeatSchedulerInterval = (callback: () => void) => {
     heartbeatSchedulerInterval = setInterval(callback, config.heartbeatSchedulerIntervalMs);
     heartbeatSchedulerInterval?.unref?.();
@@ -1933,6 +1937,7 @@ async function startServerWithDatabaseTeardown(
     await systemdNotify(["--stopping", `--status=Stopping after ${signal}`]);
     heartbeatSchedulerStopped = true;
     clearInterval(executionControlInterval);
+    clearInterval(ownedCancelledRunSweep);
     if (heartbeatSchedulerInterval) {
       clearInterval(heartbeatSchedulerInterval);
       heartbeatSchedulerInterval = null;

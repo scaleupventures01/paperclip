@@ -1331,6 +1331,100 @@ const failedProcessRunCancellations = new Map<
   string,
   { settled: Promise<void>; failed: boolean; error?: unknown }
 >();
+// Runs whose owner stop (below) is in flight, so overlapping sweeps and a
+// direct cancel never signal the same process twice.
+const ownerStopsInFlight = new Set<string>();
+
+/**
+ * Stops every run THIS process executes whose database row is already
+ * `cancelled`. A cancel only acts inside the process that receives it, and two
+ * control planes share one database: a cancel received by the other plane (or a
+ * second cancel after the row is already cancelled) used to flip the row and
+ * leave this process's ssh child and callback bridge running to completion.
+ * Killing the local child ends the adapter attempt, whose `finally` stops the
+ * callback bridge. Returns the run ids it stopped.
+ *
+ * Kill switch: PAPERCLIP_CROSS_PROCESS_CANCEL_SWEEP=false (read per call).
+ */
+export async function stopLocallyOwnedCancelledRuns(
+  db: Db,
+  onlyRunIds?: readonly string[],
+): Promise<string[]> {
+  if (process.env.PAPERCLIP_CROSS_PROCESS_CANCEL_SWEEP?.trim().toLowerCase() === "false") return [];
+  const owned = [...new Set([...runningProcesses.keys(), ...adapterExecutionControls.keys()])]
+    .filter((id) => !onlyRunIds || onlyRunIds.includes(id))
+    .filter((id) => isUuidLike(id));
+  if (owned.length === 0) return [];
+  const cancelled = await db
+    .select({ id: heartbeatRuns.id, adapterType: agents.adapterType })
+    .from(heartbeatRuns)
+    .leftJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+    .where(and(inArray(heartbeatRuns.id, owned), eq(heartbeatRuns.status, "cancelled")));
+  const stopped: string[] = [];
+  for (const row of cancelled) {
+    // A local cancel is already terminating this run; it owns the stop.
+    if (processRunCancellationSettlements.has(row.id) || ownerStopsInFlight.has(row.id)) continue;
+    ownerStopsInFlight.add(row.id);
+    try {
+      const control = adapterExecutionControls.get(row.id);
+      const running = runningProcesses.get(row.id);
+      if (!control && !running) continue;
+      control?.controller.abort(new Error("Run was cancelled"));
+      if (running) {
+        await terminateHeartbeatRunProcess({
+          pid: running.child.pid,
+          processGroupId: running.processGroupId,
+          // Codex handles Ctrl-C by cancelling its tool sessions.
+          signal: !control && row.adapterType === "codex_local" ? "SIGINT" : undefined,
+          graceMs: Math.max(100, Math.min(30_000, Math.max(1, running.graceSec) * 1000)),
+        });
+        if (runningProcesses.get(row.id) === running) runningProcesses.delete(row.id);
+      }
+      await db.update(heartbeatRuns).set({
+        resultJson: sql`coalesce(${heartbeatRuns.resultJson}, '{}'::jsonb) || ${JSON.stringify({
+          executionCancellation: {
+            state: "acknowledged",
+            acknowledgedAt: new Date().toISOString(),
+            proof: "owner_stop",
+            ownerInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default",
+          },
+        })}::jsonb`,
+        updatedAt: new Date(),
+      }).where(and(eq(heartbeatRuns.id, row.id), eq(heartbeatRuns.status, "cancelled")));
+      stopped.push(row.id);
+      logger.warn(
+        { runId: row.id, ownerInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default" },
+        "stopped a locally executed run that was cancelled in the database",
+      );
+    } catch (err) {
+      logger.error({ err, runId: row.id }, "failed to stop a locally executed cancelled run");
+    } finally {
+      ownerStopsInFlight.delete(row.id);
+    }
+  }
+  return stopped;
+}
+
+/**
+ * Every `intervalMs` (default 5 s, env PAPERCLIP_CANCEL_SWEEP_INTERVAL_MS),
+ * stop locally executed runs that were cancelled anywhere. Single flight.
+ */
+export function startOwnedCancelledRunSweep(db: Db, intervalMs?: number) {
+  const configured = Number(process.env.PAPERCLIP_CANCEL_SWEEP_INTERVAL_MS);
+  const everyMs = intervalMs ?? (Number.isFinite(configured) && configured >= 1000 ? configured : 5_000);
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (inFlight) return;
+    inFlight = true;
+    void stopLocallyOwnedCancelledRuns(db)
+      .catch((err) => logger.error({ err }, "cancelled-run owner sweep failed"))
+      .finally(() => {
+        inFlight = false;
+      });
+  }, everyMs);
+  timer.unref?.();
+  return timer;
+}
 // Background heartbeat executions are dispatched fire-and-forget (see
 // startNextQueuedRunForAgent), so the promise that resolves once a run's DB
 // writes are fully flushed is otherwise unobservable. Track those promises here
@@ -29240,8 +29334,15 @@ export function heartbeatService(
       !CANCELLABLE_HEARTBEAT_RUN_STATUSES.includes(
         run.status as (typeof CANCELLABLE_HEARTBEAT_RUN_STATUSES)[number],
       )
-    )
+    ) {
+      // Another control plane may already have flipped the row to cancelled
+      // while this process still executes the run. Stop it here too.
+      if (run.status === "cancelled") {
+        const stopped = await stopLocallyOwnedCancelledRuns(db, [run.id]);
+        if (stopped.length > 0) return (await getRun(run.id)) ?? run;
+      }
       return run;
+    }
     const agent = await getAgent(run.agentId);
     const errorCode = options.errorCode ?? "cancelled";
 
@@ -29434,6 +29535,19 @@ export function heartbeatService(
                             },
                             errorCode, errorMessage: reason,
                           })
+                        : {}),
+                      // No process here owns this running run: it may be executing
+                      // on another control plane. Record the stop as requested, not
+                      // done; the owning plane's sweep acknowledges it once it has
+                      // actually stopped the worker.
+                      ...(!running && !control && run.status === "running" && run.runtimeMode !== "native"
+                        ? {
+                            executionCancellation: {
+                              state: "requested",
+                              requestedAt: finishedAt.toISOString(),
+                              requestedByInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default",
+                            },
+                          }
                         : {}),
                       // The native cancellation helper may have advanced a durable
                       // pending intent to its acknowledged state after `run` was
