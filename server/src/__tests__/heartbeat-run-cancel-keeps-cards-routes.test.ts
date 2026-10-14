@@ -315,14 +315,18 @@ describeEmbeddedPostgres("POST /heartbeat-runs/:runId/cancel keeps the agent's c
     expect(await otherWakesFor(agentId, [wakeupRequestId])).toEqual([]);
   });
 
-  it("cancels a running run whose worker is not tracked here (for example after a restart) without re-waking the agent", async () => {
+  it("cancels a running run whose worker is not tracked here (for example on the other control plane) as requested, without re-waking the agent", async () => {
     const { companyId, agentId } = await seed();
     const card = await seedIssue(companyId, agentId, "Card being worked", "in_progress");
     const { runId, wakeupRequestId } = await plantRun({ companyId, agentId, issueId: card, status: "running" });
 
     const res = await request(app()).post(`/api/heartbeat-runs/${runId}/cancel`).send({});
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect((await runRow(runId))?.status).toBe("cancelled");
+    const run = await runRow(runId);
+    expect(run?.status).toBe("cancelled");
+    // Nothing here stopped a worker, so the stop is recorded as requested, not
+    // done. The plane that executes the run acknowledges it after stopping it.
+    expect((run?.resultJson as Record<string, any>)?.executionCancellation?.state).toBe("requested");
     expect(await issueRow(card)).toEqual({ status: "in_progress", executionRunId: null, assigneeAgentId: agentId });
     expect(await otherRunsFor(agentId, [runId])).toEqual([]);
     expect(await otherWakesFor(agentId, [wakeupRequestId])).toEqual([]);
