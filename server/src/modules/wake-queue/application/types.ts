@@ -52,6 +52,8 @@ export type InvokableAgentSnapshot = {
   companyId: string;
   name: string | null;
   invokable: boolean;
+  /** True when the agent is paused on purpose (isIntentionallyPausedAgent): its cards stay frozen. */
+  intentionallyPaused?: boolean;
 };
 
 /** A new heartbeat run reached the queued state and should be published and dispatched. */

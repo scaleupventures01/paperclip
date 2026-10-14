@@ -611,6 +611,7 @@ async function runReleaseRecoveryTail(
       isStrandedRecoveryOrigin,
       recoveryAgentPresent: recoveryAgent !== null,
       recoveryAgentInvokable: recoveryAgent?.invokable ?? false,
+      recoveryAgentIntentionallyPaused: recoveryAgent?.intentionallyPaused === true,
     },
   });
 

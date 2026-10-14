@@ -128,6 +128,48 @@ describeEmbeddedPostgres("pausing an agent freezes its cards", () => {
     return runId;
   }
 
+  // A live run on the card at the moment of pause: queued (not started) or
+  // running (started, no local process). The card holds its execution lock.
+  async function seedActiveRun(
+    companyId: string,
+    agentId: string,
+    issueId: string,
+    status: "queued" | "running",
+  ) {
+    const runId = randomUUID();
+    const wakeupRequestId = randomUUID();
+    const at = new Date();
+    await db.insert(agentWakeupRequests).values({
+      id: wakeupRequestId,
+      companyId,
+      agentId,
+      source: "assignment",
+      triggerDetail: "system",
+      reason: "issue_assigned",
+      payload: { issueId },
+      status: status === "queued" ? "queued" : "claimed",
+      runId,
+      claimedAt: status === "running" ? at : null,
+    });
+    await db.insert(heartbeatRuns).values({
+      id: runId,
+      companyId,
+      agentId,
+      invocationSource: "assignment",
+      triggerDetail: "system",
+      status,
+      wakeupRequestId,
+      contextSnapshot: { issueId, taskId: issueId, wakeReason: "issue_assigned" },
+      startedAt: status === "running" ? at : null,
+      updatedAt: at,
+    });
+    await db
+      .update(issues)
+      .set({ executionRunId: runId, executionLockedAt: at })
+      .where(eq(issues.id, issueId));
+    return runId;
+  }
+
   async function seedBoard() {
     const companyId = await seedCompany();
     const agentId = await seedAgent(companyId, "Paused seat");
@@ -246,6 +288,73 @@ describeEmbeddedPostgres("pausing an agent freezes its cards", () => {
 
     expect(run?.status === "running").toBe(false);
     expect(await snapshotCards(board.cardIds)).toEqual(cardsBefore);
+  });
+
+  // The pause route runs svc.pause(id) and then heartbeat.cancelActiveForAgent(id)
+  // (routes/agents.ts). Cancelling the live run releases the card's execution;
+  // that release must not turn the card into blocked for a paused-on-purpose agent.
+  for (const runStatus of ["queued", "running"] as const) {
+    it(`keeps an in_progress card in place when pause cancels its ${runStatus} run`, async () => {
+      const companyId = await seedCompany();
+      const agentId = await seedAgent(companyId, `Seat with ${runStatus} run`);
+      const activeCardId = await seedIssue(companyId, agentId, "Card with live run", "in_progress");
+      const todoCardId = await seedIssue(companyId, agentId, "Quiet todo card", "todo");
+      const runId = await seedActiveRun(companyId, agentId, activeCardId, runStatus);
+
+      await agentService(db).pause(agentId);
+      await heartbeatService(db).cancelActiveForAgent(agentId);
+
+      expect(await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, runId)))
+        .toEqual([{ status: "cancelled" }]);
+      expect(await snapshotCards([activeCardId, todoCardId])).toEqual(
+        [
+          { id: activeCardId, status: "in_progress", assigneeAgentId: agentId },
+          { id: todoCardId, status: "todo", assigneeAgentId: agentId },
+        ].sort((a, b) => a.id.localeCompare(b.id)),
+      );
+      expect(await systemCommentsOn([activeCardId, todoCardId])).toEqual([]);
+      // No recovery run is queued for the paused agent.
+      expect(
+        await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns)
+          .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"]))),
+      ).toEqual([]);
+      const actions = await db
+        .select({
+          kind: issueRecoveryActions.kind,
+          cause: issueRecoveryActions.cause,
+          ownerType: issueRecoveryActions.ownerType,
+        })
+        .from(issueRecoveryActions)
+        .where(inArray(issueRecoveryActions.sourceIssueId, [activeCardId, todoCardId]));
+      if (runStatus === "queued") {
+        expect(actions).toEqual([]);
+      } else {
+        // A running legacy run that is stopped mid-turn always records one
+        // board-owned note to reconcile the provider's interrupted actions
+        // (legacy-execution-recovery.ts, any cancel of a started run). It does
+        // not move the card. Nothing else may be recorded.
+        expect(actions).toEqual([
+          { kind: "active_run_watchdog", cause: "legacy_execution_requires_reconciliation", ownerType: "board" },
+        ]);
+      }
+    });
+  }
+
+  it("still blocks the card when a budget pause cancels its live run (control)", async () => {
+    const companyId = await seedCompany();
+    const agentId = await seedAgent(companyId, "Budget seat with run");
+    const activeCardId = await seedIssue(companyId, agentId, "Budget card with live run", "in_progress");
+    await seedActiveRun(companyId, agentId, activeCardId, "queued");
+    await db
+      .update(agents)
+      .set({ status: "paused", pauseReason: "budget", pausedAt: new Date() })
+      .where(eq(agents.id, agentId));
+
+    await heartbeatService(db).cancelActiveForAgent(agentId);
+
+    expect(await snapshotCards([activeCardId])).toEqual([
+      { id: activeCardId, status: "blocked", assigneeAgentId: agentId },
+    ]);
   });
 
   it("puts every card back where it was on resume without enqueueing wakes", async () => {

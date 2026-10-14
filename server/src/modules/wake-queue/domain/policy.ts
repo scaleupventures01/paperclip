@@ -204,6 +204,8 @@ export type ReleaseRecoverySharedFacts = {
   isStrandedRecoveryOrigin: boolean;
   recoveryAgentPresent: boolean;
   recoveryAgentInvokable: boolean;
+  /** True when the finishing run's agent is paused on purpose: its cards stay frozen, so release never recovers or blocks them. Missing means false. */
+  recoveryAgentIntentionallyPaused?: boolean;
 };
 
 export type ReleaseRecoveryReviewParticipantFacts = {
@@ -376,6 +378,17 @@ export function decideQueuedCommentActorOwnsEntry(facts: QueuedCommentActorOwner
  */
 export function decideReleaseRecovery(facts: ReleaseRecoveryFacts): ReleaseRecoveryDecision {
   const { reviewParticipant, immediate, shared } = facts;
+
+  // An agent paused on purpose freezes its cards exactly as they are (Calvin
+  // 2026-10-14). Releasing its cancelled run only drops the execution lock: no
+  // recovery run, no move to blocked, in either branch. A budget pause is not
+  // intentional and keeps the decisions below.
+  if (
+    shared.recoveryAgentIntentionallyPaused === true &&
+    (reviewParticipant.applies || immediate.applies)
+  ) {
+    return { kind: "released" };
+  }
 
   if (reviewParticipant.applies) {
     if (
