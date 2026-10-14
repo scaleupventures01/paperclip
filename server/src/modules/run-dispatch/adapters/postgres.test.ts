@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   activityLog,
   agents,
+  approvals,
+  issueApprovals,
   companies,
   createDb,
   documentRevisions,
@@ -738,6 +740,192 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
         ).resolves.toEqual({ outcome: "not_stale" });
       },
     );
+
+    // Gate 3 gap G3: every durable-wait kind the source-state reader names
+    // must park every automatic continuation at claim time, and the cancel
+    // must record which kind owned the next action.
+    const durableWaitKinds = [
+      "interaction",
+      "child",
+      "blocker",
+      "monitor",
+      "execution_stage",
+      "user_owner",
+      "approval",
+    ] as const;
+    const automaticContinuations = [
+      { label: "issue_children_completed wake", wakeReason: "issue_children_completed", retryReason: null },
+      { label: "issue_blockers_resolved wake", wakeReason: "issue_blockers_resolved", retryReason: null },
+      { label: "issue_continuation_needed retry", wakeReason: null, retryReason: "issue_continuation_needed" },
+    ] as const;
+
+    async function seedDurableWait(input: {
+      kind: (typeof durableWaitKinds)[number];
+      companyId: string;
+      agentId: string;
+      issueId: string;
+    }) {
+      const { kind, companyId, agentId, issueId } = input;
+      if (kind === "interaction") {
+        await seedIssue({ companyId, issueId, status: "in_progress", assigneeAgentId: agentId });
+        await db.insert(issueThreadInteractions).values({
+          id: randomUUID(),
+          companyId,
+          issueId,
+          kind: "request_confirmation",
+          status: "pending",
+          addresseeUserId: "responsible-user",
+          requestedResolverPolicy: "human_only",
+          effectiveResolverPolicy: "human_only",
+          payload: { version: 1, prompt: "Approve the next stage?" },
+        });
+        return;
+      }
+      if (kind === "execution_stage") {
+        await seedIssue({
+          companyId,
+          issueId,
+          status: "in_progress",
+          assigneeAgentId: agentId,
+          executionState: {
+            status: "pending",
+            // issueExecutionStateSchema requires a guid stage id; a non-guid id
+            // parses to null and silently removes the durable wait.
+            currentStageId: randomUUID(),
+            currentStageIndex: 0,
+            currentStageType: "review",
+            currentParticipant: { type: "user", userId: "responsible-user" },
+            returnAssignee: { type: "agent", agentId },
+            completedStageIds: [],
+            lastDecisionId: null,
+            lastDecisionOutcome: null,
+          },
+        });
+        return;
+      }
+      await seedIssue({ companyId, issueId, status: "in_progress", assigneeAgentId: agentId });
+      if (kind === "child") {
+        await db.insert(issues).values({
+          id: randomUUID(),
+          companyId,
+          parentId: issueId,
+          title: "Open delegated child",
+          status: "todo",
+          priority: "medium",
+        });
+      } else if (kind === "blocker") {
+        const blockerIssueId = randomUUID();
+        await db.insert(issues).values({
+          id: blockerIssueId,
+          companyId,
+          title: "Open blocker",
+          status: "todo",
+          priority: "medium",
+        });
+        await db.insert(issueRelations).values({
+          companyId,
+          issueId: blockerIssueId,
+          relatedIssueId: issueId,
+          type: "blocks",
+        });
+      } else if (kind === "monitor") {
+        await db
+          .update(issues)
+          .set({ monitorNextCheckAt: new Date(Date.now() + 60 * 60 * 1000) })
+          .where(eq(issues.id, issueId));
+      } else if (kind === "user_owner") {
+        await db
+          .update(issues)
+          .set({ assigneeAgentId: null, assigneeUserId: "responsible-user" })
+          .where(eq(issues.id, issueId));
+      } else if (kind === "approval") {
+        const approvalId = randomUUID();
+        await db.insert(approvals).values({
+          id: approvalId,
+          companyId,
+          type: "hire_agent",
+          requestedByAgentId: agentId,
+          status: "pending",
+          payload: { gate3: true },
+        });
+        await db.insert(issueApprovals).values({ companyId, issueId, approvalId });
+      }
+    }
+
+    describe.each(automaticContinuations)("G3 durable wait at claim for an automatic $label", (continuation) => {
+      it.each(durableWaitKinds)("cancels as waiting on review when the durable %s wait owns the next action", async (kind) => {
+        const { companyId, agentId } = await seedCompanyAndAgent();
+        const issueId = randomUUID();
+        try {
+          await seedDurableWait({ kind, companyId, agentId, issueId });
+          const runId = await seedRun({
+            companyId,
+            agentId,
+            contextSnapshot: {
+              issueId,
+              source: "issue.update",
+              ...(continuation.wakeReason ? { wakeReason: continuation.wakeReason } : {}),
+              ...(continuation.retryReason ? { retryReason: continuation.retryReason } : {}),
+            },
+            scheduledRetryReason: continuation.retryReason,
+          });
+
+          const result = await createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+            runId,
+            companyId,
+            expectedStatus: "queued",
+            now: new Date(),
+          });
+
+          expect(result).toMatchObject({
+            outcome: "cancelled",
+            errorCode: "issue_continuation_waiting_on_review",
+          });
+          const lifecycle = await db
+            .select({ payload: heartbeatRunEvents.payload })
+            .from(heartbeatRunEvents)
+            .where(and(eq(heartbeatRunEvents.runId, runId), eq(heartbeatRunEvents.eventType, "lifecycle")));
+          expect(lifecycle).toHaveLength(1);
+          expect(lifecycle[0]?.payload).toMatchObject({ durablePathReason: kind });
+          const persisted = await db
+            .select({ status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode })
+            .from(heartbeatRuns)
+            .where(eq(heartbeatRuns.id, runId))
+            .then((rows) => rows[0]);
+          expect(persisted).toEqual({ status: "cancelled", errorCode: "issue_continuation_waiting_on_review" });
+        } finally {
+          await db.delete(issueApprovals).where(eq(issueApprovals.companyId, companyId));
+          await db.delete(approvals).where(eq(approvals.companyId, companyId));
+          await db.delete(issueThreadInteractions).where(eq(issueThreadInteractions.companyId, companyId));
+        }
+      });
+
+      it("keeps the automatic continuation runnable when no durable wait exists (control)", async () => {
+        const { companyId, agentId } = await seedCompanyAndAgent();
+        const issueId = randomUUID();
+        await seedIssue({ companyId, issueId, status: "in_progress", assigneeAgentId: agentId });
+        const runId = await seedRun({
+          companyId,
+          agentId,
+          contextSnapshot: {
+            issueId,
+            source: "issue.update",
+            ...(continuation.wakeReason ? { wakeReason: continuation.wakeReason } : {}),
+            ...(continuation.retryReason ? { retryReason: continuation.retryReason } : {}),
+          },
+          scheduledRetryReason: continuation.retryReason,
+        });
+
+        await expect(
+          createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+            runId,
+            companyId,
+            expectedStatus: "queued",
+            now: new Date(),
+          }),
+        ).resolves.toEqual({ outcome: "not_stale" });
+      });
+    });
 
     it("requeues the exact cancelled pending-interaction addressee wake and restores blocked routing data", async () => {
       const { companyId, agentId: assigneeAgentId } = await seedCompanyAndAgent();
