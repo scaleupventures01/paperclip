@@ -102,6 +102,8 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
     wakeOwner?: "old" | "new";
     /** True keeps the old run's environment lease open (released_at null). */
     leaseHeld?: boolean;
+    /** The card's status now. */
+    issueStatus?: "todo" | "cancelled" | "done";
   };
 
   async function seedParkedHandoff(options: SeedOptions = {}) {
@@ -139,7 +141,7 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
       id: issueId,
       companyId,
       title: "Card handed to another agent during the old owner's run",
-      status: "todo",
+      status: options.issueStatus ?? "todo",
       priority: "high",
       assigneeAgentId: (options.assignee ?? "new") === "new" ? newAgentId : oldAgentId,
       responsibleUserId: "responsible-user",
@@ -335,6 +337,34 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
     const allRuns = await runsFor(seeded.companyId, seeded.newAgentId, seeded.issueId);
     expect(allRuns[0]?.id).toBe(handoffRuns[0]?.id);
   }, 60_000);
+
+  for (const issueStatus of ["cancelled", "done"] as const) {
+    it(`T6: settles a parked handoff wake on a ${issueStatus} card instead of promoting it or leaving it parked`, async () => {
+      const seeded = await seedParkedHandoff({ issueStatus });
+      const heartbeat = heartbeatService(db);
+
+      await heartbeat.resumeQueuedRuns();
+      await heartbeat.drainActiveRunExecutions();
+
+      const wake = await db
+        .select({
+          status: agentWakeupRequests.status,
+          error: agentWakeupRequests.error,
+          finishedAt: agentWakeupRequests.finishedAt,
+          runId: agentWakeupRequests.runId,
+        })
+        .from(agentWakeupRequests)
+        .where(eq(agentWakeupRequests.id, seeded.wakeId))
+        .then((rows) => rows[0] ?? null);
+      expect(wake?.status).toBe("cancelled");
+      expect(wake?.error).toBe("Deferred execution wake no longer applies to a terminal task");
+      expect(wake?.finishedAt).not.toBeNull();
+      expect(wake?.runId).toBeNull();
+      expect(await runsFor(seeded.companyId, seeded.newAgentId, seeded.issueId)).toHaveLength(0);
+      const card = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, seeded.issueId));
+      expect(card[0]?.status).toBe(issueStatus);
+    }, 30_000);
+  }
 
   it(`kill switch: ${KILL_SWITCH}=0 restores today's behavior and leaves the wake parked`, async () => {
     process.env[KILL_SWITCH] = "0";
