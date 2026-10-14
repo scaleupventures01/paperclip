@@ -360,8 +360,10 @@ describeEmbeddedPostgres("POST /heartbeat-runs/:runId/cancel keeps the agent's c
     expect(res.status).toBe(404);
   });
 
-  // Control: documents the difference. Pause cancels every open card.
-  it("control: POST /agents/:id/pause still cancels every open card the agent holds", async () => {
+  // Control: pausing an agent on purpose freezes every open card where it is
+  // (fix/pause-freezes-cards), including the card whose queued run the pause
+  // cancels. Neither stop path closes or blocks a card.
+  it("control: POST /agents/:id/pause keeps every open card the agent holds at its status", async () => {
     const { companyId, agentId } = await seed();
     const working = await seedIssue(companyId, agentId, "Card being worked", "in_progress");
     const otherTodo = await seedIssue(companyId, agentId, "Other card todo", "todo");
@@ -369,7 +371,7 @@ describeEmbeddedPostgres("POST /heartbeat-runs/:runId/cancel keeps the agent's c
 
     const res = await request(app()).post(`/api/agents/${agentId}/pause`).send({});
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect((await issueRow(working))?.status).toBe("cancelled");
-    expect((await issueRow(otherTodo))?.status).toBe("cancelled");
+    expect(await issueRow(working)).toEqual({ status: "in_progress", executionRunId: null, assigneeAgentId: agentId });
+    expect(await issueRow(otherTodo)).toEqual({ status: "todo", executionRunId: null, assigneeAgentId: agentId });
   });
 });
