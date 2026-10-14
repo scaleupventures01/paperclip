@@ -7110,11 +7110,15 @@ export function agentRoutes(
     // Stamp the cancellation as operator-initiated (this route is board-only).
     // Recovery reads this to stand down instead of classifying the cancelled
     // run as agent stranding and re-waking the agent the operator just stopped.
+    // The release tail runs immediately and does not read that stamp, so also
+    // suppress immediate recovery: a stop of one run must not re-queue the
+    // same agent on the same card. Card status is never written here.
     const run = await heartbeat.cancelRun(runId, "Cancelled by a board operator", {
       resultJson: {
         cancelledByActorType: "user",
         cancelledByUserId: req.actor.userId ?? null,
       },
+      suppressImmediateRecovery: true,
     });
 
     if (run) {
