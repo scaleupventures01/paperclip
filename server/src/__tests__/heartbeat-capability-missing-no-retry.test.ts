@@ -257,15 +257,15 @@ describeEmbeddedPostgres("heartbeat does not transient-retry capability_missing 
   // The recovery service (stranded-issue recovery with a failed predecessor)
   // and process-loss recovery call scheduleBoundedRetryForRun with the default
   // transient reason regardless of how the predecessor failed.
+  // Each case isolates one signal so every clause of the classifier is load-bearing.
   it.each([
-    ["exit 78 recorded as adapter_failed", { errorCode: "adapter_failed", exitCode: 78 }],
-    ["capability_missing marker with no exit code", { errorCode: "adapter_failed", exitCode: null }],
-    ["errorCode capability_missing", { errorCode: "capability_missing", exitCode: 1 }],
+    ["exit 78 recorded as adapter_failed", { errorCode: "adapter_failed", exitCode: 78, error: "AgentOS GLM environment is unreadable" }],
+    ["capability_missing marker with no exit code", { errorCode: "adapter_failed", exitCode: null, error: CAPABILITY_STDERR }],
+    ["errorCode capability_missing", { errorCode: "capability_missing", exitCode: 1, error: "Adapter failed" }],
   ] as const)("refuses a default transient retry for a %s run", async (_label, shape) => {
     const { runId, agentId, now } = await seedFailedRun({
       ...shape,
-      error: CAPABILITY_STDERR,
-      stderr: `${CAPABILITY_STDERR}\n`,
+      stderr: `${shape.error}\n`,
     });
     const scheduled = await heartbeat.scheduleBoundedRetry(runId, { now, random: () => 0 });
     expect(scheduled).toMatchObject({ outcome: "not_scheduled", errorCode: "non_retryable_capability_missing" });
