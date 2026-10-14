@@ -7,6 +7,7 @@ import { readQueuedInteractionResponse } from "./queued-interaction-response.js"
 import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
+import { handoffWakeReleaseEnabled } from "./handoff-wake-release.js";
 import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteExecutionHasStopped, remoteTerminationReceipt, stoppedRemoteCleanupScopes } from "./remote-execution-termination.js";
@@ -19658,6 +19659,26 @@ export function heartbeatService(
     return { reaped: reaped.length, runIds: reaped };
   }
 
+  /** The other agent's issue_reassigned run that parked this wake, when the
+   * wake records it as interruptedRunId. Kill switch:
+   * PAPERCLIP_HANDOFF_WAKE_RELEASE=0 returns nothing (the earlier skip). */
+  async function findHandoffSourceRun(wake: typeof agentWakeupRequests.$inferSelect) {
+    if (!handoffWakeReleaseEnabled()) return undefined;
+    const issueId = readNonEmptyString(wake.payload?.issueId);
+    const interruptedRunId = readNonEmptyString(wake.payload?.interruptedRunId);
+    if (!issueId || !interruptedRunId || !isUuidLike(interruptedRunId)) return undefined;
+    const [run] = await db.select().from(heartbeatRuns).where(and(
+      eq(heartbeatRuns.companyId, wake.companyId),
+      eq(heartbeatRuns.id, interruptedRunId),
+      ne(heartbeatRuns.agentId, wake.agentId),
+      eq(heartbeatRuns.status, "cancelled"),
+      eq(heartbeatRuns.errorCode, "issue_reassigned"),
+      eq(heartbeatRuns.runtimeMode, "legacy"),
+      sql`coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${issueId}`,
+    )).limit(1);
+    return run;
+  }
+
   async function resumeQueuedRuns() {
     if ((await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
@@ -19699,10 +19720,15 @@ export function heartbeatService(
     for (const { wake } of strandedQueues) {
       if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
           !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
-      const [latest] = await db.select().from(heartbeatRuns).where(and(
+      const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
         eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
         sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
       )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
+      // A new owner that has never run on the card has no run of its own to
+      // release. When another agent handed the card over from inside its own
+      // run, that cancelled run is the one holding this wake: release it
+      // instead. Admission still checks process ownership and leases first.
+      const latest = ownLatest ?? await findHandoffSourceRun(wake);
       await db.update(agentWakeupRequests).set({ updatedAt: new Date() }).where(and(
         eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
       ));
