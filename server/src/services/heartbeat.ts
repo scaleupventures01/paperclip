@@ -29540,7 +29540,10 @@ export function heartbeatService(
                       // on another control plane. Record the stop as requested, not
                       // done; the owning plane's sweep acknowledges it once it has
                       // actually stopped the worker.
-                      ...(!running && !control && run.status === "running" && run.runtimeMode !== "native"
+                      // A caller that already states the stop outcome (for example an
+                      // acknowledged provider stop) keeps it.
+                      ...(!running && !control && run.status === "running" && run.runtimeMode !== "native" &&
+                        !parseObject(resultJson?.executionCancellation).state
                         ? {
                             executionCancellation: {
                               state: "requested",
