@@ -103,7 +103,7 @@ describeEmbeddedPostgres("agent pause lifecycle", () => {
 
     expect(result).toMatchObject({ id: oldAgentId, status: "paused" });
     expect(result?.scheduleChanges).toEqual({ activeBefore: 1, moved: 1, paused: 0 });
-    expect(result?.cardChanges).toEqual({ openBefore: 1, moved: 1, closed: 0 });
+    expect(result?.cardChanges).toEqual({ openBefore: 1, moved: 1, closed: 0, frozen: 0 });
     expect(await db.select().from(routines).where(eq(routines.id, activeRoutineId)))
       .toMatchObject([{ assigneeAgentId: replacementId, status: "active" }]);
     expect(await db.select().from(routines).where(eq(routines.id, pausedRoutineId)))
@@ -119,7 +119,7 @@ describeEmbeddedPostgres("agent pause lifecycle", () => {
     expect(activeOnPaused).toEqual([]);
   });
 
-  it("pauses active schedules and closes open cards as superseded when no replacement exists", async () => {
+  it("pauses active schedules and freezes open cards in place when no replacement exists", async () => {
     const companyId = await seedCompany();
     const oldAgentId = await seedAgent(companyId, "Solo seat");
     const activeRoutineId = await seedRoutine(companyId, oldAgentId, "Solo routine");
@@ -129,11 +129,11 @@ describeEmbeddedPostgres("agent pause lifecycle", () => {
 
     expect(result).toMatchObject({ id: oldAgentId, status: "paused" });
     expect(result?.scheduleChanges).toEqual({ activeBefore: 1, moved: 0, paused: 1 });
-    expect(result?.cardChanges).toEqual({ openBefore: 1, moved: 0, closed: 1 });
+    expect(result?.cardChanges).toEqual({ openBefore: 1, moved: 0, closed: 0, frozen: 1 });
     expect(await db.select().from(routines).where(eq(routines.id, activeRoutineId)))
       .toMatchObject([{ assigneeAgentId: oldAgentId, status: "paused" }]);
     expect(await db.select().from(issues).where(eq(issues.id, openCardId)))
-      .toMatchObject([{ assigneeAgentId: oldAgentId, status: "cancelled" }]);
+      .toMatchObject([{ assigneeAgentId: oldAgentId, status: "todo" }]);
   });
 
   it("refuses a replacement from another company before changing the paused agent", async () => {
