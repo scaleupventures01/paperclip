@@ -167,6 +167,21 @@ const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON =
   "execution_review_participant_recovery";
 const STRANDED_BOARD_ESCALATION_POLICY = "board_escalation_no_takeover_v1";
+
+// A pause someone chose (manual, system, archive, import, a disabled built-in or
+// plugin seat) freezes the agent's cards. A budget pause is automatic and keeps
+// the board escalation. A paused row with no reason predates pause reasons and
+// keeps the old escalation too.
+export function isIntentionallyPausedAgent(agent: {
+  status: string;
+  pauseReason: string | null;
+}) {
+  return (
+    agent.status === "paused" &&
+    agent.pauseReason !== null &&
+    agent.pauseReason !== "budget"
+  );
+}
 const DISPOSITION_REPAIR_IDEMPOTENCY_INDEX =
   "agent_wakeup_requests_disposition_repair_idempotency_uq";
 const RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT = 500;
@@ -4354,6 +4369,7 @@ export function recoveryService(
       recentProgressExempted: 0,
       operatorCancelExempted: 0,
       onboardingFirstTaskExempted: 0,
+      intentionalPauseFrozen: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
@@ -4449,6 +4465,18 @@ export function recoveryService(
       }
 
       const agent = await getAgent(agentId);
+      // An agent paused on purpose freezes its cards exactly as they are
+      // (Calvin 2026-10-14). Recovery must not move them to blocked or post
+      // escalation comments; wakes for them stay refused by the invokability
+      // and fleet release gates. A budget pause is automatic, so it keeps the
+      // existing escalation below.
+      if (
+        agent?.companyId === issue.companyId &&
+        isIntentionallyPausedAgent(agent)
+      ) {
+        result.intentionalPauseFrozen += 1;
+        continue;
+      }
       const agentInvokable =
         agent && agent.companyId === issue.companyId
           ? await isAgentInvokable(agent)
