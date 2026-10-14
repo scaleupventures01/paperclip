@@ -162,8 +162,11 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
       processPid: null,
       runnerProfileJson: { adapterDispatch: { adapterType: "codex_local" } },
       contextSnapshot: { issueId, wakeReason: "issue_assigned" },
+      // mergeRunStopMetadataForAgent stamps the continuation policy on an
+      // acknowledged cancel of a conversation-adapter (codex_local) agent.
       resultJson: {
         executionCancellation: { state: "acknowledged" },
+        conversationContinuation: "continue_conversation_v1",
         ...(errorCode === "issue_reassigned" ? { reassignmentStopConfirmed: true } : {}),
       },
     });
@@ -223,6 +226,9 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
       .then((rows) => rows[0] ?? null);
   }
 
+  // The test agents use the process adapter, which exits without posting a
+  // comment, so a finished run earns an existing missing_issue_comment
+  // follow-up. That follow-up is not a wake of the card and is left out here.
   async function runsFor(companyId: string, agentId: string, issueId: string) {
     return db
       .select({ id: heartbeatRuns.id, status: heartbeatRuns.status, wakeupRequestId: heartbeatRuns.wakeupRequestId })
@@ -231,7 +237,9 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
         eq(heartbeatRuns.companyId, companyId),
         eq(heartbeatRuns.agentId, agentId),
         sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${issueId}`,
-      ));
+        sql`coalesce(${heartbeatRuns.contextSnapshot}->>'wakeReason', '') <> 'missing_issue_comment'`,
+      ))
+      .orderBy(heartbeatRuns.createdAt);
   }
 
   it("T2: promotes the new owner's parked assignment wake once the old owner's run has let go", async () => {
@@ -322,20 +330,10 @@ describeEmbeddedPostgres("heartbeat handoff wake release", () => {
     expect(handoffRuns).toHaveLength(1);
     const wakeRow = await readWake(seeded.wakeId);
     expect(wakeRow?.runId).toBe(handoffRuns[0]?.id);
+    // The handoff run comes first: no new-owner run was created before it
+    // (old code: the dead_run run ran first and the parked wake followed it).
     const allRuns = await runsFor(seeded.companyId, seeded.newAgentId, seeded.issueId);
-    // The handoff run comes first: no new-owner run was created before it.
-    expect(allRuns.length).toBeGreaterThanOrEqual(1);
-    const handoffCreatedFirst = await db
-      .select({ id: heartbeatRuns.id })
-      .from(heartbeatRuns)
-      .where(and(
-        eq(heartbeatRuns.companyId, seeded.companyId),
-        eq(heartbeatRuns.agentId, seeded.newAgentId),
-        sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${seeded.issueId}`,
-      ))
-      .orderBy(heartbeatRuns.createdAt)
-      .limit(1);
-    expect(handoffCreatedFirst[0]?.id).toBe(handoffRuns[0]?.id);
+    expect(allRuns[0]?.id).toBe(handoffRuns[0]?.id);
   }, 60_000);
 
   it(`kill switch: ${KILL_SWITCH}=0 restores today's behavior and leaves the wake parked`, async () => {
