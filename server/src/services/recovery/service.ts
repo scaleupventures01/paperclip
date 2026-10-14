@@ -1,5 +1,6 @@
 import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
 import { isIntentionallyPausedAgent } from "../intentional-pause.js";
+import { evaluateFleetReleaseGate } from "../fleet-release-gate.js";
 import { externalConversationStateSql } from "../slack-conversation-state.js";
 import { hasLiveLegacyController } from "../legacy-controller-lease.js";
 import { instanceSettingsService } from "../instance-settings.js";
@@ -4357,6 +4358,7 @@ export function recoveryService(
       operatorCancelExempted: 0,
       onboardingFirstTaskExempted: 0,
       intentionalPauseFrozen: 0,
+      fleetReleaseGateHeld: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
@@ -4462,6 +4464,18 @@ export function recoveryService(
         isIntentionallyPausedAgent(agent)
       ) {
         result.intentionalPauseFrozen += 1;
+        continue;
+      }
+      // An owner held off the fleet release allowlist is frozen the same way.
+      // Every wake for it is refused at admission, and a refused (skipped) wake
+      // is invisible to hasQueuedIssueWake, so this sweep used to re-dispatch an
+      // assigned-todo wake about every 15 s per held card (5,566 skipped rows on
+      // 2026-10-14, wakestorm-20261014). The gate is re-read on every call.
+      if (
+        agent?.companyId === issue.companyId &&
+        !evaluateFleetReleaseGate(agentId).allowed
+      ) {
+        result.fleetReleaseGateHeld += 1;
         continue;
       }
       const agentInvokable =

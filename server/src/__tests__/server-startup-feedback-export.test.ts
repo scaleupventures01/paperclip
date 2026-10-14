@@ -289,6 +289,7 @@ vi.mock("../services/index.js", () => ({
   executionWorkspaceService: executionWorkspaceServiceFactoryMock,
   externalObjectService: externalObjectsServiceFactoryMock,
   heartbeatService: heartbeatServiceFactoryMock,
+  startOwnedCancelledRunSweep: vi.fn(() => setInterval(() => {}, 60_000)),
   githubConnectionEventService: vi.fn(() => ({
     pollOnce: vi.fn(async () => ({
       leased: 0,

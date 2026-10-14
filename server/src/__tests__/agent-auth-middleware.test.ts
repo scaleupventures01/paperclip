@@ -33,7 +33,15 @@ function createSelectChain(rowsForTable: (table: unknown) => unknown[]) {
 function createDbState(input: {
   agent: { id: string; companyId: string; status?: string };
   agentKey?: { id: string; agentId: string; companyId: string; keyHash: string; responsibleUserId?: string | null };
-  run?: { id: string; companyId: string; agentId: string; responsibleUserId?: string | null };
+  run?: {
+    id: string;
+    companyId: string;
+    agentId: string;
+    responsibleUserId?: string | null;
+    status?: string;
+    errorCode?: string | null;
+    contextSnapshot?: Record<string, unknown> | null;
+  };
 }) {
   const activity: Array<Record<string, unknown>> = [];
   const agentRow = {
@@ -58,6 +66,10 @@ function createDbState(input: {
         companyId: input.run.companyId,
         agentId: input.run.agentId,
         responsibleUserId: input.run.responsibleUserId ?? null,
+        status: input.run.status ?? "running",
+        errorCode: input.run.errorCode ?? null,
+        contextSnapshot: input.run.contextSnapshot ?? null,
+        activeIdentityContextId: null,
       }
     : null;
 
@@ -517,6 +529,134 @@ describe("agent auth middleware", () => {
       entityType: "agent_api_key",
       entityId: keyId,
       details: { method: "GET", url: `/companies/${companyId}/protected` },
+    });
+  });
+  describe("writes from a cancelled run", () => {
+    const originalKillSwitch = process.env.PAPERCLIP_REJECT_CANCELLED_RUN_WRITES;
+    afterEach(() => {
+      if (originalKillSwitch === undefined) delete process.env.PAPERCLIP_REJECT_CANCELLED_RUN_WRITES;
+      else process.env.PAPERCLIP_REJECT_CANCELLED_RUN_WRITES = originalKillSwitch;
+    });
+
+    function setup(run: { status: string; errorCode?: string | null; contextSnapshot?: Record<string, unknown> | null }) {
+      const companyId = randomUUID();
+      const agentId = randomUUID();
+      const runId = randomUUID();
+      const issueId = randomUUID();
+      const { db } = createDbState({
+        agent: { id: agentId, companyId },
+        run: { id: runId, companyId, agentId, responsibleUserId: "user-claim", ...run },
+      });
+      const token = createLocalAgentJwt(agentId, companyId, "codex_local", runId, "user-claim");
+      const writes: string[] = [];
+      const app = createApp(db);
+      app.post("/w/companies/:companyId/issues/:issueId/comments", (req, res) => {
+        writes.push("comment");
+        res.status(201).json({ ok: true });
+      });
+      app.post("/w/companies/:companyId/issues", (req, res) => {
+        writes.push("issue");
+        res.status(201).json({ ok: true });
+      });
+      app.get("/r/companies/:companyId/issues/:issueId", (req, res) => {
+        res.json({ readable: true, actorType: req.actor.type });
+      });
+      app.patch("/w/companies/:companyId/issues/:issueId", (req, res) => {
+        writes.push("patch");
+        res.json({ ok: true });
+      });
+      return { companyId, agentId, runId, issueId, token, app, writes };
+    }
+
+    it("rejects PATCH, comment and issue-create from a board-cancelled assignment run with run_cancelled", async () => {
+      const { companyId, runId, issueId, token, app, writes } = setup({ status: "cancelled", errorCode: "cancelled" });
+      const patch = await request(app)
+        .patch(`/w/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .set("X-Paperclip-Run-Id", runId)
+        .send({ status: "done" });
+      const comment = await request(app)
+        .post(`/w/companies/${companyId}/issues/${issueId}/comments`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ body: "late" });
+      const create = await request(app)
+        .post(`/w/companies/${companyId}/issues`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "late card" });
+      expect([patch.status, comment.status, create.status]).toEqual([403, 403, 403]);
+      expect([patch.body.code, comment.body.code, create.body.code]).toEqual([
+        "run_cancelled",
+        "run_cancelled",
+        "run_cancelled",
+      ]);
+      expect(writes).toEqual([]);
+    });
+
+    it("rejects writes from a cancelled run minted by another control plane instance", async () => {
+      process.env.PAPERCLIP_INSTANCE_ID = "direct-operator";
+      const { companyId, issueId, token, app, writes } = setup({ status: "cancelled", errorCode: "cancelled" });
+      const res = await request(app)
+        .patch(`/w/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "done" });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("run_cancelled");
+      expect(writes).toEqual([]);
+    });
+
+    it("still allows reads from a cancelled run", async () => {
+      const { companyId, issueId, token, app } = setup({ status: "cancelled", errorCode: "cancelled" });
+      const res = await request(app)
+        .get(`/r/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.readable).toBe(true);
+    });
+
+    it("still allows writes from a running run", async () => {
+      const { companyId, issueId, token, app, writes } = setup({ status: "running" });
+      const res = await request(app)
+        .patch(`/w/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "done" });
+      expect(res.status).toBe(200);
+      expect(writes).toEqual(["patch"]);
+    });
+
+    it("still allows follow-up writes after the run handed its issue off (issue_reassigned)", async () => {
+      const { companyId, issueId, token, app, writes } = setup({ status: "cancelled", errorCode: "issue_reassigned" });
+      const res = await request(app)
+        .post(`/w/companies/${companyId}/issues/${issueId}/comments`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ body: "handoff note" });
+      expect(res.status).toBe(201);
+      expect(writes).toEqual(["comment"]);
+    });
+
+    it("keeps conversation_turn_cancelled for a cancelled conversation turn", async () => {
+      const { companyId, issueId, token, app, writes } = setup({
+        status: "cancelled",
+        errorCode: "cancelled",
+        contextSnapshot: { conversationMode: true },
+      });
+      const res = await request(app)
+        .patch(`/w/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "done" });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("conversation_turn_cancelled");
+      expect(writes).toEqual([]);
+    });
+
+    it("lets writes through when the kill switch PAPERCLIP_REJECT_CANCELLED_RUN_WRITES=false is set", async () => {
+      process.env.PAPERCLIP_REJECT_CANCELLED_RUN_WRITES = "false";
+      const { companyId, issueId, token, app, writes } = setup({ status: "cancelled", errorCode: "cancelled" });
+      const res = await request(app)
+        .patch(`/w/companies/${companyId}/issues/${issueId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "done" });
+      expect(res.status).toBe(200);
+      expect(writes).toEqual(["patch"]);
     });
   });
 });
