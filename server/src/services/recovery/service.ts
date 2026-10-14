@@ -490,6 +490,9 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   "agent_not_found",
   "budget_blocked",
   "budget_exhausted",
+  // AgentOS launcher refusal (exit 78, "capability_missing: ..."). A retry
+  // repeats the identical refusal and spends the usage breaker's card cap.
+  "capability_missing",
   "issue_paused",
   "issue_dependencies_blocked",
   // This is the fail-closed fallback for exceptions raised before an adapter
