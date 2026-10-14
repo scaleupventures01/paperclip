@@ -1,4 +1,5 @@
 import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
+import { isIntentionallyPausedAgent } from "../intentional-pause.js";
 import { externalConversationStateSql } from "../slack-conversation-state.js";
 import { hasLiveLegacyController } from "../legacy-controller-lease.js";
 import { instanceSettingsService } from "../instance-settings.js";
@@ -167,21 +168,7 @@ const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON =
   "execution_review_participant_recovery";
 const STRANDED_BOARD_ESCALATION_POLICY = "board_escalation_no_takeover_v1";
-
-// A pause someone chose (manual, system, archive, import, a disabled built-in or
-// plugin seat) freezes the agent's cards. A budget pause is automatic and keeps
-// the board escalation. A paused row with no reason predates pause reasons and
-// keeps the old escalation too.
-export function isIntentionallyPausedAgent(agent: {
-  status: string;
-  pauseReason: string | null;
-}) {
-  return (
-    agent.status === "paused" &&
-    agent.pauseReason !== null &&
-    agent.pauseReason !== "budget"
-  );
-}
+export { isIntentionallyPausedAgent };
 const DISPOSITION_REPAIR_IDEMPOTENCY_INDEX =
   "agent_wakeup_requests_disposition_repair_idempotency_uq";
 const RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT = 500;
