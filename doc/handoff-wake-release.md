@@ -41,7 +41,11 @@ run: a double wake.
   same agent stay operator stops.
 
 Result: the parked wake promotes on the first scheduler tick after the old
-run's lease releases, and the new owner runs once.
+run's lease releases, and the new owner runs once. If the card is already
+`cancelled` or `done` by then, the same release reaches the drain's
+terminal-task branch instead, which cancels the wake (`status = cancelled`,
+`error = "Deferred execution wake no longer applies to a terminal task"`), so
+it is neither promoted nor left parked.
 
 ## Kill switch
 
@@ -72,4 +76,4 @@ comment (`contextSnapshot.commentId` and `paperclipWake.comments`).
 
 - `server/src/modules/wake-queue/domain/policy.test.ts` (T1)
 - `server/src/__tests__/heartbeat-handoff-wake-release.test.ts` (T2 to T5 and
-  the kill switch)
+  the kill switch, T6 for cancelled and done cards)
