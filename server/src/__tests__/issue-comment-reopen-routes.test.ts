@@ -2,6 +2,7 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../errors.js";
+import { activityLog } from "@paperclipai/db";
 
 const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -2333,6 +2334,103 @@ describe.sequential("issue comment reopen routes", () => {
           followUpRequested: true,
         }),
       }),
+    );
+  });
+
+  // WIL-46 (2026-10-15): run 66b6a2c0 marked the card done, then the same run
+  // posted a correction with resume=true. The card reopened and the same
+  // agent was woken for a second run that re-posted the figures.
+  function latestStatusChangeBy(runId: string, status: string) {
+    mockDbSelectFrom.mockImplementation((table: unknown) =>
+      table === activityLog
+        ? {
+            where: vi.fn(() => ({
+              orderBy: vi.fn(async () => [{ runId, details: { status } }]),
+            })),
+          }
+        : { where: mockDbSelectWhere },
+    );
+  }
+
+  for (const status of ["done", "cancelled"] as const) {
+    it(`ignores resume on a comment from the run that moved the card to ${status}: no reopen, no self wake`, async () => {
+      latestStatusChangeBy("run-1", status);
+      mockIssueService.getById.mockResolvedValue(makeIssue(status));
+      mockIssueService.update.mockImplementation(
+        async (_id: string, patch: Record<string, unknown>) => ({
+          ...makeIssue(status),
+          ...patch,
+        }),
+      );
+
+      const res = await request(await installActor(createApp(), agentActor()))
+        .post("/api/issues/11111111-1111-4111-8111-111111111111/comments")
+        .send({ body: "Correction to the preceding comment", resume: true });
+
+      expect(res.status).toBe(201);
+      expect(mockIssueService.addComment).toHaveBeenCalledTimes(1);
+      expect(mockIssueService.update).not.toHaveBeenCalledWith(
+        "11111111-1111-4111-8111-111111111111",
+        { status: "todo" },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(mockHeartbeatService.wakeup).not.toHaveBeenCalledWith(
+        "22222222-2222-4222-8222-222222222222",
+        expect.anything(),
+      );
+    });
+  }
+
+  it("control: resume from a later run on a card an earlier run closed still reopens and wakes", async () => {
+    latestStatusChangeBy("run-0", "done");
+    mockIssueService.getById.mockResolvedValue(makeIssue("done"));
+    mockIssueService.update.mockImplementation(
+      async (_id: string, patch: Record<string, unknown>) => ({
+        ...makeIssue("done"),
+        ...patch,
+      }),
+    );
+
+    const res = await request(await installActor(createApp(), agentActor()))
+      .post("/api/issues/11111111-1111-4111-8111-111111111111/comments")
+      .send({ body: "please validate the follow-up", resume: true });
+
+    expect(res.status).toBe(201);
+    expect(mockIssueService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      { status: "todo" },
+    );
+    await waitForWakeup(() =>
+      expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+        "22222222-2222-4222-8222-222222222222",
+        expect.objectContaining({ reason: "issue_reopened_via_comment" }),
+      ),
+    );
+  });
+
+  it("control: a resume comment on a card still in_progress keeps today's wake behavior", async () => {
+    latestStatusChangeBy("run-1", "in_progress");
+    mockIssueService.getById.mockResolvedValue(makeIssue("in_progress"));
+    mockIssueService.update.mockImplementation(
+      async (_id: string, patch: Record<string, unknown>) => ({
+        ...makeIssue("in_progress"),
+        ...patch,
+      }),
+    );
+
+    const res = await request(await installActor(createApp(), agentActor()))
+      .post("/api/issues/11111111-1111-4111-8111-111111111111/comments")
+      .send({ body: "follow up on this", resume: true });
+
+    expect(res.status).toBe(201);
+    await waitForWakeup(() =>
+      expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+        "22222222-2222-4222-8222-222222222222",
+        expect.objectContaining({
+          reason: "issue_commented",
+          payload: expect.objectContaining({ resumeIntent: true }),
+        }),
+      ),
     );
   });
 
