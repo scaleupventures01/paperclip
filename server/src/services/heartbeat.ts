@@ -804,6 +804,10 @@ export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [
   30_000, 30_000,
 ] as const;
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_JITTER_RATIO = 0;
+// A finishing run releases its card inline, seconds after its terminal status
+// is written (SCAA-1001 c72e8311: finished 02:41:30.45Z, release side effects
+// at 02:41:32.38Z). Two minutes keeps the stranded-queue sweep out of that path.
+const TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS = 2 * 60 * 1000;
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON = "transient_failure";
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON = "transient_failure_retry";
 function isTransientWorkspaceGitScanCode(code: string | null | undefined): boolean {
@@ -1168,6 +1172,37 @@ function isCapabilityMissingRun(
   const resultJson = parseObject(run.resultJson);
   return isCapabilityMissingFailure({
     exitCode: run.exitCode,
+    errorCode: run.errorCode,
+    errorMessages: [run.error, resultJson.errorMessage],
+  });
+}
+
+// A 4xx answer from our own API to the agent's request (the AgentOS jev seat
+// prints "agentos-http http_error status=NNN") is a deterministic refusal:
+// a rerun sends the same request and gets the same answer (SCAA-1001, 409
+// "Delegation cycle", 2026-10-15). 401, 408 and 429 can clear on their own
+// (fresh token, timeout, rate limit) and stay retryable.
+const API_REFUSAL_ERROR_CODE = "api_refusal";
+const API_REFUSAL_MESSAGE_RE =
+  /agentos-http http_error status=(400|403|404|409|410|422)\b/;
+
+function isApiRefusalFailure(input: {
+  errorCode?: string | null;
+  errorMessages: unknown[];
+}) {
+  return (
+    input.errorCode === API_REFUSAL_ERROR_CODE ||
+    input.errorMessages.some(
+      (value) => typeof value === "string" && API_REFUSAL_MESSAGE_RE.test(value),
+    )
+  );
+}
+
+function isApiRefusalRun(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode" | "resultJson">,
+) {
+  const resultJson = parseObject(run.resultJson);
+  return isApiRefusalFailure({
     errorCode: run.errorCode,
     errorMessages: [run.error, resultJson.errorMessage],
   });
@@ -15484,6 +15519,26 @@ export function heartbeatService(
         issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
       };
     }
+    if (
+      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON &&
+      isApiRefusalRun(run)
+    ) {
+      const reason =
+        "Transient retry refused: our API refused the agent's request (4xx), which a retry cannot fix";
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: reason,
+        payload: { retryReason, errorCode: API_REFUSAL_ERROR_CODE, retryable: false },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason,
+        errorCode: "non_retryable_api_refusal" as const,
+        issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+      };
+    }
     const nextAttempt =
       (retryReason === WORKSPACE_BUSY_RETRY_REASON ||
       retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
@@ -19702,7 +19757,7 @@ export function heartbeatService(
     // A server restart or a message/cleanup race can leave a deferred wake
     // after its owner has released the issue lock. Revisit it through the same
     // release admission, so recovery holds and operator Stops still apply.
-    const strandedQueues = await db.select({ wake: agentWakeupRequests })
+    const strandedQueues = await db.select({ wake: agentWakeupRequests, issueStatus: issues.status })
       .from(agentWakeupRequests)
       .innerJoin(issues, and(eq(issues.companyId, agentWakeupRequests.companyId),
         sql`${issues.id}::text = ${agentWakeupRequests.payload}->>'issueId'`,
@@ -19717,13 +19772,39 @@ export function heartbeatService(
         sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`,
         cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
       .orderBy(asc(agentWakeupRequests.updatedAt)).limit(50);
-    for (const { wake } of strandedQueues) {
+    for (const { wake, issueStatus } of strandedQueues) {
       if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
           !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
       const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
         eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
         sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
       )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
+      // A parked wake on a done or cancelled card can never run. The release
+      // below often returns before the drain's own terminal-task cancel (an
+      // acknowledged stop, a held or paused agent, no run of its own), which
+      // left such rows parked and re-touched every tick (2026-10-15 02:50Z,
+      // IT Manager 32 on cancelled cards). Settle it here with the drain's
+      // reason, whatever the agent's state, unless the agent still has a live
+      // run on the card or its latest run finished inside the grace window
+      // (that run's own inline release still owns the drain).
+      if (
+        (issueStatus === "done" || issueStatus === "cancelled") &&
+        (!ownLatest ||
+          (isHeartbeatRunTerminalStatus(ownLatest.status) &&
+            (ownLatest.finishedAt ?? ownLatest.updatedAt).getTime() <=
+              Date.now() - TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS))
+      ) {
+        const settledAt = new Date();
+        await db.update(agentWakeupRequests).set({
+          status: "cancelled",
+          finishedAt: settledAt,
+          error: "Deferred execution wake no longer applies to a terminal task",
+          updatedAt: settledAt,
+        }).where(and(
+          eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
+        ));
+        continue;
+      }
       // A new owner that has never run on the card has no run of its own to
       // release. When another agent handed the card over from inside its own
       // run, that cancelled run is the one holding this wake: release it
@@ -25201,7 +25282,11 @@ export function heartbeatService(
                     errorMessages: [adapterResult.errorMessage],
                   })
                   ? CAPABILITY_MISSING_ERROR_CODE
-                  : (adapterResult.errorCode ??
+                  : isApiRefusalFailure({
+                        errorMessages: [adapterResult.errorMessage],
+                      })
+                    ? API_REFUSAL_ERROR_CODE
+                    : (adapterResult.errorCode ??
                     recordedResponsibleUserDenialCode ??
                     "adapter_failed")
                 : null;
