@@ -496,6 +496,9 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   // AgentOS launcher refusal (exit 78, "capability_missing: ..."). A retry
   // repeats the identical refusal and spends the usage breaker's card cap.
   "capability_missing",
+  // A 4xx refusal from our own API to the agent's request (heartbeat.ts
+  // isApiRefusalFailure). A retry sends the same request again.
+  "api_refusal",
   "issue_paused",
   "issue_dependencies_blocked",
   // This is the fail-closed fallback for exceptions raised before an adapter
