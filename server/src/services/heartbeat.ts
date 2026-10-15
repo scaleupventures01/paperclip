@@ -25501,7 +25501,8 @@ export function heartbeatService(
             payload: {
               status,
               exitCode: adapterResult.exitCode,
-              ...(runErrorCode === CAPABILITY_MISSING_ERROR_CODE
+              ...(runErrorCode === CAPABILITY_MISSING_ERROR_CODE ||
+              runErrorCode === API_REFUSAL_ERROR_CODE
                 ? { errorCode: runErrorCode, retryable: false }
                 : {}),
             },
