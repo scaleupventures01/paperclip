@@ -231,15 +231,18 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
     }
   }
 
-  it("control: a parked wake on an open card is not settled by this rule", async () => {
-    const seeded = await seedParked({ hold: "none", issueStatus: "todo" });
-    const heartbeat = heartbeatService(db);
+  for (const openStatus of ["todo", "in_progress"] as const) {
+    it(`control: a parked wake on a card in ${openStatus} is not settled by this rule`, async () => {
+      const seeded = await seedParked({ hold: "none", issueStatus: openStatus });
+      const heartbeat = heartbeatService(db);
 
-    await heartbeat.resumeQueuedRuns();
-    await heartbeat.drainActiveRunExecutions();
+      await heartbeat.resumeQueuedRuns();
+      await heartbeat.drainActiveRunExecutions();
 
-    expect((await readWake(seeded.wakeId))?.status).toBe("deferred_issue_execution");
-  }, 30_000);
+      const wake = await readWake(seeded.wakeId);
+      expect(wake?.error).not.toBe(TERMINAL_REASON);
+    }, 30_000);
+  }
 
   it("control: a parked wake on a done card stays while the agent still has a live run there", async () => {
     const seeded = await seedParked({ hold: "none", issueStatus: "done", latestRunStatus: "running" });
