@@ -1092,6 +1092,7 @@ function readHeartbeatRunErrorFamily(
   if (
     run.errorCode === "codex_transient_upstream" ||
     run.errorCode === "claude_transient_upstream" ||
+    run.errorCode === "provider_http_5xx" ||
     run.errorCode === "codex_harness_crash"
   ) {
     return "transient_upstream";
@@ -1217,6 +1218,21 @@ function isApiRefusalRun(
     errorCode: run.errorCode,
     errorMessages: [run.error, resultJson.errorMessage],
   });
+}
+
+// A provider answering HTTP 500, 502, 503 or 504 (codex prints "unexpected
+// status 502 Bad Gateway: <html>...nginx...") is an upstream outage, not a
+// fault in the agent or its configuration. Live 2026-10-16 08:03 to 08:51 ET:
+// 17 GLM runs failed this way while 92 succeeded, and five agents sat in
+// `error` until cleared by hand. Matched on the adapter's error message only,
+// never on stdout, so agent output that quotes a 502 does not count. 429 is
+// left to its existing rate-limit handling.
+const PROVIDER_HTTP_5XX_ERROR_CODE = "provider_http_5xx";
+const PROVIDER_HTTP_5XX_MESSAGE_RE =
+  /\bunexpected status (?:500|502|503|504)\b|<title>\s*(?:500|502|503|504)\b[^<]*<\/title>/i;
+
+function isProviderHttp5xxFailure(errorMessage: unknown) {
+  return typeof errorMessage === "string" && PROVIDER_HTTP_5XX_MESSAGE_RE.test(errorMessage);
 }
 
 function isSpawnLikeFailureMessage(value: unknown) {
@@ -25405,7 +25421,9 @@ export function heartbeatService(
                         errorMessages: [adapterResult.errorMessage],
                       })
                     ? API_REFUSAL_ERROR_CODE
-                    : (adapterResult.errorCode ??
+                    : isProviderHttp5xxFailure(adapterResult.errorMessage)
+                      ? PROVIDER_HTTP_5XX_ERROR_CODE
+                      : (adapterResult.errorCode ??
                     recordedResponsibleUserDenialCode ??
                     "adapter_failed")
                 : null;
@@ -25517,8 +25535,14 @@ export function heartbeatService(
                   : {}),
                 configFreshness: configFreshnessResultMetadata,
               },
-              errorFamily: adapterResult.errorFamily ?? null,
-              retryNotBefore: adapterResult.retryNotBefore ?? null,
+              errorFamily:
+                runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE
+                  ? "transient_upstream"
+                  : (adapterResult.errorFamily ?? null),
+              retryNotBefore:
+                runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE
+                  ? null
+                  : (adapterResult.retryNotBefore ?? null),
             }),
             errorCode: runErrorCode,
             errorMessage: runErrorMessage,
@@ -25961,6 +25985,7 @@ export function heartbeatService(
             ((finalizedRun
               ? readHeartbeatRunErrorFamily(finalizedRun) === "provider_quota"
               : runErrorCode === "provider_quota") ||
+              runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE ||
               isWorkspaceSyncConflictFailure(adapterResult.errorMessage)),
           wasFirstHeartbeat: timerClaimWasFirstHeartbeat(run),
         });
