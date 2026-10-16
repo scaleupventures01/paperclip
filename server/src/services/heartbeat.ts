@@ -15875,6 +15875,33 @@ export function heartbeatService(
               run: existing,
               reusedExisting: true,
             };
+          // P2 (SCAA-5094, 2026-10-15 17:41:52Z): two runs of one agent on one
+          // card failed together and each scheduled its own transient retry,
+          // so two retries ran side by side. The issue row lock above
+          // serializes this check: a pending transient retry of the same agent
+          // on the same card already carries the work forward.
+          if (issueId && retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON) {
+            const [sibling] = await tx
+              .select()
+              .from(heartbeatRuns)
+              .where(
+                and(
+                  eq(heartbeatRuns.companyId, run.companyId),
+                  eq(heartbeatRuns.agentId, run.agentId),
+                  inArray(heartbeatRuns.status, ["scheduled_retry", "queued"]),
+                  eq(heartbeatRuns.scheduledRetryReason, retryReason),
+                  sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+                ),
+              )
+              .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id))
+              .limit(1);
+            if (sibling)
+              return {
+                outcome: "scheduled",
+                run: sibling,
+                reusedExisting: true,
+              };
+          }
         }
         if (retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON) {
           if (issueId) {
