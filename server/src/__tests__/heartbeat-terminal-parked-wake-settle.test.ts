@@ -89,6 +89,10 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
     issueStatus: "cancelled" | "done" | "todo";
     latestRunStatus?: "cancelled" | "running";
     latestRunFinishedAgoMs?: number;
+    /** Who the card is assigned to. Default: the agent that owns the parked wake. */
+    assignee?: "wake_agent" | "other_agent";
+    /** Parked payload. Default: a comment wake carrying its comment id. */
+    payloadShape?: "comment" | "interaction_without_response" | "no_comment_ids";
   }) {
     const companyId = randomUUID();
     const agentId = randomUUID();
@@ -117,6 +121,20 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
       runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60, wakeOnDemand: true } },
       permissions: {},
     });
+    const otherAgentId = randomUUID();
+    if (options.assignee === "other_agent") {
+      await db.insert(agents).values({
+        id: otherAgentId,
+        companyId,
+        name: "Delivery Manager",
+        role: "engineer",
+        status: "idle",
+        adapterType: "process",
+        adapterConfig: { command: process.execPath, args: ["-e", "process.exit(0)"] },
+        runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60, wakeOnDemand: true } },
+        permissions: {},
+      });
+    }
     if (options.hold === "off_allowlist") {
       writeFileSync(gatePath, JSON.stringify({ version: 1, enabled: true, allowedAgentIds: [] }));
       process.env.AGENTOS_FLEET_RELEASE_GATE = gatePath;
@@ -127,7 +145,7 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
       title: "Card closed while a comment wake was parked behind a run",
       status: options.issueStatus,
       priority: "medium",
-      assigneeAgentId: agentId,
+      assigneeAgentId: options.assignee === "other_agent" ? otherAgentId : agentId,
       responsibleUserId: "responsible-user",
     });
     // The agent's latest run on the card: an operator-acknowledged stop, the
@@ -167,19 +185,32 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
       requestedByActorId: "board-user",
       requestedAt: tenMinutesAgo,
       updatedAt: tenMinutesAgo,
-      payload: {
-        issueId,
-        commentId,
-        mutation: "comment",
-        _paperclipWakeContext: {
-          issueId,
-          wakeReason: "issue_commented",
-          source: "issue.comment",
-          wakeCommentIds: [commentId],
-          wakeCommentId: commentId,
-          commentId,
-        },
-      },
+      payload: options.payloadShape === "interaction_without_response"
+        ? {
+            issueId,
+            mutation: "interaction",
+            interactionId: randomUUID(),
+            _paperclipWakeContext: { issueId, wakeReason: "issue_interaction_resolved", source: "issue.interaction" },
+          }
+        : options.payloadShape === "no_comment_ids"
+          ? {
+              issueId,
+              mutation: "comment",
+              _paperclipWakeContext: { issueId, wakeReason: "issue_commented", source: "issue.comment", wakeCommentIds: [] },
+            }
+          : {
+              issueId,
+              commentId,
+              mutation: "comment",
+              _paperclipWakeContext: {
+                issueId,
+                wakeReason: "issue_commented",
+                source: "issue.comment",
+                wakeCommentIds: [commentId],
+                wakeCommentId: commentId,
+                commentId,
+              },
+            },
     });
     return { companyId, agentId, issueId, runId, wakeId };
   }
@@ -243,6 +274,52 @@ describeEmbeddedPostgres("stranded-queue sweep settles parked wakes on terminal 
       expect(wake?.error).not.toBe(TERMINAL_REASON);
     }, 30_000);
   }
+
+  // P6 (2026-10-15 21:50 ET, live): 83 parked wakes sat on done or cancelled
+  // cards. 7 interaction wakes with no response were skipped by the loop's
+  // earlier continue before the terminal settle; the rest were never selected
+  // (wake owned by an agent that is not the assignee, or no comment ids).
+  for (const shape of [
+    { label: "an interaction wake with no response", payloadShape: "interaction_without_response" as const },
+    { label: "a wake owned by an agent that is not the assignee", assignee: "other_agent" as const },
+    { label: "a comment wake that carries no comment ids", payloadShape: "no_comment_ids" as const },
+    { label: "a non-assignee wake with no comment ids", assignee: "other_agent" as const, payloadShape: "no_comment_ids" as const },
+  ]) {
+    for (const issueStatus of ["cancelled", "done"] as const) {
+      it(`settles ${shape.label} parked on a ${issueStatus} card`, async () => {
+        const seeded = await seedParked({ hold: "none", issueStatus, ...shape });
+        const heartbeat = heartbeatService(db);
+
+        await heartbeat.resumeQueuedRuns();
+        await heartbeat.drainActiveRunExecutions();
+
+        const wake = await readWake(seeded.wakeId);
+        expect(wake?.status).toBe("cancelled");
+        expect(wake?.error).toBe(TERMINAL_REASON);
+        expect(await runCount(seeded.companyId, seeded.agentId, seeded.issueId)).toBe(1);
+        const card = await db.select({ status: issues.status }).from(issues).where(eq(issues.id, seeded.issueId));
+        expect(card[0]?.status).toBe(issueStatus);
+      }, 30_000);
+    }
+    it(`control: ${shape.label} on an open card is not settled by this rule`, async () => {
+      const seeded = await seedParked({ hold: "none", issueStatus: "todo", ...shape });
+      const heartbeat = heartbeatService(db);
+
+      await heartbeat.resumeQueuedRuns();
+      await heartbeat.drainActiveRunExecutions();
+
+      expect((await readWake(seeded.wakeId))?.error).not.toBe(TERMINAL_REASON);
+    }, 30_000);
+  }
+
+  it("control: a non-assignee parked wake on a done card stays while its agent's latest run finished moments ago", async () => {
+    const seeded = await seedParked({ hold: "none", issueStatus: "done", assignee: "other_agent", latestRunFinishedAgoMs: 10_000 });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+
+    expect((await readWake(seeded.wakeId))?.status).toBe("deferred_issue_execution");
+  }, 30_000);
 
   it("control: a parked wake on a done card stays while the agent still has a live run there", async () => {
     const seeded = await seedParked({ hold: "none", issueStatus: "done", latestRunStatus: "running" });

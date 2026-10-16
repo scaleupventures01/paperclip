@@ -123,3 +123,31 @@ describe("filterZombieCoalesceTarget", () => {
     expect(filterZombieCoalesceTarget(live, tracked)).toBe(live);
   });
 });
+
+// ---------------------------------------------------------------------------
+// P1 (live 2026-10-15 22:38:36Z, SCAA-5220): claimQueuedRun marks a run
+// running and writes a 60 s controller lease in the same UPDATE, but the run
+// enters the in-memory live set only after executeRun's prologue. A wake for
+// the same agent and card in that window saw a "zombie", proceeded, and
+// queued a duplicate continuation run (bc4da9b7, 0.2 s after 5a9e5d14
+// started), which then failed 409 on issue run ownership.
+// ---------------------------------------------------------------------------
+describe("isZombieRun: a just-claimed run with a live controller lease", () => {
+  const now = Date.now();
+
+  it("is not a zombie while its controller lease is unexpired", () => {
+    const run = { status: "running", id: "claimed-1", runtimeMode: "legacy", controllerLeaseExpiresAt: new Date(now + 59_000) };
+    expect(isZombieRun(run, new Map())).toBe(false);
+    expect(filterZombieCoalesceTarget(run, new Map())).toBe(run);
+  });
+
+  it("control: is a zombie once its controller lease has expired", () => {
+    const run = { status: "running", id: "dead-1", runtimeMode: "legacy", controllerLeaseExpiresAt: new Date(now - 1_000) };
+    expect(isZombieRun(run, new Map())).toBe(true);
+  });
+
+  it("control: a native run is judged without the legacy lease", () => {
+    const run = { status: "running", id: "native-1", runtimeMode: "native", controllerLeaseExpiresAt: new Date(now + 59_000) };
+    expect(isZombieRun(run, new Map())).toBe(true);
+  });
+});

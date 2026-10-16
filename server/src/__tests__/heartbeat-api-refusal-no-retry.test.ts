@@ -47,6 +47,15 @@ const REFUSAL_403 =
   "agentos-jev-seat: PATCH /api/issues/00000000-0000-0000-0000-000000000000 failed: agentos-http http_error status=403\n" +
   '{"error":"Agent cannot reassign an issue it does not own"}';
 
+// P3, live 2026-10-16 00:02Z (run 066a9cab, SourceDox PM): the sandbox host
+// bridge answers an uncertain write with 409 and outcome "indeterminate" so one
+// HTTP request is not repeated. That is a transient bridge timeout, not a
+// refusal by our API, so the run must stay retryable like 408 or 429.
+const BRIDGE_TIMEOUT_409 =
+  "agentos-jev-seat: PATCH /api/issues/00000000-0000-0000-0000-000000000000 failed: agentos-http http_error status=409\n" +
+  '{"error":"Timed out waiting for host bridge response.","outcome":"indeterminate","retryable":false}';
+const BRIDGE_ADAPTER = "api_refusal_bridge_timeout_test";
+
 describe("classifyContinuationFailure: api_refusal", () => {
   it("api_refusal is non-retryable, so the stranded sweep blocks the card once", () => {
     const run = { errorCode: "api_refusal" } as unknown as Parameters<typeof classifyContinuationFailure>[0];
@@ -98,6 +107,27 @@ describeEmbeddedPostgres("heartbeat does not transient-retry a deterministic API
         testedAt: new Date().toISOString(),
       }),
     });
+    registerServerAdapter({
+      type: BRIDGE_ADAPTER,
+      execute: async () => ({
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        errorMessage: BRIDGE_TIMEOUT_409,
+        errorCode: null,
+        resultJson: {
+          stdout: "",
+          stderr: `${BRIDGE_TIMEOUT_409}\n`,
+          executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+        },
+      }),
+      testEnvironment: async () => ({
+        adapterType: BRIDGE_ADAPTER,
+        status: "pass",
+        checks: [],
+        testedAt: new Date().toISOString(),
+      }),
+    });
   }, 20_000);
 
   afterEach(async () => {
@@ -123,6 +153,7 @@ describeEmbeddedPostgres("heartbeat does not transient-retry a deterministic API
 
   afterAll(async () => {
     unregisterServerAdapter(REFUSAL_ADAPTER);
+    unregisterServerAdapter(BRIDGE_ADAPTER);
     await tempDb?.cleanup();
   });
 
@@ -203,6 +234,16 @@ describeEmbeddedPostgres("heartbeat does not transient-retry a deterministic API
     expect(await transientRetryWakes(agentId)).toBe(0);
   });
 
+  it("does not record a host bridge timeout 409 as api_refusal", async () => {
+    const { agentId } = await seedAgent(BRIDGE_ADAPTER);
+    const run = await heartbeat.invoke(agentId, "on_demand", {}, "manual");
+    expect(run).not.toBeNull();
+
+    const failedRun = await waitForRunToFinish(heartbeat, run!.id);
+    expect(failedRun?.status).toBe("failed");
+    expect(failedRun?.errorCode).not.toBe("api_refusal");
+  });
+
   // The stranded-issue sweep and process-loss recovery call
   // scheduleBoundedRetryForRun with the default transient reason on rows that
   // were stored before this fix as adapter_failed.
@@ -223,6 +264,7 @@ describeEmbeddedPostgres("heartbeat does not transient-retry a deterministic API
     ["HTTP 503 from our API", "agentos-jev-seat: POST /api/companies/x/issues failed: agentos-http http_error status=503"],
     ["HTTP 429 rate limit", "agentos-jev-seat: POST /api/companies/x/issues failed: agentos-http http_error status=429"],
     ["HTTP 401 expired token", "agentos-jev-seat: GET /api/issues/x failed: agentos-http http_error status=401"],
+    ["HTTP 409 host bridge timeout (outcome indeterminate)", BRIDGE_TIMEOUT_409],
   ] as const)("control: a %s is still retried", async (_label, error) => {
     const { runId, agentId, now } = await seedFailedRun({ errorCode: "adapter_failed", error });
     const scheduled = await heartbeat.scheduleBoundedRetry(runId, { now, random: () => 0 });
