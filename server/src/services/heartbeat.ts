@@ -1185,16 +1185,27 @@ function isCapabilityMissingRun(
 const API_REFUSAL_ERROR_CODE = "api_refusal";
 const API_REFUSAL_MESSAGE_RE =
   /agentos-http http_error status=(400|403|404|409|410|422)\b/;
+// The sandbox host bridge answers an uncertain write (its host call timed out
+// or lost its receipt) with 409 and outcome "indeterminate" so that one HTTP
+// request is not repeated (adapter-utils sandbox-callback-bridge.ts). That is a
+// transient bridge failure, not a refusal by our API: a fresh run re-reads the
+// card and decides (P3, run 066a9cab, 2026-10-16 00:02Z).
+const HOST_BRIDGE_INDETERMINATE_RE =
+  /"outcome"\s*:\s*"indeterminate"|Timed out waiting for host bridge response/;
 
 function isApiRefusalFailure(input: {
   errorCode?: string | null;
   errorMessages: unknown[];
 }) {
+  const messages = input.errorMessages.filter(
+    (value): value is string => typeof value === "string",
+  );
+  if (messages.some((value) => HOST_BRIDGE_INDETERMINATE_RE.test(value))) {
+    return false;
+  }
   return (
     input.errorCode === API_REFUSAL_ERROR_CODE ||
-    input.errorMessages.some(
-      (value) => typeof value === "string" && API_REFUSAL_MESSAGE_RE.test(value),
-    )
+    messages.some((value) => API_REFUSAL_MESSAGE_RE.test(value))
   );
 }
 
