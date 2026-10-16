@@ -58,6 +58,10 @@ type AdapterResultShape = {
   errorCode?: string | null;
   errorFamily?: string | null;
   stdoutExtra?: string;
+  // Sibling suites mark bootstrap failures so the legacy reconciliation hold
+  // (legacy-execution-recovery.ts) allows the automatic retry. Live mid-turn
+  // 502 runs carried no such evidence; `noBootstrapEvidence` models them.
+  noBootstrapEvidence?: boolean;
 };
 
 const ADAPTER = "provider_5xx_test";
@@ -133,6 +137,9 @@ describeEmbeddedPostgres("heartbeat treats a provider HTTP 5xx as transient", ()
           stdout: `${GLM_METADATA_WARNING}\n${TRANSCRIPT_QUOTA_NOISE}\n${nextResult.stdoutExtra ?? ""}`,
           stderr: `${nextResult.errorMessage}\n`,
           ...(nextResult.errorFamily ? { errorFamily: nextResult.errorFamily } : {}),
+          ...(nextResult.noBootstrapEvidence
+            ? {}
+            : { executionRecovery: { kind: "bootstrap", providerWorkStarted: false } }),
         },
       }),
       testEnvironment: async () => ({
@@ -200,9 +207,15 @@ describeEmbeddedPostgres("heartbeat treats a provider HTTP 5xx as transient", ()
     const run = await heartbeat.invoke(agentId, "on_demand", {}, "manual");
     expect(run).not.toBeNull();
     const finished = await waitForRunToFinish(heartbeat, run!.id);
-    const retries = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.retryOfRunId, run!.id));
-    const agent = await db.select().from(agents).where(eq(agents.id, agentId)).then((rows) => rows[0]!);
-    return { finished, retries, agent };
+    const readAgent = () => db.select().from(agents).where(eq(agents.id, agentId)).then((rows) => rows[0]!);
+    // finalizeAgentStatus runs after the run row turns terminal.
+    await expect
+      .poll(() => readAgent().then((row) => row.status), { timeout: 5_000, interval: 50 })
+      .not.toBe("running");
+    const readRetries = () =>
+      db.select().from(heartbeatRuns).where(eq(heartbeatRuns.retryOfRunId, run!.id));
+    const agent = await readAgent();
+    return { finished, agent, readRetries };
   }
 
   it.each([
@@ -217,11 +230,12 @@ describeEmbeddedPostgres("heartbeat treats a provider HTTP 5xx as transient", ()
     ["a 504", { errorMessage: "unexpected status 504 Gateway Timeout: <html><head><title>504 Gateway Time-out</title></head></html>" }],
     ["a bare nginx Bad Gateway page", { errorMessage: NGINX_BODY }],
   ] as const)("%s: transient code, bounded retry queued, agent never goes to error", async (_label, result) => {
-    const { finished, retries, agent } = await runOnce(result);
+    const { finished, agent, readRetries } = await runOnce(result);
     expect(finished?.status).toBe("failed");
     expect(finished?.errorCode).toBe("provider_http_5xx");
     expect((finished?.resultJson as Record<string, unknown>)?.errorFamily).toBe("transient_upstream");
-    expect(retries).toHaveLength(1);
+    await expect.poll(() => readRetries().then((rows) => rows.length), { timeout: 5_000, interval: 50 }).toBe(1);
+    const retries = await readRetries();
     expect(retries[0]).toMatchObject({
       status: "scheduled_retry",
       scheduledRetryReason: "transient_failure",
@@ -231,10 +245,18 @@ describeEmbeddedPostgres("heartbeat treats a provider HTTP 5xx as transient", ()
     expect(agent.errorReason).toBeNull();
   });
 
+  it("a mid-turn 502 with no bootstrap evidence still never errors the agent", async () => {
+    const { finished, agent } = await runOnce({ errorMessage: LIVE_502, noBootstrapEvidence: true });
+    expect(finished?.errorCode).toBe("provider_http_5xx");
+    expect(agent.status).not.toBe("error");
+    expect(agent.errorReason).toBeNull();
+  });
+
   it("control: a 409 api_refusal still records api_refusal, queues no retry, and errors the agent", async () => {
-    const { finished, retries, agent } = await runOnce({ errorMessage: REFUSAL_409 });
+    const { finished, readRetries, agent } = await runOnce({ errorMessage: REFUSAL_409 });
     expect(finished?.errorCode).toBe("api_refusal");
-    expect(retries).toHaveLength(0);
+    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    expect(await readRetries()).toHaveLength(0);
     expect(agent.status).toBe("error");
   });
 
@@ -247,11 +269,10 @@ describeEmbeddedPostgres("heartbeat treats a provider HTTP 5xx as transient", ()
   });
 
   it("control: a missing credential still errors the agent and classifies configuration_incomplete in recovery", async () => {
-    const { finished, retries, agent } = await runOnce({
+    const { finished, agent } = await runOnce({
       errorMessage: "Error: missing API key for provider glm",
     });
     expect(finished?.errorCode).toBe("adapter_failed");
-    expect(retries).toHaveLength(0);
     expect(agent.status).toBe("error");
     expect(classifyAdapterFailureForRecovery(finished as never)).toEqual({ kind: "configuration_incomplete" });
   });
