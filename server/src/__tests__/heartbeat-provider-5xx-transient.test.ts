@@ -41,12 +41,12 @@ if (!embeddedPostgresSupport.supported) {
 }
 
 const NGINX_BODY =
-  '<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body bgcolor="white">\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>';
-// Verbatim shape of the live codex error (run 487a85f4).
-const LIVE_502 = `unexpected status 502 Bad Gateway: ${NGINX_BODY}`;
+  '<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body bgcolor="white">\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>alibaba-ga</center>\r\n</body>\r\n</html>';
+// Verbatim live codex error (run 487a85f4, heartbeat_runs.error).
+const LIVE_502 = `unexpected status 502 Bad Gateway: ${NGINX_BODY}, url: https://api.z.ai/api/v1/responses`;
 // Benign codex warning present in every GLM run's output, failed or not.
 const GLM_METADATA_WARNING =
-  "WARN codex_core::models: Model metadata for `glm-5.3-flash` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
+  "Model metadata for `glm-5.3-flash` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
 // Agent transcript text that happens to mention a quota (run 27bface3).
 const TRANSCRIPT_QUOTA_NOISE = "Checked the usage limit dashboard; no provider quota exceeded.";
 const REFUSAL_409 =
