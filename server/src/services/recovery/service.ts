@@ -483,6 +483,7 @@ const TRANSIENT_INFRA_CONTINUATION_ERROR_CODES = new Set<string>([
   "codex_transient_upstream",
   "codex_harness_crash",
   "claude_transient_upstream",
+  "provider_http_5xx",
   "provider_quota",
   "timeout",
 ]);
@@ -535,7 +536,11 @@ export const PROVIDER_QUOTA_RECOVERY_DEFAULT_BACKOFF_MS = 60 * 60 * 1000;
 const PROVIDER_QUOTA_ERROR_RE =
   /(?:you(?:'|’)ve hit your (?:\w+ )?limit|usage limit(?: reached| exceeded)?|provider quota|quota (?:limit )?exceeded|model (?:is )?at capacity)/i;
 const CONFIGURATION_INCOMPLETE_ERROR_RE =
-  /(?:model_not_found|model [^\n]{0,120} not found|missing (?:api )?(?:key|credentials?)|credentials? (?:are |is )?missing|no (?:api )?(?:key|credentials?) (?:was |were )?(?:found|configured|provided)|api key (?:is )?(?:not set|unavailable))/i;
+  // `model (?!metadata for )`: codex prints "Model metadata for `glm-5.3-flash`
+  // not found. Defaulting to fallback metadata" on healthy GLM runs; it is a
+  // warning, not a missing model (2026-10-16: on 17 of 17 failed 502 runs and
+  // 46 of 134 succeeded codex_local runs).
+  /(?:model_not_found|model (?!metadata for )[^\n]{0,120} not found|missing (?:api )?(?:key|credentials?)|credentials? (?:are |is )?missing|no (?:api )?(?:key|credentials?) (?:was |were )?(?:found|configured|provided)|api key (?:is )?(?:not set|unavailable))/i;
 
 export type AdapterFailureRecoveryClassification =
   | { kind: "provider_quota"; retryAt: Date; parsedResetTime: boolean }
