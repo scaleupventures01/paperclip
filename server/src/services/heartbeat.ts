@@ -5889,10 +5889,26 @@ export function formatRuntimeWorkspaceWarningLog(warning: string) {
  * Queued runs are never zombies — they don't have processes yet.
  */
 export function isZombieRun(
-  run: { status: string; id: string },
+  run: {
+    status: string;
+    id: string;
+    runtimeMode?: string | null;
+    controllerLeaseExpiresAt?: Date | string | null;
+  },
   tracked: { has(id: string): boolean },
+  now: number = Date.now(),
 ): boolean {
-  return run.status === "running" && !tracked.has(run.id);
+  if (run.status !== "running" || tracked.has(run.id)) return false;
+  // claimQueuedRun marks a legacy run running and writes a 60 s controller
+  // lease in the same UPDATE, but executeRun adds it to the in-memory live set
+  // only after its prologue (P1, SCAA-5220 2026-10-15: a continuation wake in
+  // that window queued a duplicate run). An unexpired lease means a controller
+  // owns the run; after a restart the lease lapses within 60 s.
+  if (run.runtimeMode !== "native" && run.controllerLeaseExpiresAt) {
+    const leaseExpiresAt = new Date(run.controllerLeaseExpiresAt).getTime();
+    if (Number.isFinite(leaseExpiresAt) && leaseExpiresAt > now) return false;
+  }
+  return true;
 }
 
 /**
@@ -28275,6 +28291,8 @@ export function heartbeatService(
                   id: activeExecutionRun.id,
                   agentId: activeExecutionRun.agentId,
                   status: activeExecutionRun.status,
+                  runtimeMode: activeExecutionRun.runtimeMode,
+                  controllerLeaseExpiresAt: activeExecutionRun.controllerLeaseExpiresAt,
                   contextSnapshot: activeExecutionRun.contextSnapshot,
                   wakeupRequestId: activeExecutionRun.wakeupRequestId,
                 },
