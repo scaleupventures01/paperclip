@@ -16966,6 +16966,7 @@ export function heartbeatService(
       maxConcurrentRuns: normalizeMaxConcurrentRuns(
         heartbeat.maxConcurrentRuns,
       ),
+      parallelRunsPerRepo: asBoolean(heartbeat.parallelRunsPerRepo, false),
       skipTimerWhenNoActionableWork: asBoolean(
         heartbeat.skipTimerWhenNoActionableWork ??
           heartbeat.requireActionableTimerWork ??
@@ -20457,16 +20458,32 @@ export function heartbeatService(
       const busyPods = new Set(
         runningRuns.map(podForRun).filter((pod): pod is string => Boolean(pod)),
       );
+      // AgentOS: agents whose runtime_config sets heartbeat.parallelRunsPerRepo (QA, which
+      // does not write and starts its app on its own port per run) skip the per-repo hold
+      // and may run several cards of one repo at once (Calvin 2026-10-16, Akili 8bdca992,
+      // agentos#732). The repo hold was also what kept a card to one running run, and
+      // claimQueuedRun has no general per-card gate, so the opted-in path keeps a per-card
+      // (issueId) busy set instead. maxConcurrentRuns still caps the total via availableSlots.
+      const parallelRunsPerRepo = policy.parallelRunsPerRepo;
+      const busyIssueIds = new Set(
+        runningRuns.map(runIssueId).filter((issueId): issueId is string => Boolean(issueId)),
+      );
 
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
       for (const queuedRun of prioritizedRuns) {
         if (claimedRuns.length >= availableSlots) break;
         const pod = podForRun(queuedRun);
-        if (pod && busyPods.has(pod)) continue;
+        const issueId = runIssueId(queuedRun);
+        if (parallelRunsPerRepo) {
+          if (issueId && busyIssueIds.has(issueId)) continue;
+        } else if (pod && busyPods.has(pod)) {
+          continue;
+        }
         const claimed = await claimQueuedRun(queuedRun, companyAgents);
         if (claimed) {
           claimedRuns.push(claimed);
           if (pod) busyPods.add(pod);
+          if (issueId) busyIssueIds.add(issueId);
         }
       }
       if (claimedRuns.length === 0) return [];
