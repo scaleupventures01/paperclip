@@ -8,9 +8,11 @@
  * comparison key differs from the key of the same agent's previous comment on
  * the same issue. The key is (see commentProgressKey):
  *   - plain text: the first line, whitespace-normalised;
- *   - structured body (trimmed body starts with "{" or "["): the whole body
- *     with whitespace runs collapsed, because a JSON receipt's first line is
- *     just a brace and says nothing about its content.
+ *   - structured body (trimmed body starts with "{" or "["): the parsed JSON
+ *     with keys sorted and long prose strings masked (see
+ *     structuredProgressValue), because a JSON receipt's first line is just a
+ *     brace and its prose fields are reworded run to run; a body that does not
+ *     parse falls back to the whole body with whitespace runs collapsed.
  * A comment with no previous comment from that agent is new by definition.
  *
  * Bounded history: callers read AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT rows
@@ -58,9 +60,45 @@ export function normalizeCommentFirstLine(body: string | null | undefined): stri
 export function commentProgressKey(body: string | null | undefined): string {
   const trimmed = (body ?? "").trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return trimmed.replace(/\s+/g, " ");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return trimmed.replace(/\s+/g, " ");
+    }
+    return JSON.stringify(structuredProgressValue(parsed));
   }
   return normalizeCommentFirstLine(body);
+}
+
+/**
+ * A string value at least this long that contains whitespace is prose, not an
+ * identifier, and is masked in a structured key.
+ */
+export const STRUCTURED_PROSE_MIN_LENGTH = 40;
+
+/**
+ * P5 (SCAA-5267, 2026-10-16): a release agent posted the same released:false
+ * receipt every run with its explanation reworded, so a whole-body key counted
+ * each one as new progress and the loop never backed off. The structured key
+ * keeps object keys (sorted), numbers, booleans, nulls, array order and short
+ * or whitespace-free strings (ids, paths, commits, short decisions), and masks
+ * long prose strings.
+ */
+function structuredProgressValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(structuredProgressValue);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record).sort().map((key) => [key, structuredProgressValue(record[key])]),
+    );
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text.length >= STRUCTURED_PROSE_MIN_LENGTH && /\s/.test(text)) return "<prose>";
+    return text.replace(/\s+/g, " ");
+  }
+  return value;
 }
 
 /**

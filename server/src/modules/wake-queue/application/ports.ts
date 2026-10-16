@@ -316,6 +316,9 @@ export type WakeAdmissionActiveExecutionRun = {
   status: string;
   contextSnapshot: unknown;
   wakeupRequestId?: string | null;
+  /** A live legacy controller lease keeps a just-claimed run from reading as a zombie. */
+  runtimeMode?: string | null;
+  controllerLeaseExpiresAt?: Date | string | null;
 };
 
 /** Already authorized by the heartbeat admission transaction; identity, not a grant. */
