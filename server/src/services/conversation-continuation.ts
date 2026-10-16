@@ -15,6 +15,9 @@ export function isConversationAdapter(adapterType: string): boolean {
 
 export const CONVERSATION_CONTINUATION_POLICY = "continue_conversation_v1";
 
+/** Resolution note written when recovery folds an obsolete conversation hold. */
+export const CONVERSATION_HOLD_FOLD_NOTE = "Conversation continuation does not replay prior tool calls.";
+
 export function hasConversationContinuationPolicy(result: Record<string, unknown> | null | undefined): boolean {
   return result?.conversationContinuation === CONVERSATION_CONTINUATION_POLICY;
 }

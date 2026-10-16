@@ -1,5 +1,5 @@
 import { normalizeMaxTurnStopReason } from "./heartbeat-stop-metadata.js";
-import { hasConversationContinuationPolicy } from "./conversation-continuation.js";
+import { CONVERSATION_HOLD_FOLD_NOTE, hasConversationContinuationPolicy } from "./conversation-continuation.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { heartbeatRuns, issueRecoveryActions, issues, type Db } from "@paperclipai/db";
@@ -90,7 +90,8 @@ export async function terminalizeLegacyExecution(input: {
           eq(issueRecoveryActions.cause, LEGACY_RECOVERY_CAUSE),
           eq(issueRecoveryActions.status, "resolved"),
           sql`${issueRecoveryActions.evidence}->>'runId' = ${run.id}`,
-          sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'conversation_continuation'`,
+          eq(issueRecoveryActions.outcome, "cancelled"),
+          eq(issueRecoveryActions.resolutionNote, CONVERSATION_HOLD_FOLD_NOTE),
         )).limit(1);
       if (folded) return null;
     }
