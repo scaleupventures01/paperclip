@@ -19788,6 +19788,48 @@ export function heartbeatService(
     return run;
   }
 
+  // P6 (2026-10-15 21:50 ET, live: 83 parked wakes on done or cancelled
+  // cards). The stranded-queue sweep below selects only wakes owned by the
+  // card's assignee that carry comment ids or an interaction, so a parked wake
+  // owned by another agent (a handoff or reassignment) or carrying no comment
+  // ids was never revisited and never settled. A done or cancelled card with
+  // no execution run cannot use any of them: settle them with the drain's own
+  // terminal-task reason, under the same rule as the sweep's settle (the
+  // wake's agent has no live run there and its latest run there finished
+  // outside the grace window).
+  async function settleParkedWakesOnTerminalCards(cutoff: Date | null) {
+    const graceStart = new Date(Date.now() - TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS);
+    const parked = await db.select({ wake: agentWakeupRequests })
+      .from(agentWakeupRequests)
+      .innerJoin(issues, and(eq(issues.companyId, agentWakeupRequests.companyId),
+        sql`${issues.id}::text = ${agentWakeupRequests.payload}->>'issueId'`))
+      .innerJoin(companies, and(eq(companies.id, issues.companyId), eq(companies.status, "active")))
+      .where(and(eq(agentWakeupRequests.status, "deferred_issue_execution"),
+        inArray(issues.status, ["done", "cancelled"]),
+        isNull(issues.executionRunId),
+        sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`,
+        lte(agentWakeupRequests.updatedAt, graceStart),
+        cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
+      .orderBy(asc(agentWakeupRequests.updatedAt)).limit(200);
+    for (const { wake } of parked) {
+      const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
+        eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
+        sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
+      )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
+      if (ownLatest && !(isHeartbeatRunTerminalStatus(ownLatest.status) &&
+          (ownLatest.finishedAt ?? ownLatest.updatedAt).getTime() <= graceStart.getTime())) continue;
+      const settledAt = new Date();
+      await db.update(agentWakeupRequests).set({
+        status: "cancelled",
+        finishedAt: settledAt,
+        error: "Deferred execution wake no longer applies to a terminal task",
+        updatedAt: settledAt,
+      }).where(and(
+        eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
+      ));
+    }
+  }
+
   async function resumeQueuedRuns() {
     if ((await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
@@ -19808,6 +19850,7 @@ export function heartbeatService(
         logger.warn({ err, queueId: wake.id }, "failed to resume interrupted comment queue");
       });
     }
+    await settleParkedWakesOnTerminalCards(cutoff);
     // A server restart or a message/cleanup race can leave a deferred wake
     // after its owner has released the issue lock. Revisit it through the same
     // release admission, so recovery holds and operator Stops still apply.
@@ -19827,8 +19870,6 @@ export function heartbeatService(
         cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
       .orderBy(asc(agentWakeupRequests.updatedAt)).limit(50);
     for (const { wake, issueStatus } of strandedQueues) {
-      if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
-          !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
       const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
         eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
         sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
@@ -19859,6 +19900,11 @@ export function heartbeatService(
         ));
         continue;
       }
+      // P6: this skip used to run before the terminal settle above, so an
+      // interaction wake with no readable response on a done or cancelled card
+      // stayed parked for good.
+      if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
+          !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
       // A new owner that has never run on the card has no run of its own to
       // release. When another agent handed the card over from inside its own
       // run, that cancelled run is the one holding this wake: release it
