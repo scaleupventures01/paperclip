@@ -19797,7 +19797,9 @@ export function heartbeatService(
   // terminal-task reason, under the same rule as the sweep's settle (the
   // wake's agent has no live run there and its latest run there finished
   // outside the grace window).
-  async function settleParkedWakesOnTerminalCards(cutoff: Date | null) {
+  async function settleParkedWakesOnTerminalCards(
+    cutoff: Awaited<ReturnType<typeof getWorktreeExecutionCutoff>>,
+  ) {
     const graceStart = new Date(Date.now() - TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS);
     const parked = await db.select({ wake: agentWakeupRequests })
       .from(agentWakeupRequests)
