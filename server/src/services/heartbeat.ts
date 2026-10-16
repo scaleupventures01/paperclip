@@ -1221,10 +1221,10 @@ function isApiRefusalRun(
 }
 
 // A provider answering HTTP 500, 502, 503 or 504 (codex prints "unexpected
-// status 502 Bad Gateway: <html>...nginx...") is an upstream outage, not a
-// fault in the agent or its configuration. Live 2026-10-16 08:03 to 08:51 ET:
-// 17 GLM runs failed this way while 92 succeeded, and five agents sat in
-// `error` until cleared by hand. Matched on the adapter's error message only,
+// status 502 Bad Gateway: <html>...</html>, url: ...") is an upstream outage,
+// not a fault in the agent or its configuration. Live 2026-10-16 08:03 to
+// 08:51 ET: 17 GLM runs failed this way and five agents sat in `error` until
+// cleared by hand. Matched on the adapter's error message only,
 // never on stdout, so agent output that quotes a 502 does not count. 429 is
 // left to its existing rate-limit handling.
 const PROVIDER_HTTP_5XX_ERROR_CODE = "provider_http_5xx";
