@@ -1244,7 +1244,13 @@ describeEmbeddedPostgres("issue recovery actions", () => {
 
     expect(result).toMatchObject({ escalated: 1, skipped: 0 });
     const [updatedIssue] = await db.select().from(issues).where(eq(issues.id, sourceIssueId));
-    expect(updatedIssue?.status).toBe("blocked");
+    expect(updatedIssue).toMatchObject({
+      status: "blocked",
+      unblockDescriptor: {
+        owner: "board",
+        action: expect.stringContaining("Board operator:"),
+      },
+    });
     const [updatedRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
     expect(updatedRun?.errorCode).toBe("configuration_incomplete");
     const [action] = await db.select().from(issueRecoveryActions);
@@ -1476,7 +1482,13 @@ describeEmbeddedPostgres("issue recovery actions", () => {
     });
 
     const [afterFirst] = await db.select().from(issues).where(eq(issues.id, sourceIssue.id));
-    expect(afterFirst?.status).toBe("blocked");
+    expect(afterFirst).toMatchObject({
+      status: "blocked",
+      unblockDescriptor: {
+        owner: "board",
+        action: expect.stringContaining("Board operator:"),
+      },
+    });
     expect(afterFirst?.assigneeAgentId).toBe(coderId);
 
     const secondLatestRun = {

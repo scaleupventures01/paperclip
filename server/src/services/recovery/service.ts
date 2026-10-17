@@ -3957,6 +3957,18 @@ export function recoveryService(
     const updated = await issuesSvc.update(input.issue.id, {
       status: "blocked",
       blockedByIssueIds: blockerIds,
+      ...(isProviderQuotaWait
+        ? {}
+        : {
+            unblockDescriptor: {
+              owner: recoveryAction.ownerAgentId
+                ? { agentId: recoveryAction.ownerAgentId }
+                : recoveryAction.ownerUserId
+                  ? { userId: recoveryAction.ownerUserId }
+                  : ("board" as const),
+              action: recoveryAction.nextAction,
+            },
+          }),
     });
     if (!updated) return null;
     if (isProviderQuotaWait) return updated;
