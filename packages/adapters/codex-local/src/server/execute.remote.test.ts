@@ -565,8 +565,28 @@ describe("codex remote execution", () => {
     await mkdir(workspaceDir, { recursive: true });
     await mkdir(codexHomeDir, { recursive: true });
     await writeFile(path.join(codexHomeDir, "auth.json"), "{}", "utf8");
+    const logs: string[] = [];
+    runChildProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "",
+      stderr: "",
+      pid: 123,
+      startedAt: new Date().toISOString(),
+    });
+    (runSshCommand as unknown as {
+      mockImplementation: (
+        implementation: (_spec: unknown, command: string) => Promise<{ stdout: string; stderr: string }>,
+      ) => void;
+    }).mockImplementation(async (_spec: unknown, command: string) => ({
+      stdout: command.includes("__PAPERCLIP_REMOTE_FILE_MISSING_V1__")
+        ? "__PAPERCLIP_REMOTE_FILE_MISSING_V1__"
+        : "",
+      stderr: "",
+    }));
 
-    await execute({
+    const result = await execute({
       runId: "run-in-place",
       agent: {
         id: "agent-1",
@@ -604,9 +624,14 @@ describe("codex remote execution", () => {
           strictHostKeyChecking: true,
         },
       },
-      onLog: async () => {},
+      onLog: async (_stream, chunk) => {
+        logs.push(chunk);
+      },
     });
 
+    expect(result.exitCode).toBe(0);
+    expect(result.errorMessage).toBeNull();
+    expect(logs.join("\n")).toContain("no sandbox credential to copy back");
     expect(prepareWorkspaceForSshExecution).not.toHaveBeenCalled();
     expect(syncDirectoryToSsh).toHaveBeenCalledTimes(1);
     expect(restoreWorkspaceFromSshExecution).not.toHaveBeenCalled();

@@ -89,13 +89,82 @@ describe("remote managed runtime", () => {
     expect(restoreWorkspaceFromSshExecution).not.toHaveBeenCalled();
     expect(runSshCommand).toHaveBeenCalledWith(
       expect.anything(),
-      "base64 < '/app/.paperclip-runtime/runs/run-in-place/codex/home/auth.json'",
+      "if [ ! -e '/app/.paperclip-runtime/runs/run-in-place/codex/home/auth.json' ] && " +
+        "[ ! -L '/app/.paperclip-runtime/runs/run-in-place/codex/home/auth.json' ] && " +
+        "[ -d '/app/.paperclip-runtime/runs/run-in-place/codex/home' ] && " +
+        "[ -x '/app/.paperclip-runtime/runs/run-in-place/codex/home' ]; then " +
+        "printf %s '__PAPERCLIP_REMOTE_FILE_MISSING_V1__'; else " +
+        "base64 < '/app/.paperclip-runtime/runs/run-in-place/codex/home/auth.json'; fi",
       { maxBuffer: 1024 * 1024 },
     );
     expect(restoredAuth).toBe('{"token":"remote"}\n');
     expect(runSshCommand).toHaveBeenCalledWith(
       expect.anything(),
       "rm -rf -- '/app/.paperclip-runtime/runs/run-in-place/codex'",
+      { maxBuffer: 1024 * 1024 },
+    );
+  });
+
+  it("reports a confirmed absent remote asset file as ENOENT and still cleans up", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-remote-runtime-missing-file-"));
+    cleanupDirs.push(rootDir);
+    const workspaceDir = path.join(rootDir, "workspace");
+    const homeDir = path.join(rootDir, "home");
+    await mkdir(workspaceDir, { recursive: true });
+    await mkdir(homeDir, { recursive: true });
+    runSshCommand
+      .mockResolvedValueOnce({ stdout: "__PAPERCLIP_REMOTE_FILE_MISSING_V1__", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
+
+    const prepared = await prepareRemoteManagedRuntime({
+      spec: { host: "127.0.0.1", port: 2222, username: "fixture", remoteWorkspacePath: "/app", remoteCwd: "/app", privateKey: "PRIVATE KEY", knownHosts: "KNOWN HOSTS", strictHostKeyChecking: true },
+      runId: "run-missing-file", adapterKey: "codex", workspaceLocalDir: workspaceDir,
+      workspaceRemoteDir: "/app", syncWorkspace: false,
+      assets: [{
+        key: "home",
+        localDir: homeDir,
+        restore: async ({ assetDir, readFile }) => {
+          await expect(readFile(path.posix.join(assetDir, "auth.json"))).rejects.toMatchObject({ code: "ENOENT" });
+        },
+      }],
+    });
+
+    await expect(prepared.restoreWorkspace()).resolves.toBeUndefined();
+    expect(runSshCommand).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "rm -rf -- '/app/.paperclip-runtime/runs/run-missing-file/codex'",
+      { maxBuffer: 1024 * 1024 },
+    );
+  });
+
+  it("keeps non-absence remote read failures fatal", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-remote-runtime-read-failure-"));
+    cleanupDirs.push(rootDir);
+    const workspaceDir = path.join(rootDir, "workspace");
+    const homeDir = path.join(rootDir, "home");
+    await mkdir(workspaceDir, { recursive: true });
+    await mkdir(homeDir, { recursive: true });
+    runSshCommand.mockRejectedValueOnce(Object.assign(new Error("remote read denied"), {
+      code: 1,
+      stderr: "Permission denied",
+    }));
+    const prepared = await prepareRemoteManagedRuntime({
+      spec: { host: "127.0.0.1", port: 2222, username: "fixture", remoteWorkspacePath: "/app", remoteCwd: "/app", privateKey: "PRIVATE KEY", knownHosts: "KNOWN HOSTS", strictHostKeyChecking: true },
+      runId: "run-read-failure", adapterKey: "codex", workspaceLocalDir: workspaceDir,
+      workspaceRemoteDir: "/app", syncWorkspace: false,
+      assets: [{
+        key: "home",
+        localDir: homeDir,
+        restore: async ({ assetDir, readFile }) => {
+          await readFile(path.posix.join(assetDir, "auth.json"));
+        },
+      }],
+    });
+
+    await expect(prepared.restoreWorkspace()).rejects.toThrow("remote read denied");
+    expect(runSshCommand).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "rm -rf -- '/app/.paperclip-runtime/runs/run-read-failure/codex'",
       { maxBuffer: 1024 * 1024 },
     );
   });
