@@ -198,6 +198,7 @@ export {
   type ActivityPublication,
   type LogActivityInput,
 } from "./activity-log.js";
+export { g6CertificationReservationService } from "./g6-certification-reservations.js";
 export { summarySlotService, SUMMARIZER_BUILT_IN_KEY } from "./summary-slots.js";
 export { notifyHireApproved, type NotifyHireApprovedInput } from "./hire-hook.js";
 export { publishLiveEvent, subscribeCompanyLiveEvents } from "./live-events.js";

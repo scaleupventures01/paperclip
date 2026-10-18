@@ -243,6 +243,24 @@ export const wakeAgentSchema = z.object({
 
 export type WakeAgent = z.infer<typeof wakeAgentSchema>;
 
+export const createG6CertificationReservationSchema = z.object({
+  expectedIssueIds: z.array(z.string().uuid()).min(1).max(32)
+    .refine((ids) => new Set(ids).size === ids.length, "Expected issue IDs must be unique"),
+  expiresAt: z.string().datetime({ offset: true }),
+}).strict();
+
+export type CreateG6CertificationReservation = z.infer<
+  typeof createG6CertificationReservationSchema
+>;
+
+export const closeG6CertificationReservationSchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+}).strict();
+
+export type CloseG6CertificationReservation = z.infer<
+  typeof closeG6CertificationReservationSchema
+>;
+
 export const agentLifecycleActionSchema = z.object({
   repository: z.string().trim().min(1),
   approvedStage: z.string().trim().min(1),

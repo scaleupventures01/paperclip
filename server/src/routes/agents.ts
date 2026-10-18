@@ -43,6 +43,8 @@ import {
   updateAgentPermissionsSchema,
   updateAgentInstructionsPathSchema,
   wakeAgentSchema,
+  createG6CertificationReservationSchema,
+  closeG6CertificationReservationSchema,
   updateAgentSchema,
   supportedEnvironmentDriversForAdapter,
   LOW_TRUST_REVIEW_PRESET,
@@ -74,6 +76,7 @@ import {
   companySkillService,
   budgetService,
   heartbeatService,
+  g6CertificationReservationService,
   ISSUE_LIST_DEFAULT_LIMIT,
   issueApprovalService,
   issueRecoveryActionService,
@@ -532,6 +535,7 @@ export function agentRoutes(
   const access = accessService(db);
   const approvalsSvc = approvalService(db);
   const budgets = budgetService(db);
+  const g6Reservations = g6CertificationReservationService(db);
   const environmentsSvc = environmentService(db);
   const environmentRuntime = environmentRuntimeService(db, {
     pluginWorkerManager: options.pluginWorkerManager,
@@ -4588,6 +4592,81 @@ export function agentRoutes(
     const state = await heartbeat.getRuntimeState(id);
     res.json(state);
   });
+
+  router.post(
+    "/agents/:id/g6-certification-reservations",
+    validate(createG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      const reservation = await g6Reservations.create({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        expectedIssueIds: req.body.expectedIssueIds,
+        expiresAt: new Date(req.body.expiresAt),
+        actor: { userId: req.actor.userId ?? "board" },
+      });
+      res.status(201).json(reservation);
+    },
+  );
+
+  router.get("/agents/:id/g6-certification-reservations/active", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+    if (!agent) return;
+    await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+    const reservation = await g6Reservations.get(agent.companyId, agent.id);
+    if (!reservation) {
+      res.status(404).json({ error: "Active G6 certification reservation not found" });
+      return;
+    }
+    res.json(reservation);
+  });
+
+  router.post(
+    "/agents/:id/g6-certification-reservations/:reservationId/verify-and-release",
+    validate(closeG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      res.json(await g6Reservations.verifyAndRelease({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        reservationId: req.params.reservationId as string,
+        actor: { userId: req.actor.userId ?? "board" },
+        reason: req.body.reason,
+      }));
+    },
+  );
+
+  router.post(
+    "/agents/:id/g6-certification-reservations/:reservationId/abort",
+    validate(closeG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      const reservation = await g6Reservations.abort({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        reservationId: req.params.reservationId as string,
+        actor: { userId: req.actor.userId ?? "board" },
+        reason: req.body.reason,
+      });
+      await heartbeat.cancelActiveForAgent(id);
+      await g6Reservations.markContainmentCompleted(id);
+      res.json(reservation);
+    },
+  );
 
   router.get("/agents/:id/task-sessions", async (req, res) => {
     assertBoard(req);

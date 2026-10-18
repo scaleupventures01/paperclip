@@ -1048,6 +1048,10 @@ Invites tab does not hide this Cloud action.
 - `POST /agents/:agentId/terminate`
 - `POST /agents/:agentId/keys` (create API key)
 - `POST /agents/:agentId/heartbeat/invoke`
+- `POST /agents/:agentId/g6-certification-reservations`
+- `GET /agents/:agentId/g6-certification-reservations/active`
+- `POST /agents/:agentId/g6-certification-reservations/:reservationId/verify-and-release`
+- `POST /agents/:agentId/g6-certification-reservations/:reservationId/abort`
 
 Board callers may use pause/resume without a body. Agent-manager callers must
 send the scoped lifecycle envelope:
@@ -1063,6 +1067,20 @@ send the scoped lifecycle envelope:
 The server enforces the caller's `agents:lifecycle` grant and direct-report/task
 binding. A scoped resume also wakes that task; a scoped pause cancels the target
 agent's active run.
+
+G6 certification reservations are board-only, company-scoped admission fences
+for an exact set of issue UUIDs. Creation is one transaction: it serializes
+actionable demand for the agent, requires a current board-authenticated manual
+pause, heartbeat concurrency preset 1, zero queued/running/scheduled runs, and
+an exact match between current actionable demand and the requested IDs; it then
+stores the prior runtime configuration and activates exactly that concurrency.
+While active, both heartbeat enqueue and queued-run claim defer non-member work,
+and each member can bind only one admitted run. The fence survives terminal runs
+and drain until the board explicitly verifies exactly one succeeded run per
+member and releases it. Abort and expiry restore the prior runtime configuration
+and pause the agent; the heartbeat scheduler sweeps due reservations even while
+normal run scheduling is suppressed, and expiry never auto-resumes. Every
+mutation is activity logged.
 
 ## 10.4 Tasks (Issues)
 
