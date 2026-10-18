@@ -82,10 +82,25 @@ function isSimplePathSegment(value: string): boolean {
   return value.length > 0 && value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\");
 }
 
+const REMOTE_FILE_MISSING_MARKER = "__PAPERCLIP_REMOTE_FILE_MISSING_V1__";
+
 async function readRemoteFile(spec: SshRemoteExecutionSpec, remotePath: string): Promise<Buffer> {
-  const result = await runSshCommand(spec, `base64 < ${shellQuote(remotePath)}`, {
-    maxBuffer: 1024 * 1024,
-  });
+  const quotedPath = shellQuote(remotePath);
+  const quotedParent = shellQuote(path.posix.dirname(remotePath));
+  const result = await runSshCommand(
+    spec,
+    `if [ ! -e ${quotedPath} ] && [ ! -L ${quotedPath} ] && ` +
+      `[ -d ${quotedParent} ] && [ -x ${quotedParent} ]; then ` +
+      `printf %s ${shellQuote(REMOTE_FILE_MISSING_MARKER)}; else base64 < ${quotedPath}; fi`,
+    {
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  if (result.stdout === REMOTE_FILE_MISSING_MARKER) {
+    const error = new Error(`Remote file does not exist: ${remotePath}`) as NodeJS.ErrnoException;
+    error.code = "ENOENT";
+    throw error;
+  }
   return Buffer.from(result.stdout.replace(/\s+/g, ""), "base64");
 }
 
