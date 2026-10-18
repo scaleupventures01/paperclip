@@ -1057,6 +1057,50 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     }
   });
 
+  it("releases orphaned SSH bookkeeping only through the recorded SSH cleanup path", async () => {
+    const { companyId, environment, runId } = await seedEnvironment({
+      driver: "ssh",
+      name: "Recorded SSH",
+      config: {
+        host: "ssh.example.test",
+        port: 22,
+        username: "ssh-user",
+        remoteWorkspacePath: "/srv/paperclip/workspace",
+        privateKey: null,
+        knownHosts: null,
+        strictHostKeyChecking: true,
+      },
+    });
+    const leaseId = randomUUID();
+    const now = new Date();
+    await db.insert(environmentLeases).values({
+      id: leaseId,
+      companyId,
+      environmentId: environment.id,
+      heartbeatRunId: runId,
+      status: "pending_cleanup",
+      leasePolicy: "ephemeral",
+      provider: "ssh",
+      providerLeaseId: "ssh://ssh-user@ssh.example.test:22/srv/paperclip/workspace",
+      cleanupStatus: "failed",
+      metadata: { driver: "ssh" },
+      acquiredAt: now,
+      lastUsedAt: now,
+      releasedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const lease = await environmentService(db).getLeaseById(leaseId);
+    expect(lease).not.toBeNull();
+
+    await expect(runtime.retryPendingSandboxTeardown({ environment, lease: lease! })).resolves.toBeUndefined();
+
+    await expect(runtime.retryPendingSandboxTeardown({
+      environment,
+      lease: { ...lease!, provider: "sandbox", providerLeaseId: "sandbox://must-not-release" },
+    })).rejects.toThrow("SSH lease cleanup cannot release a non-SSH provider resource.");
+  });
+
   it("acquires and releases a fake sandbox run lease through the runtime seam", async () => {
     const { companyId, environment, runId } = await seedEnvironment({
       driver: "sandbox",

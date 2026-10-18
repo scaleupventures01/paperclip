@@ -1209,6 +1209,18 @@ function createSshEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
       return await environmentsSvc.releaseLease(input.lease.id, input.status);
     },
 
+    async retryPendingSandboxTeardown({ lease }) {
+      // A controller restart can strand an SSH bookkeeping lease after the
+      // remote process is already gone. SSH environments do not provision a
+      // provider sandbox, so there is no remote resource to destroy here; the
+      // heartbeat recovery path separately proves process ownership before it
+      // admits another run. Keep the provider check strict so an actual sandbox
+      // can never be mistaken for an SSH no-op cleanup.
+      if (lease.provider !== "ssh" || !lease.providerLeaseId?.startsWith("ssh://")) {
+        throw new Error("SSH lease cleanup cannot release a non-SSH provider resource.");
+      }
+    },
+
     async realizeWorkspace(input) {
       const record = buildWorkspaceRealizationRecordFromDriverInput({
         environment: input.environment,
