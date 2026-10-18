@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -49,6 +49,7 @@ import type {
 } from "@paperclipai/shared";
 import { badRequest } from "../errors.js";
 import { listAttentionExhaustedRuns } from "./attention-exhausted-runs.js";
+import { listAttentionNewerRunKeys } from "./attention-newer-runs.js";
 import { budgetService } from "./budgets.js";
 import {
   BLOCKER_ATTENTION_MAX_DEPTH,
@@ -1676,21 +1677,22 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         ),
         issueImageMap(db, companyId, failedIssueIds),
         oldestFailedRunCreatedAt && failedAgentIds.length > 0
-          ? db
-            .select({
-              agentId: heartbeatRuns.agentId,
-              createdAt: heartbeatRuns.createdAt,
-              // Project just the ids readRunIssueId needs; pulling the whole
-              // context_snapshot detoasts megabytes per feed build.
-              runIssueId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`,
-              runTaskId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'taskId'`,
-            })
-            .from(heartbeatRuns)
-            .where(and(
-              eq(heartbeatRuns.companyId, companyId),
-              inArray(heartbeatRuns.agentId, failedAgentIds),
-              gt(heartbeatRuns.createdAt, oldestFailedRunCreatedAt),
-            ))
+          ? listAttentionNewerRunKeys(db, {
+            companyId,
+            agentIds: failedAgentIds,
+            issueIds: [...new Set(failedIssueIds.filter((issueId): issueId is string => issueId !== null))],
+            taskIds: [...new Set(failedRows.map((row) => {
+              const taskId = row.contextSnapshot?.taskId;
+              return typeof taskId === "string" && taskId.length > 0 ? taskId : null;
+            }).filter((taskId): taskId is string => taskId !== null))],
+            hasEmptyRunKey: failedRows.some((row) => {
+              const issueId = row.contextSnapshot?.issueId;
+              const taskId = row.contextSnapshot?.taskId;
+              return !((typeof issueId === "string" && issueId.length > 0) ||
+                (typeof taskId === "string" && taskId.length > 0));
+            }),
+            oldestRunCreatedAt: oldestFailedRunCreatedAt,
+          })
           : Promise.resolve([]),
       ]);
       const latestRunCreatedAtByKey = new Map<string, Date>();
