@@ -3113,6 +3113,8 @@ export const ISSUE_LIST_SERVER_CACHE_MAX_ENTRIES = 256;
 const ISSUE_LIST_STORM_WINDOW_MS = 500;
 const ISSUE_LIST_STORM_THRESHOLD = 4;
 const ISSUE_LIST_MAX_ACTOR_CLIENT_INFLIGHT = 8;
+const ISSUE_LIST_MAX_ACTOR_CLIENT_QUEUED = 8;
+const ISSUE_LIST_ACTOR_CLIENT_QUEUE_TIMEOUT_MS = 1_000;
 
 type IssueListPreparedResponse =
   | {
@@ -3164,9 +3166,26 @@ type IssueListInflightEntry = {
   stormLogged: boolean;
 };
 
+class IssueListQueueTimeoutError extends Error {}
+
+type IssueListQueuedEntry = {
+  key: string;
+  promise: Promise<IssueListPreparedResponse>;
+  admission: Promise<boolean>;
+  startedAt: number;
+  waiterCount: number;
+  stormLogged: boolean;
+  resolveAdmission: (admitted: boolean) => void;
+  resolveResponse: (response: IssueListPreparedResponse) => void;
+  rejectResponse: (error: unknown) => void;
+  cancelTimeout: () => void;
+};
+
 const issueListResponseCache = new Map<string, IssueListCacheEntry>();
 const issueListInflight = new Map<string, IssueListInflightEntry>();
+const issueListQueued = new Map<string, IssueListQueuedEntry>();
 const issueListActorClientInflight = new Map<string, number>();
+const issueListActorClientQueue = new Map<string, IssueListQueuedEntry[]>();
 
 export function __getIssueListResponseCacheSizeForTests() {
   return issueListResponseCache.size;
@@ -3338,6 +3357,25 @@ function decrementIssueListActorClientInflight(actorClientKey: string) {
   else issueListActorClientInflight.set(actorClientKey, next);
 }
 
+function startNextQueuedIssueList(actorClientKey: string) {
+  const queue = issueListActorClientQueue.get(actorClientKey);
+  while (queue?.length) {
+    const entry = queue.shift();
+    if (!entry || issueListQueued.get(entry.key) !== entry) continue;
+
+    entry.cancelTimeout();
+    issueListQueued.delete(entry.key);
+    issueListActorClientInflight.set(
+      actorClientKey,
+      (issueListActorClientInflight.get(actorClientKey) ?? 0) + 1,
+    );
+    entry.resolveAdmission(true);
+    return;
+  }
+
+  if (queue?.length === 0) issueListActorClientQueue.delete(actorClientKey);
+}
+
 async function coordinateIssueListGet(input: {
   req: Request;
   companyId: string;
@@ -3397,9 +3435,53 @@ async function coordinateIssueListGet(input: {
     return { response, cacheStatus: "coalesced", identicalInFlightCount };
   }
 
+  const queuedEntry = issueListQueued.get(input.requestKey.key);
+  if (queuedEntry) {
+    queuedEntry.waiterCount += 1;
+    const identicalInFlightCount = queuedEntry.waiterCount + 1;
+    if (
+      !queuedEntry.stormLogged &&
+      identicalInFlightCount >= ISSUE_LIST_STORM_THRESHOLD &&
+      now - queuedEntry.startedAt <= ISSUE_LIST_STORM_WINDOW_MS
+    ) {
+      queuedEntry.stormLogged = true;
+      const event: IssueListStormEvent = {
+        event: "request_storm_detected",
+        route: input.requestKey.route,
+        companyId: input.companyId,
+        actorType: input.requestKey.actor.actorType,
+        actorIdentityHash: input.requestKey.actor.hash,
+        clientHash: input.requestKey.client.hash,
+        cacheKeyHash: input.requestKey.keyHash,
+        queryKeys: input.requestKey.queryKeys,
+        identicalInFlightCount,
+        windowMs: now - queuedEntry.startedAt,
+        referer: safeRefererPath(input.req),
+        visibilityHint: input.req.header("x-paperclip-tab-visible") ?? null,
+      };
+      logger.warn(event, "request_storm_detected");
+      input.diagnostics?.onStormDetected?.(event);
+    }
+    try {
+      const response = await queuedEntry.promise;
+      return { response, cacheStatus: "coalesced", identicalInFlightCount };
+    } catch (error) {
+      if (error instanceof IssueListQueueTimeoutError) {
+        return {
+          response: null,
+          cacheStatus: "retry",
+          identicalInFlightCount,
+          retryAfterSeconds: 1,
+        };
+      }
+      throw error;
+    }
+  }
+
   const actorClientKey = `${input.requestKey.actor.key}:${input.requestKey.client.key}`;
   const actorClientInflight =
     issueListActorClientInflight.get(actorClientKey) ?? 0;
+  let queuedEntryForCompute: IssueListQueuedEntry | undefined;
   if (actorClientInflight >= ISSUE_LIST_MAX_ACTOR_CLIENT_INFLIGHT) {
     if (cached && cached.staleUntil > now) {
       touchIssueListResponseCacheEntry(input.requestKey.key, cached);
@@ -3409,15 +3491,79 @@ async function coordinateIssueListGet(input: {
         identicalInFlightCount: 0,
       };
     }
-    return {
-      response: null,
-      cacheStatus: "retry",
-      identicalInFlightCount: 0,
-      retryAfterSeconds: 1,
+
+    const queue =
+      issueListActorClientQueue.get(actorClientKey) ??
+      ([] as IssueListQueuedEntry[]);
+    if (queue.length >= ISSUE_LIST_MAX_ACTOR_CLIENT_QUEUED) {
+      return {
+        response: null,
+        cacheStatus: "retry",
+        identicalInFlightCount: 0,
+        retryAfterSeconds: 1,
+      };
+    }
+
+    let resolveResponse!: (response: IssueListPreparedResponse) => void;
+    let rejectResponse!: (error: unknown) => void;
+    const responsePromise = new Promise<IssueListPreparedResponse>(
+      (resolve, reject) => {
+        resolveResponse = resolve;
+        rejectResponse = reject;
+      },
+    );
+    responsePromise.catch(() => {});
+    let resolveAdmission!: (admitted: boolean) => void;
+    const admissionPromise = new Promise<boolean>((resolve) => {
+      resolveAdmission = resolve;
+    });
+    let entry: IssueListQueuedEntry;
+    const timeout = setTimeout(() => {
+      if (issueListQueued.get(input.requestKey.key) === entry) {
+        issueListQueued.delete(input.requestKey.key);
+        issueListActorClientQueue.set(
+          actorClientKey,
+          (issueListActorClientQueue.get(actorClientKey) ?? []).filter(
+            (candidate) => candidate !== entry,
+          ),
+        );
+        rejectResponse(new IssueListQueueTimeoutError());
+      }
+      resolveAdmission(false);
+    }, ISSUE_LIST_ACTOR_CLIENT_QUEUE_TIMEOUT_MS);
+    entry = {
+      key: input.requestKey.key,
+      promise: responsePromise,
+      admission: admissionPromise,
+      startedAt: now,
+      waiterCount: 0,
+      stormLogged: false,
+      resolveAdmission,
+      resolveResponse,
+      rejectResponse,
+      cancelTimeout: () => clearTimeout(timeout),
     };
+    issueListQueued.set(input.requestKey.key, entry);
+    queue.push(entry);
+    issueListActorClientQueue.set(actorClientKey, queue);
+    queuedEntryForCompute = entry;
+  } else {
+    issueListActorClientInflight.set(actorClientKey, actorClientInflight + 1);
   }
 
-  issueListActorClientInflight.set(actorClientKey, actorClientInflight + 1);
+  if (queuedEntryForCompute) {
+    const admitted = await queuedEntryForCompute.admission;
+    if (!admitted) {
+      return {
+        response: null,
+        cacheStatus: "retry",
+        identicalInFlightCount: 0,
+        retryAfterSeconds: 1,
+      };
+    }
+    void queuedEntryForCompute.promise;
+  }
+
   const promise = (async () => {
     await input.diagnostics?.onComputeStart?.({
       companyId: input.companyId,
@@ -3428,13 +3574,13 @@ async function coordinateIssueListGet(input: {
   const inflightEntry: IssueListInflightEntry = {
     promise,
     startedAt: now,
-    waiterCount: 0,
-    stormLogged: false,
+    waiterCount: queuedEntryForCompute?.waiterCount ?? 0,
+    stormLogged: queuedEntryForCompute?.stormLogged ?? false,
   };
   issueListInflight.set(input.requestKey.key, inflightEntry);
-
   try {
     const response = await promise;
+    queuedEntryForCompute?.resolveResponse(response);
     if (input.allowTtlCache) {
       setIssueListResponseCacheEntry(input.requestKey.key, {
         response,
@@ -3443,11 +3589,15 @@ async function coordinateIssueListGet(input: {
       });
     }
     return { response, cacheStatus: "miss", identicalInFlightCount: 1 };
+  } catch (error) {
+    queuedEntryForCompute?.rejectResponse(error);
+    throw error;
   } finally {
     if (issueListInflight.get(input.requestKey.key) === inflightEntry) {
       issueListInflight.delete(input.requestKey.key);
     }
     decrementIssueListActorClientInflight(actorClientKey);
+    startNextQueuedIssueList(actorClientKey);
   }
 }
 

@@ -36,6 +36,7 @@ import {
 import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { admitProviderUsage, resolveUsageProviderKey } from "./provider-usage-breaker.js";
+import { g6CertificationReservationService } from "./g6-certification-reservations.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
@@ -9719,6 +9720,7 @@ export function heartbeatService(
   const secretsSvc = secretService(db);
   const companySkills = companySkillService(db);
   const issuesSvc = issueService(db);
+  const g6Reservations = g6CertificationReservationService(db);
   const treeControlSvc = issueTreeControlService(db);
   const executionWorkspacesSvc = executionWorkspaceService(db);
   const environmentsSvc = environmentService(db);
@@ -17564,6 +17566,16 @@ export function heartbeatService(
       );
       return null;
     }
+    // A reservation is rechecked at claim, after wake admission. This closes
+    // the enqueue/claim window and binds the one allowed run to its exact issue.
+    const g6Claim = await g6Reservations.admitClaim(run);
+    if (!g6Claim.allowed) {
+      await cancelRunInternal(
+        run.id,
+        `Cancelled by G6 certification reservation admission: ${g6Claim.reason}`,
+      );
+      return null;
+    }
     const invokability = companyAgents
       ? evaluateAgentInvokability(toAgentOrgRow(agent), companyAgents)
       : await getAgentInvokability(agent);
@@ -19850,6 +19862,15 @@ export function heartbeatService(
   }
 
   async function resumeQueuedRuns() {
+    const expiration = await g6Reservations.expireDue();
+    for (const agentId of expiration.expiredAgentIds) {
+      await cancelActiveForAgentInternal(
+        agentId,
+        "Cancelled because the G6 certification reservation expired",
+        "g6_certification_reservation_expired",
+      );
+      await g6Reservations.markContainmentCompleted(agentId);
+    }
     if ((await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
     const cutoff = await getWorktreeExecutionCutoff();
@@ -27230,6 +27251,43 @@ export function heartbeatService(
     if (projectId && !readNonEmptyString(enrichedContextSnapshot.projectId)) {
       enrichedContextSnapshot.projectId = projectId;
     }
+    const g6Admission = await g6Reservations.admitWake(
+      agent.companyId,
+      agent.id,
+      issueId ?? null,
+    );
+    if (g6Admission.kind === "deferred" || g6Admission.kind === "expired") {
+      await writeSkippedRequest(
+        g6Admission.kind === "expired"
+          ? "g6_certification.reservation_expired"
+          : "g6_certification.non_reserved_issue_deferred",
+        {
+          status: "deferred_issue_execution",
+          error: g6Admission.kind === "expired"
+            ? "G6 certification reservation expired; operator verification is required"
+            : "Wake deferred while an exact-issue G6 certification reservation is active",
+          payload: {
+            ...(payload ?? {}),
+            ...(issueId ? { issueId } : {}),
+            g6CertificationReservationId:
+              "reservationId" in g6Admission ? g6Admission.reservationId : null,
+          },
+        },
+      );
+      if (g6Admission.kind === "expired") {
+        await cancelActiveForAgentInternal(
+          agent.id,
+          "Cancelled because the G6 certification reservation expired",
+          "g6_certification_reservation_expired",
+        );
+        await g6Reservations.markContainmentCompleted(agent.id);
+      }
+      return null;
+    }
+    if (g6Admission.kind === "allowed") {
+      enrichedContextSnapshot.g6CertificationReservationId =
+        g6Admission.reservationId;
+    }
     const isolatedWorkspacesEnabled = issueId
       ? (await instanceSettings.getExperimental()).enableIsolatedWorkspaces
       : false;
@@ -30424,6 +30482,15 @@ export function heartbeatService(
     buildRunOutputSilence,
 
     tickTimers: async (now = new Date()) => {
+      const expiration = await g6Reservations.expireDue(now);
+      for (const agentId of expiration.expiredAgentIds) {
+        await cancelActiveForAgentInternal(
+          agentId,
+          "Cancelled because the G6 certification reservation expired",
+          "g6_certification_reservation_expired",
+        );
+        await g6Reservations.markContainmentCompleted(agentId);
+      }
       if ((await getSchedulingSuppression()).suppressed) {
         return {
           checked: 0,

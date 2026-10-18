@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activityLog, agents, companies, companyMemberships, createDb, heartbeatRuns, issues, principalPermissionGrants } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -95,6 +95,18 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
       membershipRole: "owner",
       grantedByUserId: null,
     });
+  }
+
+  async function seedIssueListConcurrencyFixture() {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: uniqueIssuePrefix(),
+      requireBoardApprovalForNewAgents: false,
+    });
+    await seedCloudTenantMember(companyId);
+    return companyId;
   }
 
   it("returns only unassigned issues for assigneeAgentId=null", async () => {
@@ -612,6 +624,158 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
     expect(computeCount).toBe(1);
     expect(first.headers["x-paperclip-request-cache"]).toBe("miss");
     expect(second.headers["x-paperclip-request-cache"]).toBe("hit");
+  });
+
+  it("queues a different issue-list when eight computes are active for one actor/client", async () => {
+    const companyId = await seedIssueListConcurrencyFixture();
+    let computeCount = 0;
+    let releaseComputes: () => void = () => {};
+    const computesReleased = new Promise<void>((resolve) => {
+      releaseComputes = resolve;
+    });
+
+    const app = createApp(companyId, {
+      issueListDiagnostics: {
+        async onComputeStart() {
+          computeCount += 1;
+          await computesReleased;
+        },
+      },
+    });
+
+    const activeRequests = Array.from({ length: 8 }, (_, index) =>
+      request(app)
+        .get(`/api/companies/${companyId}/issues`)
+        .query({ view: "compact", limit: "20", q: `active-${index}` })
+        .then((response) => response),
+    );
+    await vi.waitFor(() => expect(computeCount).toBe(8));
+
+    const queuedRequest = request(app)
+      .get(`/api/companies/${companyId}/issues`)
+      .query({ view: "compact", limit: "20", q: "queued" })
+      .then((response) => response);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    releaseComputes();
+    const responses = await Promise.all([...activeRequests, queuedRequest]);
+
+    expect(responses.map((response) => response.status)).toEqual(
+      Array.from({ length: 9 }, () => 200),
+    );
+    expect(responses.some((response) => response.status === 429)).toBe(false);
+    expect(computeCount).toBe(9);
+  });
+
+  it("returns a bounded 429 when another issue-list exceeds the actor/client queue", async () => {
+    const companyId = await seedIssueListConcurrencyFixture();
+    let computeCount = 0;
+    let releaseComputes: () => void = () => {};
+    const computesReleased = new Promise<void>((resolve) => {
+      releaseComputes = resolve;
+    });
+
+    const app = createApp(companyId, {
+      issueListDiagnostics: {
+        async onComputeStart() {
+          computeCount += 1;
+          await computesReleased;
+        },
+      },
+    });
+
+    const activeRequests = Array.from({ length: 8 }, (_, index) =>
+      request(app)
+        .get(`/api/companies/${companyId}/issues`)
+        .query({ view: "compact", limit: "20", q: `active-${index}` })
+        .then((response) => response),
+    );
+    await vi.waitFor(() => expect(computeCount).toBe(8));
+
+    const queuedRequests = Array.from({ length: 8 }, (_, index) =>
+      request(app)
+        .get(`/api/companies/${companyId}/issues`)
+        .query({ view: "compact", limit: "20", q: `queued-${index}` })
+        .then((response) => response),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const rejectedRequest = request(app)
+      .get(`/api/companies/${companyId}/issues`)
+      .query({ view: "compact", limit: "20", q: "queue-full" })
+      .then((response) => response);
+    const rejectedResponse = await rejectedRequest;
+
+    expect(rejectedResponse.status).toBe(429);
+    expect(rejectedResponse.headers["retry-after"]).toBe("1");
+    expect(rejectedResponse.body).toMatchObject({
+      error: "Too many concurrent issue-list requests for this actor/client",
+    });
+
+    releaseComputes();
+    const admittedResponses = await Promise.all([
+      ...activeRequests,
+      ...queuedRequests,
+    ]);
+    expect(admittedResponses.every((response) => response.status === 200)).toBe(
+      true,
+    );
+    expect(admittedResponses.some((response) => response.status === 429)).toBe(
+      false,
+    );
+    expect(computeCount).toBe(16);
+  });
+
+  it("coalesces an identical issue-list while its first request waits for actor/client capacity", async () => {
+    const companyId = await seedIssueListConcurrencyFixture();
+    let computeCount = 0;
+    let releaseComputes: () => void = () => {};
+    const computesReleased = new Promise<void>((resolve) => {
+      releaseComputes = resolve;
+    });
+
+    const app = createApp(companyId, {
+      issueListDiagnostics: {
+        async onComputeStart() {
+          computeCount += 1;
+          await computesReleased;
+        },
+      },
+    });
+
+    const activeRequests = Array.from({ length: 8 }, (_, index) =>
+      request(app)
+        .get(`/api/companies/${companyId}/issues`)
+        .query({ view: "compact", limit: "20", q: `active-${index}` })
+        .then((response) => response),
+    );
+    await vi.waitFor(() => expect(computeCount).toBe(8));
+
+    const queuedQuery = { view: "compact", limit: "20", q: "identical-queued" };
+    const firstRequest = request(app)
+      .get(`/api/companies/${companyId}/issues`)
+      .query(queuedQuery)
+      .then((response) => response);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const secondRequest = request(app)
+      .get(`/api/companies/${companyId}/issues`)
+      .query(queuedQuery)
+      .then((response) => response);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseComputes();
+    const secondResponse = await secondRequest;
+    const [firstResponse] = await Promise.all([
+      firstRequest,
+      ...activeRequests,
+    ]);
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(secondResponse.headers["x-paperclip-request-cache"]).toBe(
+      "coalesced",
+    );
+    expect(computeCount).toBe(9);
   });
 
   it("bounds compact issue-list server cache entries", async () => {

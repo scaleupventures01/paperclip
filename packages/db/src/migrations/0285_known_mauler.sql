@@ -1,0 +1,2 @@
+ALTER TABLE "g6_certification_reservations" ADD COLUMN "containment_required_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "g6_certification_reservations" ADD COLUMN "containment_completed_at" timestamp with time zone;
