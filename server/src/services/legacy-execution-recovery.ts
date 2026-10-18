@@ -1,5 +1,5 @@
 import { normalizeMaxTurnStopReason } from "./heartbeat-stop-metadata.js";
-import { hasConversationContinuationPolicy } from "./conversation-continuation.js";
+import { CONVERSATION_HOLD_FOLD_NOTE, hasConversationContinuationPolicy } from "./conversation-continuation.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { heartbeatRuns, issueRecoveryActions, issues, type Db } from "@paperclipai/db";
@@ -75,6 +75,26 @@ export async function terminalizeLegacyExecution(input: {
           )
           .for("update")
       : [];
+    // P4 (SCAA-2100, 2026-10-15/16): the stranded sweep re-terminalizes the
+    // same interrupted conversation run every tick. Each call upserted a new
+    // hold that settleUnrecoverableExecutions folded at once as a conversation
+    // continuation ("Send a new message to continue"), about 4 activity rows a
+    // minute. Once recovery has folded this run's hold that way, re-asserting
+    // the same terminal status is a no-op: no run write, no new hold.
+    if (task && !patch && run.status === status &&
+        (input.fromStatuses ?? [run.status]).every((value) => value === status)) {
+      const [folded] = await tx.select({ id: issueRecoveryActions.id })
+        .from(issueRecoveryActions).where(and(
+          eq(issueRecoveryActions.companyId, run.companyId),
+          eq(issueRecoveryActions.sourceIssueId, task.id),
+          eq(issueRecoveryActions.cause, LEGACY_RECOVERY_CAUSE),
+          eq(issueRecoveryActions.status, "resolved"),
+          sql`${issueRecoveryActions.evidence}->>'runId' = ${run.id}`,
+          eq(issueRecoveryActions.outcome, "cancelled"),
+          eq(issueRecoveryActions.resolutionNote, CONVERSATION_HOLD_FOLD_NOTE),
+        )).limit(1);
+      if (folded) return null;
+    }
     const [updated] = await tx
       .update(heartbeatRuns)
       .set({

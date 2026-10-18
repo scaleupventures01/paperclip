@@ -393,13 +393,25 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
 
       const [identityRun] = await db.select({ activeIdentityContextId: heartbeatRuns.activeIdentityContextId,
         responsibleUserId: heartbeatRuns.responsibleUserId, status: heartbeatRuns.status,
+        errorCode: heartbeatRuns.errorCode,
         contextSnapshot: heartbeatRuns.contextSnapshot }).from(heartbeatRuns).where(and(
           eq(heartbeatRuns.id, claims.run_id), eq(heartbeatRuns.companyId, claims.company_id), eq(heartbeatRuns.agentId, claims.sub),
         ));
-      if (identityRun?.status === "cancelled" && identityRun.contextSnapshot?.conversationMode === true
-        && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
-        _res.status(403).json({ error: "This conversation turn was cancelled", code: "conversation_turn_cancelled" });
-        return;
+      if (identityRun?.status === "cancelled" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+        if (identityRun.contextSnapshot?.conversationMode === true) {
+          _res.status(403).json({ error: "This conversation turn was cancelled", code: "conversation_turn_cancelled" });
+          return;
+        }
+        // A cancelled run may still be executing on another control plane (or on a
+        // remote host the cancel never reached). Its token must not keep writing.
+        // A run that ended because it handed its own issue off (issue_reassigned)
+        // is not an operator stop, so its follow-up writes stay allowed.
+        // Kill switch: PAPERCLIP_REJECT_CANCELLED_RUN_WRITES=false, read per request.
+        if (identityRun.errorCode !== "issue_reassigned"
+          && process.env.PAPERCLIP_REJECT_CANCELLED_RUN_WRITES?.trim().toLowerCase() !== "false") {
+          _res.status(403).json({ error: "This run was cancelled; its writes are rejected", code: "run_cancelled" });
+          return;
+        }
       }
       if (identityRun?.activeIdentityContextId && identityRun.status === "running") {
         const captured = await captureRunIdentity(db, { companyId: claims.company_id, agentId: claims.sub, runId: claims.run_id });

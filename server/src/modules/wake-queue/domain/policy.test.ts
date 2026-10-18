@@ -94,6 +94,25 @@ describe("decidePreDrain", () => {
       expected: { kind: "released" },
     },
     {
+      // T1: a run cancelled because its own agent handed the card to another
+      // agent is a handoff, not an operator stop. The new owner's parked wake
+      // must reach the drain instead of being released untouched.
+      name: "proceed: an acknowledged cancellation that is a handoff stop",
+      facts: { ...basePreDrainFacts, executionCancellationAcknowledged: true, handoffStop: true },
+      expected: { kind: "proceed" },
+    },
+    {
+      // T1 control: an operator stop still never promotes old queued work.
+      name: "released: an acknowledged cancellation that is an operator stop (handoffStop false)",
+      facts: { ...basePreDrainFacts, executionCancellationAcknowledged: true, handoffStop: false },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: legacy execution needs reconciliation even on a handoff stop",
+      facts: { ...basePreDrainFacts, legacyExecutionNeedsReconciliation: true, handoffStop: true },
+      expected: { kind: "released" },
+    },
+    {
       name: "proceed: none of the pre-drain conditions apply",
       facts: basePreDrainFacts,
       expected: { kind: "proceed" },
@@ -378,6 +397,59 @@ describe("decideReleaseRecovery", () => {
         ...baseReleaseRecoveryFacts,
         immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
         shared: { ...baseReleaseRecoveryFacts.shared, recoveryAgentInvokable: false },
+      },
+      expected: { kind: "blocked", notice: "immediate_execution_path" },
+    },
+    {
+      name: "released: immediate recovery applies but the recovery agent is paused on purpose (its cards stay frozen)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: the review participant is paused on purpose (its cards stay frozen)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        reviewParticipant: { ...baseReleaseRecoveryFacts.reviewParticipant, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "released: an intentionally paused agent's stranded-recovery origin card is not blocked in place",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          isStrandedRecoveryOrigin: true,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: true,
+        },
+      },
+      expected: { kind: "released" },
+    },
+    {
+      name: "blocked: immediate recovery applies and the agent is paused but not on purpose (budget)",
+      facts: {
+        ...baseReleaseRecoveryFacts,
+        immediate: { ...baseReleaseRecoveryFacts.immediate, applies: true },
+        shared: {
+          ...baseReleaseRecoveryFacts.shared,
+          recoveryAgentInvokable: false,
+          recoveryAgentIntentionallyPaused: false,
+        },
       },
       expected: { kind: "blocked", notice: "immediate_execution_path" },
     },

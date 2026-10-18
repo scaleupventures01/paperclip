@@ -999,4 +999,94 @@ describeEmbeddedPostgres("heartbeat resolved dependency wake reconciliation", ()
     });
   });
 
+  it("does not re-wake a dependency-ready parent while an open child holds its durable wait, then wakes it once", async () => {
+    // Live shape, Gate 3 fixture P_child (SCAA-4512, 2026-10-14 01:53Z): the
+    // blocker is done, an open child is the durable wait, and the route-time
+    // blockers_resolved wake was parked by run dispatch. The backstop then
+    // re-enqueued the same ready state every pass and each run was parked again.
+    const { companyId, agentId, blockedIssueId, blockerIssueId } =
+      await seedResolvedDependencyBackstopFixture({ workspaceState: "none" });
+    const childIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: childIssueId,
+      companyId,
+      parentId: blockedIssueId,
+      title: "Open child that owns the parent's next action",
+      status: "backlog",
+      priority: "medium",
+      issueNumber: 3,
+      identifier: "R-CHILD-3",
+    });
+    const heartbeat = heartbeatService(db);
+    const stateKey = buildIssueBlockersResolvedWakeStateKey({
+      dependentIssueId: blockedIssueId,
+      blockerIssueIds: [blockerIssueId],
+    });
+    const dependencyWakes = () => db
+      .select({ status: agentWakeupRequests.status, idempotencyKey: agentWakeupRequests.idempotencyKey })
+      .from(agentWakeupRequests)
+      .where(and(eq(agentWakeupRequests.companyId, companyId), eq(agentWakeupRequests.reason, "issue_blockers_resolved")));
+    const runs = () => db
+      .select({ status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.companyId, companyId));
+
+    await heartbeat.wakeup(agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "issue_blockers_resolved",
+      payload: {
+        issueId: blockedIssueId,
+        mutation: "blocker_done",
+        resolvedBlockerIssueId: blockerIssueId,
+        blockerIssueIds: [blockerIssueId],
+      },
+      idempotencyKey: stateKey,
+      requestedByActorType: "user",
+      requestedByActorId: "board-user",
+      contextSnapshot: {
+        issueId: blockedIssueId,
+        taskId: blockedIssueId,
+        wakeReason: "issue_blockers_resolved",
+        resolvedBlockerIssueId: blockerIssueId,
+        blockerIssueIds: [blockerIssueId],
+      },
+    });
+    await heartbeat.drainActiveRunExecutions();
+    expect(await runs()).toEqual([
+      { status: "cancelled", errorCode: "issue_continuation_waiting_on_review" },
+    ]);
+
+    let healedWhileWaiting = 0;
+    for (let pass = 0; pass < 5; pass++) {
+      healedWhileWaiting += (await heartbeat.reconcileResolvedDependencyWakes()).healed;
+      await heartbeat.drainActiveRunExecutions();
+    }
+    expect(healedWhileWaiting).toBe(0);
+    expect(await dependencyWakes()).toHaveLength(1);
+    expect(await runs()).toHaveLength(1);
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+
+    // Control: once the child is done the durable wait is gone, and the parent
+    // is woken exactly once for the same ready state. The woken run finishes the
+    // parent, as in the execution-hold test above, so no unrelated post-run
+    // continuation wake is counted against the adapter.
+    mockAdapterExecute.mockImplementationOnce(async () => {
+      await db.update(issues).set({ status: "done" }).where(eq(issues.id, blockedIssueId));
+      return { exitCode: 0, signal: null, timedOut: false, errorMessage: null,
+        summary: "Finished the dependency-ready parent.", provider: "test", model: "test-model" };
+    });
+    await db.update(issues).set({ status: "done" }).where(eq(issues.id, childIssueId));
+    let healedAfterChildDone = 0;
+    for (let pass = 0; pass < 5; pass++) {
+      healedAfterChildDone += (await heartbeat.reconcileResolvedDependencyWakes()).healed;
+      await heartbeat.drainActiveRunExecutions();
+    }
+    expect(healedAfterChildDone).toBe(1);
+    const wakesAfter = await dependencyWakes();
+    expect(wakesAfter).toHaveLength(2);
+    expect(wakesAfter.every((wake) => wake.idempotencyKey === stateKey)).toBe(true);
+    expect(mockAdapterExecute).toHaveBeenCalledTimes(1);
+  });
+
 });

@@ -7554,6 +7554,28 @@ export function issueRoutes(
       return false;
     return commentCreatedAtMs >= activeRunStartedAtMs;
   }
+  // True when the card's latest status change was written by this run and set
+  // it to done or cancelled.
+  async function wasIssueClosedByRun(
+    issue: { id: string; companyId: string },
+    runId: string | null | undefined,
+  ) {
+    if (!runId) return false;
+    const rows = await db
+      .select({ runId: activityLog.runId, details: activityLog.details })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.companyId, issue.companyId),
+        eq(activityLog.entityType, "issue"),
+        eq(activityLog.entityId, issue.id),
+        eq(activityLog.action, "issue.updated"),
+        sql`${activityLog.details}->>'status' is not null`,
+      ))
+      .orderBy(desc(activityLog.createdAt));
+    const latest = rows[0];
+    const status = (latest?.details as Record<string, unknown> | null)?.status;
+    return latest?.runId === runId && (status === "done" || status === "cancelled");
+  }
   async function getClosedIssueExecutionWorkspace(issue: {
     executionWorkspaceId?: string | null;
   }) {
@@ -17658,8 +17680,19 @@ export function issueRoutes(
           issue.companyId,
           req.body.body,
         ));
-      const reopenRequested = req.body.reopen === true;
-      const resumeRequested = req.body.resume === true;
+      // A run that has already moved this card to done or cancelled has ended
+      // its own claim on it. A reopen or resume flag on its later comment
+      // (WIL-46, 2026-10-15: a correction posted after Done reopened the card
+      // and woke the same agent again) is ignored: the comment posts, the card
+      // stays closed, and no self wake is queued.
+      const closedBySameRun =
+        (req.body.reopen === true || req.body.resume === true) &&
+        req.actor.type === "agent" &&
+        isClosedIssueStatus(issue.status) &&
+        issue.assigneeAgentId === actor.agentId &&
+        (await wasIssueClosedByRun(issue, actor.runId));
+      const reopenRequested = req.body.reopen === true && !closedBySameRun;
+      const resumeRequested = req.body.resume === true && !closedBySameRun;
       const interruptRequested = req.body.interrupt === true;
       const isClosed = isClosedIssueStatus(issue.status);
       const isBlocked = issue.status === "blocked";

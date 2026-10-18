@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { conversationRecoveryActionPredicate, getConversationOwnershipBlocker } from "./conversation-continuation.js";
+import { CONVERSATION_HOLD_FOLD_NOTE, conversationRecoveryActionPredicate, getConversationOwnershipBlocker } from "./conversation-continuation.js";
 import { persistActivity } from "./activity-log.js";
 import { appendHeartbeatRunEvent } from "./heartbeat-run-events.js";
 import { logger } from "../middleware/logger.js";
@@ -327,7 +327,7 @@ export async function settleUnrecoverableExecutions(
         resolvedAt: now,
         updatedAt: now,
         nextAction: "Automatic attempts stopped. Send a new message to continue the conversation.",
-        resolutionNote: "Conversation continuation does not replay prior tool calls.",
+        resolutionNote: CONVERSATION_HOLD_FOLD_NOTE,
         wakePolicy: null,
         monitorPolicy: null,
         evidence: sql`case when ${issueRecoveryActions.evidence} ? 'automaticRecovery'

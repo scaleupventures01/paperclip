@@ -572,6 +572,25 @@ describeEmbeddedPostgres("heartbeat issue rewake throttle (515)", () => {
         expect((await latestWakeRequest(agentId))?.reason).not.toBe("issue_rewake_throttled");
       });
 
+      // P5 (SCAA-5267, 2026-10-16): verbatim release receipts that differ only
+      // in long prose fields are the same report, so the throttle must engage.
+      const LIVE_RECEIPT_A = "{\"schema\":\"agentos.platform-release-receipt/v1\",\"card_id\":\"31aad0e2-1697-45ca-b084-508eab610435\",\"merged_commit\":\"322ae5e5dc476e799737d6059a671c75ce71c847\",\"prs\":[712],\"snapshot_receipt\":\"/var/backups/agentos/agentos-full-20261016T010624Z.tar.gz.receipt.json\",\"change_control\":\"agentos-snapshot change reused the existing full snapshot receipt created_at=2026-10-16T01:06:24Z at server time 2026-10-16T01:43:25Z; fresh change snapshot requirement failed. No checkout, install, or verification was run.\",\"restart\":{\"units\":[],\"quiet_window\":\"not applicable: restart_services is empty\",\"results\":{}},\"verify\":\"not run: fresh snapshot requirement failed before apply\",\"negative_control\":\"not run: fresh snapshot requirement failed before apply\",\"machine_release_receipt\":null,\"released\":false,\"reason\":\"Checked Akili: no record clears the live fresh-snapshot refusal; prior Akili decision b243a5f7792742a280db8ee77c7c10b5 concerns only a reversible checkout to an advertised commit. Deployment blocked before install because the required fresh change snapshot was not produced; agentos-snapshot change reused a stale full snapshot receipt. Unblock owner: IT Manager; next action: repair the root snapshot/change-control freshness path, then rerun this release from a newly produced change receipt. No checkout, install, or verification ran.\"}";
+      const LIVE_RECEIPT_B = "{\"schema\":\"agentos.platform-release-receipt/v1\",\"card_id\":\"31aad0e2-1697-45ca-b084-508eab610435\",\"merged_commit\":\"322ae5e5dc476e799737d6059a671c75ce71c847\",\"prs\":[712],\"snapshot_receipt\":\"/var/backups/agentos/agentos-full-20261016T010624Z.tar.gz.receipt.json\",\"change_control\":\"release-root refused: AgentOS changes must use agentos-change-control run with a pushed source commit and fresh backup receipt. Nothing was run.\",\"restart\":{\"units\":[],\"quiet_window\":\"not applicable: restart_services is empty\",\"results\":{}},\"verify\":\"not run: fresh change snapshot requirement failed before apply\",\"negative_control\":\"not run: fresh change snapshot requirement failed before apply\",\"machine_release_receipt\":null,\"released\":false,\"reason\":\"Deployment blocked before install because agentos-snapshot change returned the existing kind: full receipt created_at 2026-10-16T01:06:24Z; the governed root gate rejected it as not a fresh change receipt. No checkout, install, or verification ran.\"}";
+
+      it("P5 throttle-json-receipt throttles comment-only runs whose JSON receipts differ only in prose", async () => {
+        const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
+        await seedPriorAgentComment({ companyId, agentId, issueId, body: LIVE_RECEIPT_A, secondsAgo: 120 });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 70, body: LIVE_RECEIPT_B });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 40, body: LIVE_RECEIPT_A });
+        await seedCommentingRun({ companyId, agentId, issueId, finishedSecondsAgo: 10, body: LIVE_RECEIPT_B });
+
+        const wake = await withKillSwitch(undefined, () => continuationWake(agentId, issueId));
+
+        const latest = await latestWakeRequest(agentId);
+        expect(latest?.reason).toBe("issue_rewake_throttled");
+        expect(wake).toBeNull();
+      });
+
       it("515-r2 throttle-json does not throttle comment-only runs whose JSON comment bodies differ", async () => {
         const { companyId, agentId, issueId } = await seedCompanyAgentIssue();
         await seedPriorAgentComment({

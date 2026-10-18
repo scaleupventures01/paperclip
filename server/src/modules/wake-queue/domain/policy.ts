@@ -74,6 +74,8 @@ export type PreDrainFacts = {
   legacyExecutionNeedsReconciliation: boolean;
   /** True when the finishing run is cancelled and its stored result carries an acknowledged execution cancellation. */
   executionCancellationAcknowledged: boolean;
+  /** True when the finishing run was stopped because its own agent handed the card to another agent. A handoff is not an operator stop, so the new owner's parked wake may drain. Missing means false. */
+  handoffStop?: boolean;
 };
 
 export type PreDrainDecision =
@@ -112,7 +114,7 @@ export function decidePreDrain(facts: PreDrainFacts): PreDrainDecision {
     return { kind: "released" };
   }
 
-  if (facts.executionCancellationAcknowledged) {
+  if (facts.executionCancellationAcknowledged && facts.handoffStop !== true) {
     return { kind: "released" };
   }
 
@@ -204,6 +206,8 @@ export type ReleaseRecoverySharedFacts = {
   isStrandedRecoveryOrigin: boolean;
   recoveryAgentPresent: boolean;
   recoveryAgentInvokable: boolean;
+  /** True when the finishing run's agent is paused on purpose: its cards stay frozen, so release never recovers or blocks them. Missing means false. */
+  recoveryAgentIntentionallyPaused?: boolean;
 };
 
 export type ReleaseRecoveryReviewParticipantFacts = {
@@ -376,6 +380,17 @@ export function decideQueuedCommentActorOwnsEntry(facts: QueuedCommentActorOwner
  */
 export function decideReleaseRecovery(facts: ReleaseRecoveryFacts): ReleaseRecoveryDecision {
   const { reviewParticipant, immediate, shared } = facts;
+
+  // An agent paused on purpose freezes its cards exactly as they are (Calvin
+  // 2026-10-14). Releasing its cancelled run only drops the execution lock: no
+  // recovery run, no move to blocked, in either branch. A budget pause is not
+  // intentional and keeps the decisions below.
+  if (
+    shared.recoveryAgentIntentionallyPaused === true &&
+    (reviewParticipant.applies || immediate.applies)
+  ) {
+    return { kind: "released" };
+  }
 
   if (reviewParticipant.applies) {
     if (
