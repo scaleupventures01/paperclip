@@ -216,19 +216,23 @@ export function g6CertificationReservationService(
     });
   }
 
-  async function get(companyId: string, agentId: string, reservationId?: string) {
+  async function getActive(companyId: string, agentId: string) {
     return db.transaction(async (tx) => {
       const current = await activeLocked(tx as unknown as Db, companyId, agentId, new Date());
-      const reservation = reservationId
-        ? await tx.select().from(g6CertificationReservations).where(and(
-            eq(g6CertificationReservations.id, reservationId),
-            eq(g6CertificationReservations.companyId, companyId),
-            eq(g6CertificationReservations.agentId, agentId),
-          )).limit(1).then((rows) => rows[0] ?? null)
-        : current.reservation;
+      const reservation = current.reservation;
       if (!reservation) return null;
       return { ...reservation, issues: await listMembers(tx as unknown as Db, reservation.id) };
     });
+  }
+
+  async function getById(companyId: string, agentId: string, reservationId: string) {
+    const reservation = await db.select().from(g6CertificationReservations).where(and(
+      eq(g6CertificationReservations.id, reservationId),
+      eq(g6CertificationReservations.companyId, companyId),
+      eq(g6CertificationReservations.agentId, agentId),
+    )).limit(1).then((rows) => rows[0] ?? null);
+    if (!reservation) return null;
+    return { ...reservation, issues: await listMembers(db, reservation.id) };
   }
 
   async function expireDue(now = new Date(), limit = 100) {
@@ -387,7 +391,15 @@ export function g6CertificationReservationService(
         eq(g6CertificationReservations.agentId, input.agentId),
       )).for("update").limit(1).then((rows) => rows[0] ?? null);
       if (!reservation) throw notFound("G6 certification reservation not found");
-      if (reservation.status !== "active") throw conflict("G6 certification reservation is already closed", { status: reservation.status });
+      if (reservation.status === "released" && input.mode === "verify_release") {
+        return { ...reservation, issues: await listMembers(tx as unknown as Db, reservation.id) };
+      }
+      if (reservation.status !== "active") {
+        throw conflict("G6 certification reservation close mode does not match its existing disposition", {
+          status: reservation.status,
+          requestedMode: input.mode,
+        });
+      }
       if (await expireLocked(tx as unknown as Db, reservation, new Date())) {
         const expired = await tx.select().from(g6CertificationReservations)
           .where(eq(g6CertificationReservations.id, reservation.id))
@@ -501,7 +513,8 @@ export function g6CertificationReservationService(
 
   return {
     create,
-    get,
+    getActive,
+    getById,
     expireDue,
     markContainmentCompleted,
     admitWake,

@@ -19,6 +19,15 @@ const mockHeartbeatService = vi.hoisted(() => ({
   getRun: vi.fn(),
 }));
 
+const mockG6ReservationService = vi.hoisted(() => ({
+  create: vi.fn(),
+  getActive: vi.fn(),
+  getById: vi.fn(),
+  verifyAndRelease: vi.fn(),
+  abort: vi.fn(),
+  markContainmentCompleted: vi.fn(),
+}));
+
 const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
   getByIdentifier: vi.fn(),
@@ -90,6 +99,10 @@ function registerModuleMocks() {
 
   vi.doMock("../services/heartbeat.js", () => ({
     heartbeatService: () => mockHeartbeatService,
+  }));
+
+  vi.doMock("../services/g6-certification-reservations.js", () => ({
+    g6CertificationReservationService: () => mockG6ReservationService,
   }));
 
   vi.doMock("../services/instance-settings.js", () => ({
@@ -372,6 +385,7 @@ describe("agent live run routes", () => {
       agentId: "agent-1",
       status: "succeeded",
     });
+    mockG6ReservationService.getById.mockResolvedValue(null);
     mockWorkspaceOperationService.getById.mockResolvedValue({
       id: "operation-1",
       companyId: "company-1",
@@ -391,6 +405,62 @@ describe("agent live run routes", () => {
       created: 0,
       skipped: 0,
       skipReasons: [],
+    });
+  });
+
+  describe("G6 reservation historical read authorization", () => {
+    const reservationId = "55555555-5555-4555-8555-555555555555";
+
+    it("keeps historical receipts board-only before storage access", async () => {
+      const app = await createApp({}, {
+        type: "agent",
+        companyId: "company-1",
+        agentId: routeAgentId,
+        source: "agent_key",
+      });
+      await requestApp(app, (url) =>
+        request(url).get(`/api/agents/${routeAgentId}/g6-certification-reservations/${reservationId}`),
+      ).then((response) => expect(response.status).toBe(403));
+      expect(mockG6ReservationService.getById).not.toHaveBeenCalled();
+    });
+
+    it("does not expose another company's agent receipt", async () => {
+      mockAgentService.getById.mockResolvedValueOnce({
+        id: routeAgentId,
+        companyId: "company-2",
+        name: "Other company agent",
+        adapterType: "codex_local",
+      });
+      const response = await requestApp(await createApp(), (url) =>
+        request(url).get(`/api/agents/${routeAgentId}/g6-certification-reservations/${reservationId}`),
+      );
+      expect(response.status).toBe(404);
+      expect(mockG6ReservationService.getById).toHaveBeenCalledWith(
+        "company-2",
+        routeAgentId,
+        reservationId,
+      );
+    });
+
+    it("returns the scoped historical receipt to an authorized board caller", async () => {
+      mockG6ReservationService.getById.mockResolvedValueOnce({
+        id: reservationId,
+        companyId: "company-1",
+        agentId: "agent-1",
+        status: "released",
+        verification: { issueRuns: [] },
+        issues: [],
+      });
+      const response = await requestApp(await createApp(), (url) =>
+        request(url).get(`/api/agents/${routeAgentId}/g6-certification-reservations/${reservationId}`),
+      );
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ id: reservationId, status: "released" });
+      expect(mockG6ReservationService.getById).toHaveBeenCalledWith(
+        "company-1",
+        "agent-1",
+        reservationId,
+      );
     });
   });
 

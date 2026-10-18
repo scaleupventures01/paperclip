@@ -1050,6 +1050,7 @@ Invites tab does not hide this Cloud action.
 - `POST /agents/:agentId/heartbeat/invoke`
 - `POST /agents/:agentId/g6-certification-reservations`
 - `GET /agents/:agentId/g6-certification-reservations/active`
+- `GET /agents/:agentId/g6-certification-reservations/:reservationId`
 - `POST /agents/:agentId/g6-certification-reservations/:reservationId/verify-and-release`
 - `POST /agents/:agentId/g6-certification-reservations/:reservationId/abort`
 
@@ -1069,7 +1070,7 @@ binding. A scoped resume also wakes that task; a scoped pause cancels the target
 agent's active run.
 
 G6 certification reservations are board-only, company-scoped admission fences
-for an exact set of issue UUIDs. Creation is one transaction: it serializes
+for exactly three issue UUIDs. Creation is one transaction: it serializes
 actionable demand for the agent, requires a current board-authenticated manual
 pause, heartbeat concurrency preset 1, zero queued/running/scheduled runs, and
 an exact match between current actionable demand and the requested IDs; it then
@@ -1081,6 +1082,10 @@ member and releases it. Abort and expiry restore the prior runtime configuration
 and pause the agent; the heartbeat scheduler sweeps due reservations even while
 normal run scheduling is suppressed, and expiry never auto-resumes. Every
 mutation is activity logged.
+The historical by-ID read remains available after close. Replaying
+verify-and-release against an already released reservation returns its existing
+verification receipt without writing a second audit event; replaying a different
+close mode is rejected.
 
 ## 10.4 Tasks (Issues)
 

@@ -14,6 +14,7 @@ import {
   issueTreeHolds,
   issues,
 } from "@paperclipai/db";
+import { createG6CertificationReservationSchema } from "@paperclipai/shared";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -76,6 +77,22 @@ const support = await getEmbeddedPostgresTestSupport();
   }
 
   const expiry = () => new Date(Date.now() + 60 * 60 * 1000);
+
+  it("requires exactly three distinct issue IDs at the API boundary", () => {
+    const ids = Array.from({ length: 4 }, () => randomUUID());
+    expect(createG6CertificationReservationSchema.safeParse({
+      expectedIssueIds: ids.slice(0, 3),
+      expiresAt: expiry().toISOString(),
+    }).success).toBe(true);
+    expect(createG6CertificationReservationSchema.safeParse({
+      expectedIssueIds: ids.slice(0, 2),
+      expiresAt: expiry().toISOString(),
+    }).success).toBe(false);
+    expect(createG6CertificationReservationSchema.safeParse({
+      expectedIssueIds: ids,
+      expiresAt: expiry().toISOString(),
+    }).success).toBe(false);
+  });
 
   it("atomically activates only an exact paused preset-1 zero-run batch", async () => {
     const f = await seed();
@@ -428,6 +445,33 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(agent.runtimeConfig).toMatchObject({ heartbeat: { maxConcurrentRuns: 1 } });
     const [wake] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, f.agentId));
     expect(wake.status).toBe("skipped");
+
+    // Simulate commit followed by a lost HTTP response: the operator can recover
+    // the receipt historically and safely replay the same close mode.
+    expect(await service.getActive(f.companyId, f.agentId)).toBeNull();
+    const historical = await service.getById(f.companyId, f.agentId, reservation.id);
+    expect(historical).toEqual(closed);
+    expect(await service.getById(randomUUID(), f.agentId, reservation.id)).toBeNull();
+    const replayed = await service.verifyAndRelease({
+      companyId: f.companyId,
+      agentId: f.agentId,
+      reservationId: reservation.id,
+      actor: { userId: "board" },
+    });
+    expect(replayed).toEqual(closed);
+    await expect(service.abort({
+      companyId: f.companyId,
+      agentId: f.agentId,
+      reservationId: reservation.id,
+      actor: { userId: "board" },
+      reason: "must not reinterpret a released reservation",
+    })).rejects.toMatchObject({ status: 409 });
+    const releaseAudits = await db.select().from(activityLog).where(and(
+      eq(activityLog.companyId, f.companyId),
+      eq(activityLog.entityId, reservation.id),
+      eq(activityLog.action, "g6_certification.reservation_verified_released"),
+    ));
+    expect(releaseAudits).toHaveLength(1);
   });
 
   it("fails closed on abort", async () => {
@@ -528,7 +572,7 @@ const support = await getEmbeddedPostgresTestSupport();
     });
     await db.update(g6CertificationReservations).set({ expiresAt: new Date(Date.now() - 1_000) })
       .where(eq(g6CertificationReservations.id, reservation.id));
-    const lazyRead = await service.get(f.companyId, f.agentId);
+    const lazyRead = await service.getActive(f.companyId, f.agentId);
     expect(lazyRead).toBeNull();
     const [beforeSweep] = await db.select().from(g6CertificationReservations)
       .where(eq(g6CertificationReservations.id, reservation.id));

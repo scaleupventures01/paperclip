@@ -244,7 +244,7 @@ export const wakeAgentSchema = z.object({
 export type WakeAgent = z.infer<typeof wakeAgentSchema>;
 
 export const createG6CertificationReservationSchema = z.object({
-  expectedIssueIds: z.array(z.string().uuid()).min(1).max(32)
+  expectedIssueIds: z.array(z.string().uuid()).length(3, "G6 certification requires exactly three issue IDs")
     .refine((ids) => new Set(ids).size === ids.length, "Expected issue IDs must be unique"),
   expiresAt: z.string().datetime({ offset: true }),
 }).strict();

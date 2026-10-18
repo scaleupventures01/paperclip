@@ -76,7 +76,6 @@ import {
   companySkillService,
   budgetService,
   heartbeatService,
-  g6CertificationReservationService,
   ISSUE_LIST_DEFAULT_LIMIT,
   issueApprovalService,
   issueRecoveryActionService,
@@ -85,6 +84,7 @@ import {
   syncInstructionsBundleConfigFromFilePath,
   workspaceOperationService,
 } from "../services/index.js";
+import { g6CertificationReservationService } from "../services/g6-certification-reservations.js";
 import { badRequest, conflict, forbidden, HttpError, notFound, unprocessable } from "../errors.js";
 import { ONBOARDING_FIRST_TASK_SKILL_KEY, PAPERCLIP_CORE_SKILL_KEYS } from "../services/company-skills.js";
 import { createRunSecretRedactionRegistry } from "../services/run-secret-redaction.js";
@@ -4619,9 +4619,27 @@ export function agentRoutes(
     const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
     if (!agent) return;
     await assertBoardCanManageAgentsForCompany(req, agent.companyId);
-    const reservation = await g6Reservations.get(agent.companyId, agent.id);
+    const reservation = await g6Reservations.getActive(agent.companyId, agent.id);
     if (!reservation) {
       res.status(404).json({ error: "Active G6 certification reservation not found" });
+      return;
+    }
+    res.json(reservation);
+  });
+
+  router.get("/agents/:id/g6-certification-reservations/:reservationId", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+    if (!agent) return;
+    await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+    const reservation = await g6Reservations.getById(
+      agent.companyId,
+      agent.id,
+      req.params.reservationId as string,
+    );
+    if (!reservation) {
+      res.status(404).json({ error: "G6 certification reservation not found" });
       return;
     }
     res.json(reservation);
