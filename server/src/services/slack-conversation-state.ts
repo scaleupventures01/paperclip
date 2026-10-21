@@ -17,7 +17,7 @@ export function externalConversationStateSql() {
         where p.company_id = c.company_id and p.conversation_id = c.id
           and p.state in ('pending', 'streaming', 'retry', 'delivery_unknown', 'failed', 'awaiting_consent'))
       and not exists (select 1 from heartbeat_runs r where r.company_id = c.company_id
-        and coalesce(r.context_snapshot->>'issueId', r.context_snapshot->>'taskId', r.native_issue_id::text) = c.issue_id::text
+        and coalesce(r.context_issue_id, r.context_task_id, r.native_issue_id::text) = c.issue_id::text
         and r.status in ('queued', 'running', 'scheduled_retry'))
       and not exists (select 1 from agent_wakeup_requests w where w.company_id = c.company_id
         and coalesce(w.payload->>'issueId', w.payload->>'taskId', w.payload->'_paperclipWakeContext'->>'issueId') = c.issue_id::text

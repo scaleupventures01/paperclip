@@ -4570,9 +4570,10 @@ async function listIssueReviewAttentionMap(
       .select({
         id: heartbeatRuns.id,
         companyId: heartbeatRuns.companyId,
+        // Narrow key columns: reading context_snapshot here detoasts each run.
         issueId: sql<
           string | null
-        >`coalesce(${heartbeatRuns.contextSnapshot} ->> 'issueId', ${heartbeatRuns.contextSnapshot} ->> 'taskId')`,
+        >`coalesce(${heartbeatRuns.contextIssueId}, ${heartbeatRuns.contextTaskId})`,
         agentId: heartbeatRuns.agentId,
         status: heartbeatRuns.status,
         createdAt: heartbeatRuns.createdAt,
@@ -4583,7 +4584,7 @@ async function listIssueReviewAttentionMap(
           eq(heartbeatRuns.companyId, companyId),
           inArray(heartbeatRuns.status, ["queued", "running"]),
           inArray(
-            sql<string>`coalesce(${heartbeatRuns.contextSnapshot} ->> 'issueId', ${heartbeatRuns.contextSnapshot} ->> 'taskId')`,
+            sql<string>`coalesce(${heartbeatRuns.contextIssueId}, ${heartbeatRuns.contextTaskId})`,
             reviewIds,
           ),
         ),
