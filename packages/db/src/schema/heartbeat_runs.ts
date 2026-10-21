@@ -94,6 +94,12 @@ export const heartbeatRuns = pgTable(
     lastUsefulActionAt: timestamp("last_useful_action_at", { withTimezone: true }),
     nextAction: text("next_action"),
     contextSnapshot: jsonb("context_snapshot").$type<Record<string, unknown>>(),
+    // Narrow copies of context_snapshot ->> 'issueId' / 'taskId'. A BEFORE
+    // INSERT OR UPDATE OF context_snapshot trigger (migration 0284) keeps them
+    // in step, so hot reads never detoast the whole snapshot. Never write them
+    // directly; write context_snapshot and the trigger derives them.
+    contextIssueId: text("context_issue_id"),
+    contextTaskId: text("context_task_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -161,6 +167,14 @@ export const heartbeatRuns = pgTable(
       table.companyId,
       sql`(${table.contextSnapshot} ->> 'taskKey')`,
       table.createdAt.desc(),
+    ),
+    // Covers the attention feed's newer-run scan as an index-only read.
+    companyAgentCreatedCtxKeysIdx: index("heartbeat_runs_company_agent_created_ctx_keys_idx").on(
+      table.companyId,
+      table.agentId,
+      table.createdAt,
+      table.contextIssueId,
+      table.contextTaskId,
     ),
   }),
 );
