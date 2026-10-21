@@ -125,16 +125,37 @@ d("heartbeat_runs context key columns migration", () => {
     expect(idx).toHaveLength(1);
     expect(idx[0]!.indexdef).toContain("(company_id, agent_id, created_at, context_issue_id, context_task_id)");
 
+    // An empty table plans any company_id index, so seed a realistic spread
+    // (3 companies x 5 agents x 200 runs) and ANALYZE before reading the plan.
+    const companyRows = await sql<{ id: string }[]>`
+      INSERT INTO companies (name, issue_prefix)
+      SELECT 'Plan Co ' || n, 'PL' || n FROM generate_series(1, 3) AS n RETURNING id`;
+    for (const company of companyRows) {
+      await sql`
+        INSERT INTO agents (company_id, name, role, status, adapter_type, adapter_config, runtime_config, permissions)
+        SELECT ${company.id}, 'Agent ' || n, 'engineer', 'idle', 'codex_local', '{}', '{}', '{}'
+        FROM generate_series(1, 5) AS n`;
+    }
+    await sql`
+      INSERT INTO heartbeat_runs (company_id, agent_id, status, context_snapshot, created_at)
+      SELECT a.company_id, a.id, 'succeeded',
+        jsonb_build_object('issueId', 'issue-' || (n % 40), 'prompt', repeat('p', 200)),
+        now() - (n || ' minutes')::interval
+      FROM agents a CROSS JOIN generate_series(1, 200) AS n`;
+    await sql.unsafe("VACUUM ANALYZE heartbeat_runs");
+    const [target] = await sql<{ company_id: string; id: string }[]>`
+      SELECT company_id, id FROM agents ORDER BY name, id LIMIT 1`;
+
     await sql.unsafe("SET enable_seqscan = off");
     await sql.unsafe("SET enable_bitmapscan = off");
     const plan = await sql.unsafe(
       "EXPLAIN (VERBOSE) SELECT agent_id, context_issue_id, context_task_id, max(created_at) FROM heartbeat_runs "
-        + "WHERE company_id = '00000000-0000-0000-0000-000000000001' "
-        + "AND agent_id IN ('00000000-0000-0000-0000-000000000002') "
+        + `WHERE company_id = '${target!.company_id}' `
+        + `AND agent_id IN ('${target!.id}') `
         + "AND created_at > now() - interval '1 day' GROUP BY agent_id, context_issue_id, context_task_id",
     );
     const planText = plan.map((row) => Object.values(row)[0]).join("\n");
-    expect(planText).toContain("heartbeat_runs_company_agent_created_ctx_keys_idx");
+    expect(planText).toContain("Index Only Scan using heartbeat_runs_company_agent_created_ctx_keys_idx");
     expect(planText).not.toContain("context_snapshot");
   }, 240_000);
 });
