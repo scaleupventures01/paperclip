@@ -48,7 +48,7 @@ import type {
   IssueReviewPolicy,
 } from "@paperclipai/shared";
 import { badRequest } from "../errors.js";
-import { listAttentionExhaustedRuns } from "./attention-exhausted-runs.js";
+import { listAttentionExhaustedRuns, listAttentionNewerRunKeys } from "./attention-exhausted-runs.js";
 import { budgetService } from "./budgets.js";
 import {
   BLOCKER_ATTENTION_MAX_DEPTH,
@@ -1675,22 +1675,10 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
           failedIssueIds,
         ),
         issueImageMap(db, companyId, failedIssueIds),
+        // Even projecting context_snapshot ->> 'issueId' detoasts every whole
+        // snapshot, so read the narrow key columns, grouped to one row per key.
         oldestFailedRunCreatedAt && failedAgentIds.length > 0
-          ? db
-            .select({
-              agentId: heartbeatRuns.agentId,
-              createdAt: heartbeatRuns.createdAt,
-              // Project just the ids readRunIssueId needs; pulling the whole
-              // context_snapshot detoasts megabytes per feed build.
-              runIssueId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`,
-              runTaskId: sql<string | null>`${heartbeatRuns.contextSnapshot} ->> 'taskId'`,
-            })
-            .from(heartbeatRuns)
-            .where(and(
-              eq(heartbeatRuns.companyId, companyId),
-              inArray(heartbeatRuns.agentId, failedAgentIds),
-              gt(heartbeatRuns.createdAt, oldestFailedRunCreatedAt),
-            ))
+          ? listAttentionNewerRunKeys(db, companyId, failedAgentIds, oldestFailedRunCreatedAt)
           : Promise.resolve([]),
       ]);
       const latestRunCreatedAtByKey = new Map<string, Date>();
