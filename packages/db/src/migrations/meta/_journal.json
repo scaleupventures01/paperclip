@@ -1989,6 +1989,13 @@
       "when": 1792345634366,
       "tag": "0285_known_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1792685264892,
+      "tag": "0286_rainy_captain_flint",
+      "breakpoints": true
     }
   ]
 }
