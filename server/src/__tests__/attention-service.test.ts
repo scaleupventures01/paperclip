@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -43,6 +43,7 @@ import { errorHandler } from "../middleware/index.js";
 import { attentionRoutes } from "../routes/attention.js";
 import { attentionService } from "../services/attention.js";
 import { listAttentionExhaustedRuns } from "../services/attention-exhausted-runs.js";
+import { withAttentionStatementTimeout } from "../services/attention-newer-runs.js";
 import { agentService } from "../services/agents.js";
 import { ROUTABLE_BLOCKED_ROLLOUT_AT } from "../services/routable-blocked.js";
 
@@ -1025,6 +1026,159 @@ describeEmbeddedPostgres("attention service", () => {
     const feed = await attentionService(db).list(companyId, { userId: "board-user" });
 
     expect(feed.items.filter((item) => item.sourceKind === "failed_run")).toEqual([]);
+  });
+
+  it("suppresses repeated failed-run feeds with a bounded context-key scan", async () => {
+    const { companyId, workerId } = await seedCompany("SCAN");
+    const recoveredIssueId = await insertIssue({
+      companyId,
+      identifier: "SCAN-1",
+      title: "Recovered task",
+      status: "in_progress",
+    });
+    const healthyIssueId = await insertIssue({
+      companyId,
+      identifier: "SCAN-2",
+      title: "Unrelated failed task",
+      status: "in_progress",
+    });
+    const failedRunId = randomUUID();
+    const healthyRunId = randomUUID();
+    const failedAt = new Date("2026-07-09T12:00:00.000Z");
+
+    await db.insert(heartbeatRuns).values([
+      {
+        id: failedRunId,
+        companyId,
+        agentId: workerId,
+        status: "failed",
+        contextSnapshot: { issueId: recoveredIssueId },
+        createdAt: failedAt,
+        updatedAt: failedAt,
+        finishedAt: failedAt,
+      },
+      {
+        id: healthyRunId,
+        companyId,
+        agentId: workerId,
+        status: "failed",
+        contextSnapshot: { issueId: healthyIssueId },
+        createdAt: failedAt,
+        updatedAt: failedAt,
+        finishedAt: failedAt,
+      },
+    ]);
+    await db.insert(heartbeatRunEvents).values([
+      {
+        companyId,
+        agentId: workerId,
+        runId: failedRunId,
+        seq: 1,
+        eventType: "lifecycle",
+        message: "Bounded retry exhausted recovered run",
+      },
+      {
+        companyId,
+        agentId: workerId,
+        runId: healthyRunId,
+        seq: 1,
+        eventType: "lifecycle",
+        message: "Bounded retry exhausted healthy control",
+      },
+    ]);
+
+    for (let batch = 0; batch < 5; batch += 1) {
+      await db.insert(heartbeatRuns).values(Array.from({ length: 1000 }, (_, offset) => {
+        const index = batch * 1000 + offset;
+        const createdAt = new Date(failedAt.getTime() + index + 1);
+        return {
+          id: randomUUID(),
+          companyId,
+          agentId: workerId,
+          status: "succeeded",
+          contextSnapshot: {
+            detail: Array.from({ length: 256 }, (_, token) => `run-${index}-detail-${token}`).join(" "),
+          },
+          createdAt,
+          updatedAt: createdAt,
+          finishedAt: createdAt,
+        };
+      }));
+    }
+    await db.insert(heartbeatRuns).values({
+      companyId,
+      agentId: workerId,
+      status: "succeeded",
+      contextSnapshot: { issueId: recoveredIssueId },
+      createdAt: new Date(failedAt.getTime() + 5001),
+      updatedAt: new Date(failedAt.getTime() + 5001),
+      finishedAt: new Date(failedAt.getTime() + 5001),
+    });
+    await db.execute(sql`analyze heartbeat_runs`);
+
+    async function heartbeatIndexFetches() {
+      await db.execute(sql`select pg_stat_force_next_flush()`);
+      const rows = await db.execute<{ indexname: string; reads: string }>(sql`
+        select indexrelid::regclass::text as indexname, idx_tup_read::text as reads
+        from pg_stat_user_indexes
+        where relname = 'heartbeat_runs'
+          and indexrelid::regclass::text in (
+            'heartbeat_runs_company_agent_started_idx',
+            'heartbeat_runs_company_ctx_issue_created_idx'
+          )
+      `);
+      return new Map(rows.map((row) => [row.indexname, Number(row.reads)]));
+    }
+
+    async function heartbeatSequentialReads() {
+      await db.execute(sql`select pg_stat_force_next_flush()`);
+      const [row] = await db.execute<{ reads: string }>(sql`
+        select seq_tup_read::text as reads
+        from pg_stat_user_tables
+        where relname = 'heartbeat_runs'
+      `);
+      return Number(row?.reads ?? 0);
+    }
+
+    const before = await heartbeatIndexFetches();
+    const sequentialBefore = await heartbeatSequentialReads();
+    const firstFeed = await attentionService(db).list(companyId, { userId: "board-user" });
+    const secondFeed = await attentionService(db).list(companyId, { userId: "board-user" });
+    const after = await heartbeatIndexFetches();
+    const sequentialAfter = await heartbeatSequentialReads();
+
+    for (const feed of [firstFeed, secondFeed]) {
+      const failures = feed.items.filter((item) => item.sourceKind === "failed_run");
+      expect(failures.map((item) => item.subject.id)).toEqual([healthyRunId]);
+    }
+
+    const agentReadDelta =
+      (after.get("heartbeat_runs_company_agent_started_idx") ?? 0) -
+      (before.get("heartbeat_runs_company_agent_started_idx") ?? 0);
+    const issueReadDelta =
+      (after.get("heartbeat_runs_company_ctx_issue_created_idx") ?? 0) -
+      (before.get("heartbeat_runs_company_ctx_issue_created_idx") ?? 0);
+    expect(agentReadDelta).toBeLessThanOrEqual(5);
+    expect(sequentialAfter - sequentialBefore).toBeLessThanOrEqual(5);
+
+    const plan = await db.execute<{ "QUERY PLAN": string }>(sql`
+      explain (costs off)
+      select agent_id, created_at
+      from heartbeat_runs
+      where company_id = ${companyId}
+        and created_at > ${failedAt.toISOString()}::timestamptz
+        and context_snapshot ->> 'issueId' = ${recoveredIssueId}
+    `);
+    expect(plan.map((row) => row["QUERY PLAN"]).join("\n"))
+      .toContain("heartbeat_runs_company_ctx_issue_created_idx");
+  });
+
+  it("cancels a runaway newer-run lookup before the controller lease", async () => {
+    await expect(withAttentionStatementTimeout(
+      db,
+      async (database) => database.execute(sql`select pg_sleep(1)`),
+      50,
+    )).rejects.toMatchObject({ cause: { code: "57014" } });
   });
 
   it("enriches interaction details with project, workspace, plan metadata, and images", async () => {
