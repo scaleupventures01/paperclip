@@ -1,12 +1,12 @@
 /**
- * Measurement harness for migration 0284 (heartbeat_runs context key columns).
+ * Measurement harness for migration 0286 (heartbeat_runs context key columns).
  *
  * Starts a throwaway embedded Postgres (never a shared or production database),
  * applies every migration, seeds heartbeat_runs rows whose context_snapshot is
  * about 27 KB of poorly compressible text (the 2026-10-21 production average),
  * then prints EXPLAIN (ANALYZE, BUFFERS) for the attention feed's newer-run scan
  * in its old form (projecting context_snapshot ->> 'issueId'/'taskId') and its
- * new form (narrow columns, grouped). It also times the 0284 backfill and index
+ * new form (narrow columns, grouped). It also times the 0286 backfill and index
  * build on the seeded rows, for the rollout runbook.
  *
  *   pnpm --filter @paperclipai/db exec tsx scripts/bench-heartbeat-context-keys.ts
@@ -45,7 +45,7 @@ function backfillAndIndexStatements(migrationSql: string) {
     .filter((statement) => statement.length > 0);
   const backfill = statements.find((statement) => /UPDATE "heartbeat_runs"/.test(statement));
   const index = statements.find((statement) => /CREATE INDEX IF NOT EXISTS "heartbeat_runs_company_agent_created_ctx_keys_idx"/.test(statement));
-  if (!backfill || !index) throw new Error("0284 backfill or index statement not found");
+  if (!backfill || !index) throw new Error("0286 backfill or index statement not found");
   return { backfill, index };
 }
 
@@ -107,8 +107,8 @@ async function main() {
     }
 
     // Backfill and index build cost on the seeded rows: clear the keys the
-    // trigger wrote, then run the exact 0284 statements.
-    const migration = await readFile(new URL("../src/migrations/0284_nosy_terror.sql", import.meta.url), "utf8");
+    // trigger wrote, then run the exact 0286 statements.
+    const migration = await readFile(new URL("../src/migrations/0286_rainy_captain_flint.sql", import.meta.url), "utf8");
     const { backfill, index } = backfillAndIndexStatements(migration);
     await sql.unsafe("DROP INDEX IF EXISTS heartbeat_runs_company_agent_created_ctx_keys_idx");
     await sql.unsafe("UPDATE heartbeat_runs SET context_issue_id = NULL, context_task_id = NULL");
@@ -119,7 +119,7 @@ async function main() {
     start = performance.now();
     await sql.unsafe(index);
     const indexMs = performance.now() - start;
-    console.log(`\n## 0284 one-time cost on ${shape!.rows} rows`);
+    console.log(`\n## 0286 one-time cost on ${shape!.rows} rows`);
     console.log(`backfill UPDATE: ${backfillMs.toFixed(0)} ms (${result.count} rows); CREATE INDEX: ${indexMs.toFixed(0)} ms`);
   } finally {
     await sql.end();
