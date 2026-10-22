@@ -1,5 +1,28 @@
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
 import { agents, heartbeatRunEvents, heartbeatRuns, type Db } from "@paperclipai/db";
+
+/**
+ * Latest run per (agent, issueId, taskId) created after `since`, for the
+ * failed-run "newer run exists" check. Reads the narrow context key columns
+ * (kept in step with context_snapshot by a write-time trigger) and groups in
+ * SQL, so the scan is index-only and never detoasts a run snapshot.
+ */
+export function listAttentionNewerRunKeys(db: Db, companyId: string, agentIds: string[], since: Date) {
+  return db
+    .select({
+      agentId: heartbeatRuns.agentId,
+      runIssueId: heartbeatRuns.contextIssueId,
+      runTaskId: heartbeatRuns.contextTaskId,
+      createdAt: sql<Date>`max(${heartbeatRuns.createdAt})`.mapWith(heartbeatRuns.createdAt),
+    })
+    .from(heartbeatRuns)
+    .where(and(
+      eq(heartbeatRuns.companyId, companyId),
+      inArray(heartbeatRuns.agentId, agentIds),
+      gt(heartbeatRuns.createdAt, since),
+    ))
+    .groupBy(heartbeatRuns.agentId, heartbeatRuns.contextIssueId, heartbeatRuns.contextTaskId);
+}
 
 export function listAttentionExhaustedRuns(db: Db, companyId: string) {
   // Recovery can revisit an exhausted run. Deduplicate its historical events
