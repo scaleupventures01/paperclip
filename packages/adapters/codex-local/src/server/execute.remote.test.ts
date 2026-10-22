@@ -565,8 +565,28 @@ describe("codex remote execution", () => {
     await mkdir(workspaceDir, { recursive: true });
     await mkdir(codexHomeDir, { recursive: true });
     await writeFile(path.join(codexHomeDir, "auth.json"), "{}", "utf8");
+    const logs: string[] = [];
+    runChildProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: "",
+      stderr: "",
+      pid: 123,
+      startedAt: new Date().toISOString(),
+    });
+    (runSshCommand as unknown as {
+      mockImplementation: (
+        implementation: (_spec: unknown, command: string) => Promise<{ stdout: string; stderr: string }>,
+      ) => void;
+    }).mockImplementation(async (_spec: unknown, command: string) => ({
+      stdout: command.includes("__PAPERCLIP_REMOTE_FILE_MISSING_V1__")
+        ? "__PAPERCLIP_REMOTE_FILE_MISSING_V1__"
+        : "",
+      stderr: "",
+    }));
 
-    await execute({
+    const result = await execute({
       runId: "run-in-place",
       agent: {
         id: "agent-1",
@@ -604,9 +624,14 @@ describe("codex remote execution", () => {
           strictHostKeyChecking: true,
         },
       },
-      onLog: async () => {},
+      onLog: async (_stream, chunk) => {
+        logs.push(chunk);
+      },
     });
 
+    expect(result.exitCode).toBe(0);
+    expect(result.errorMessage).toBeNull();
+    expect(logs.join("\n")).toContain("no sandbox credential to copy back");
     expect(prepareWorkspaceForSshExecution).not.toHaveBeenCalled();
     expect(syncDirectoryToSsh).toHaveBeenCalledTimes(1);
     expect(restoreWorkspaceFromSshExecution).not.toHaveBeenCalled();
@@ -615,14 +640,19 @@ describe("codex remote execution", () => {
       remoteDir: string;
     };
     expect(homeSyncArgs.localDir).toContain("paperclip-codex-home-sync");
-    expect(homeSyncArgs.remoteDir).toBe("/app/.paperclip-runtime/codex/home");
+    expect(homeSyncArgs.remoteDir).toBe("/app/.paperclip-runtime/runs/run-in-place/codex/home");
+    expect(runSshCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("/.paperclip-runtime/persistent/codex/agent-1/home/sessions"),
+      { maxBuffer: 1024 * 1024 },
+    );
     const call = runChildProcess.mock.calls[0] as unknown as
       | [string, string, string[], { env: Record<string, string>; remoteExecution?: { remoteCwd: string } | null }]
       | undefined;
     expect(call?.[3].env.PAPERCLIP_WORKSPACE_CWD).toBe("/app");
     expect(call?.[3].env.PAPERCLIP_WORKSPACE_REALIZATION_MODE).toBe("in_place");
     expect(call?.[3].env.PAPERCLIP_WORKSPACE_AUTHORITATIVE_ROOT).toBe("/app");
-    expect(call?.[3].env.CODEX_HOME).toBe("/app/.paperclip-runtime/codex/home");
+    expect(call?.[3].env.CODEX_HOME).toBe("/app/.paperclip-runtime/runs/run-in-place/codex/home");
     expect(call?.[3].remoteExecution?.remoteCwd).toBe("/app");
   });
 });

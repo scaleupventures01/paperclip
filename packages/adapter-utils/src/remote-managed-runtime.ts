@@ -38,6 +38,10 @@ export interface RemoteManagedRuntimeAsset {
   localDir: string;
   followSymlinks?: boolean;
   exclude?: string[];
+  inPlaceSshPersistence?: {
+    scope: string;
+    directories: string[];
+  };
   restore?: (ctx: SandboxManagedRuntimeAssetRestoreContext) => Promise<void>;
 }
 
@@ -74,10 +78,29 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+function isSimplePathSegment(value: string): boolean {
+  return value.length > 0 && value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\");
+}
+
+const REMOTE_FILE_MISSING_MARKER = "__PAPERCLIP_REMOTE_FILE_MISSING_V1__";
+
 async function readRemoteFile(spec: SshRemoteExecutionSpec, remotePath: string): Promise<Buffer> {
-  const result = await runSshCommand(spec, `base64 < ${shellQuote(remotePath)}`, {
-    maxBuffer: 1024 * 1024,
-  });
+  const quotedPath = shellQuote(remotePath);
+  const quotedParent = shellQuote(path.posix.dirname(remotePath));
+  const result = await runSshCommand(
+    spec,
+    `if [ ! -e ${quotedPath} ] && [ ! -L ${quotedPath} ] && ` +
+      `[ -d ${quotedParent} ] && [ -x ${quotedParent} ]; then ` +
+      `printf %s ${shellQuote(REMOTE_FILE_MISSING_MARKER)}; else base64 < ${quotedPath}; fi`,
+    {
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  if (result.stdout === REMOTE_FILE_MISSING_MARKER) {
+    const error = new Error(`Remote file does not exist: ${remotePath}`) as NodeJS.ErrnoException;
+    error.code = "ENOENT";
+    throw error;
+  }
   return Buffer.from(result.stdout.replace(/\s+/g, ""), "base64");
 }
 
@@ -131,7 +154,34 @@ export async function prepareRemoteManagedRuntime(input: {
         "workspace",
       )
     : baseWorkspaceRemoteDir;
-  const runtimeRootDir = path.posix.join(workspaceRemoteDir, ".paperclip-runtime", input.adapterKey);
+  if (!isSimplePathSegment(input.runId)) {
+    throw new Error(`runId is not a simple path segment: ${input.runId}`);
+  }
+  const runtimeRootDir = syncWorkspace
+    ? path.posix.join(workspaceRemoteDir, ".paperclip-runtime", input.adapterKey)
+    : path.posix.join(
+        workspaceRemoteDir,
+        ".paperclip-runtime",
+        "runs",
+        input.runId,
+        input.adapterKey,
+      );
+  const cleanupInPlaceRuntime = async () => {
+    if (syncWorkspace) return;
+    await runSshCommand(input.spec, `rm -rf -- ${shellQuote(runtimeRootDir)}`, {
+      maxBuffer: 1024 * 1024,
+    });
+  };
+  const cleanupInPlaceRuntimeBestEffort = async () => {
+    try {
+      await cleanupInPlaceRuntime();
+    } catch (error) {
+      console.warn(
+        `[paperclip] Failed to remove the in-place SSH runtime for run ${input.runId}; ` +
+        `the run result is preserved and the exact runtime root needs later cleanup. ${String(error)}`,
+      );
+    }
+  };
 
   const preparedWorkspace = syncWorkspace
     ? await prepareWorkspaceForSshExecution({
@@ -154,6 +204,17 @@ export async function prepareRemoteManagedRuntime(input: {
     for (const asset of input.assets ?? []) {
       const remoteDir = path.posix.join(runtimeRootDir, asset.key);
       assetDirs[asset.key] = remoteDir;
+      const persistence = !syncWorkspace ? asset.inPlaceSshPersistence : undefined;
+      if (persistence) {
+        if (!isSimplePathSegment(persistence.scope)) {
+          throw new Error(`in-place SSH persistence scope is not a simple path segment: ${persistence.scope}`);
+        }
+        for (const directory of persistence.directories) {
+          if (!isSimplePathSegment(directory)) {
+            throw new Error(`in-place SSH persistent directory is not a simple path segment: ${directory}`);
+          }
+        }
+      }
       await syncDirectoryToSsh({
         spec: input.spec,
         localDir: asset.localDir,
@@ -163,6 +224,28 @@ export async function prepareRemoteManagedRuntime(input: {
         onProgress: input.onProgress,
         progressLabel: asset.key,
       });
+      if (persistence) {
+        const { scope, directories } = persistence;
+        for (const directory of directories) {
+          const persistentDir = path.posix.join(
+            workspaceRemoteDir,
+            ".paperclip-runtime",
+            "persistent",
+            input.adapterKey,
+            scope,
+            asset.key,
+            directory,
+          );
+          const assetDir = path.posix.join(remoteDir, directory);
+          await runSshCommand(
+            input.spec,
+            `mkdir -p ${shellQuote(persistentDir)} && ` +
+            `rm -rf -- ${shellQuote(assetDir)} && ` +
+            `ln -s ${shellQuote(persistentDir)} ${shellQuote(assetDir)}`,
+            { maxBuffer: 1024 * 1024 },
+          );
+        }
+      }
     }
   } catch (error) {
     if (preparedWorkspace && baselineSnapshot) {
@@ -175,6 +258,7 @@ export async function prepareRemoteManagedRuntime(input: {
         onProgress: input.onProgress,
       });
     }
+    await cleanupInPlaceRuntimeBestEffort();
     throw error;
   }
 
@@ -232,22 +316,26 @@ export async function prepareRemoteManagedRuntime(input: {
     assetDirs,
     additionalSourceDirs,
     restoreWorkspace: async (onProgress?: RuntimeProgressSink) => {
-      if (preparedWorkspace && baselineSnapshot) {
-        await restoreWorkspaceFromSshExecution({
-          spec: input.spec,
-          localDir: input.workspaceLocalDir,
-          remoteDir: workspaceRemoteDir,
-          baselineSnapshot,
-          restoreGitHistory: preparedWorkspace.gitBacked,
-          onProgress,
-        });
-      }
-      for (const asset of input.assets ?? []) {
-        if (!asset.restore) continue;
-        await asset.restore({
-          assetDir: path.posix.join(runtimeRootDir, asset.key),
-          readFile: (remotePath) => readRemoteFile(input.spec, remotePath),
-        });
+      try {
+        if (preparedWorkspace && baselineSnapshot) {
+          await restoreWorkspaceFromSshExecution({
+            spec: input.spec,
+            localDir: input.workspaceLocalDir,
+            remoteDir: workspaceRemoteDir,
+            baselineSnapshot,
+            restoreGitHistory: preparedWorkspace.gitBacked,
+            onProgress,
+          });
+        }
+        for (const asset of input.assets ?? []) {
+          if (!asset.restore) continue;
+          await asset.restore({
+            assetDir: path.posix.join(runtimeRootDir, asset.key),
+            readFile: (remotePath) => readRemoteFile(input.spec, remotePath),
+          });
+        }
+      } finally {
+        await cleanupInPlaceRuntimeBestEffort();
       }
     },
   };

@@ -105,6 +105,7 @@ export { routineService } from "./routines.js";
 export { costService } from "./costs.js";
 export { financeService } from "./finance.js";
 export { heartbeatService, resolveExecutionRunAdapterConfig, resolveHeartbeatSchedulingSuppression } from "./heartbeat.js";
+export { startOwnedCancelledRunSweep } from "./heartbeat.js";
 export {
   runnerGoalService,
   applyRunnerGoalPrpEvent,
@@ -198,6 +199,7 @@ export {
   type ActivityPublication,
   type LogActivityInput,
 } from "./activity-log.js";
+export { g6CertificationReservationService } from "./g6-certification-reservations.js";
 export { summarySlotService, SUMMARIZER_BUILT_IN_KEY } from "./summary-slots.js";
 export { notifyHireApproved, type NotifyHireApprovedInput } from "./hire-hook.js";
 export { publishLiveEvent, subscribeCompanyLiveEvents } from "./live-events.js";

@@ -107,6 +107,12 @@ const NO_REVIEW_PARTICIPANT: ReviewParticipantFacts = {
   currentParticipant: null,
 };
 
+const AUTOMATIC_ISSUE_CONTINUATION_WAKE_REASONS = new Set([
+  "issue_continuation_needed",
+  "issue_children_completed",
+  "issue_blockers_resolved",
+]);
+
 async function readNativeReviewParticipantFacts(db: Db, input: {
   companyId: string; issueId: string; agentId: string; contextSnapshot: unknown;
 }): Promise<ReviewParticipantFacts | null> {
@@ -549,10 +555,12 @@ export function createPostgresRunDispatchAdapter(
 
     const continuationParkApplies = Boolean(
       issue &&
-        issue.status === "in_progress" &&
+        issue.status !== "done" &&
+        issue.status !== "cancelled" &&
         !wakeCommentId &&
         !hasResolvedInteractionEvidence &&
-        (wakeReason === "issue_continuation_needed" || retryReason === "issue_continuation_needed"),
+        ((wakeReason !== null && AUTOMATIC_ISSUE_CONTINUATION_WAKE_REASONS.has(wakeReason)) ||
+          retryReason === "issue_continuation_needed"),
     );
     let continuationSummaryBody: string | null = null;
     let continuationParksExecutor = false;

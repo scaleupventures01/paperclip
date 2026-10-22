@@ -1653,6 +1653,141 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
   });
 
+  // Gate 3 gap tests G1, G2, G4: the GLM issue run cap on the real heartbeat
+  // dispatch path, one below, one above, and a retry that carries its source
+  // run's admission.
+  async function seedAdmittedGlmIssueRuns(input: {
+    companyId: string;
+    agentId: string;
+    issueId: string;
+    now: Date;
+    count: number;
+  }) {
+    const ids = Array.from({ length: input.count }, () => randomUUID());
+    await db.insert(heartbeatRuns).values(ids.map((id, index) => ({
+      id,
+      companyId: input.companyId,
+      agentId: input.agentId,
+      invocationSource: "recovery",
+      status: "succeeded" as const,
+      startedAt: new Date(input.now.getTime() - (index + 1) * 1_000),
+      finishedAt: new Date(input.now.getTime() - index * 1_000),
+      contextSnapshot: {
+        issueId: input.issueId,
+        providerUsageAdmission: {
+          status: "admitted",
+          providerKey: "glm",
+          admittedAt: new Date(input.now.getTime() - (index + 1) * 1_000).toISOString(),
+        },
+      },
+      createdAt: new Date(input.now.getTime() - (index + 1) * 1_000),
+      updatedAt: input.now,
+    })));
+    return ids;
+  }
+
+  async function useGlmAgent(agentId: string, runId: string, now: Date) {
+    await db.update(agents).set({
+      adapterType: "opencode_local",
+      adapterConfig: { provider: "opencode", model: "zai/glm-5.3-flash" },
+    }).where(eq(agents.id, agentId));
+    await db.update(heartbeatRuns).set({ createdAt: now, updatedAt: now }).where(eq(heartbeatRuns.id, runId));
+  }
+
+  it("G1 admits a GLM issue run one below the cap on the real dispatch path", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    await useGlmAgent(agentId, runId, now);
+    await seedAdmittedGlmIssueRuns({ companyId, agentId, issueId, now, count: 5 });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId);
+    await heartbeat.waitForRunExecutionDrain(runId);
+
+    expect(mockAdapterExecute).toHaveBeenCalledTimes(1);
+    const run = await heartbeat.getRun(runId);
+    expect(run?.errorCode).not.toBe("provider_usage_limited");
+    expect(run).toMatchObject({
+      contextSnapshot: {
+        providerUsageAdmission: {
+          status: "admitted",
+          providerKey: "glm",
+          observed: { issueRuns: 5 },
+        },
+      },
+    });
+  });
+
+  it("G2 blocks a GLM issue run above the cap on the real dispatch path", async () => {
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    await useGlmAgent(agentId, runId, now);
+    await seedAdmittedGlmIssueRuns({ companyId, agentId, issueId, now, count: 7 });
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId);
+    await heartbeat.waitForRunExecutionDrain(runId);
+
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+    expect(await heartbeat.getRun(runId)).toMatchObject({
+      status: "cancelled",
+      errorCode: "provider_usage_limited",
+      contextSnapshot: {
+        providerUsageAdmission: {
+          status: "blocked",
+          providerKey: "glm",
+          block: { scope: "issue", metric: "runs", observed: 7, limit: 6 },
+        },
+      },
+    });
+  });
+
+  it("G4 counts a retry that cloned its admitted source run's context against the cap", async () => {
+    // Documents current behavior: a retry's context is built by spreading the
+    // source run's contextSnapshot (heartbeat.ts retryContextSnapshot), which
+    // carries providerUsageAdmission.status "admitted", and the admission
+    // count does not exclude the run being admitted. Five prior admitted runs
+    // therefore block the retry at observed 6.
+    const { companyId, agentId, runId, issueId } = await seedQueuedIssueRunFixture();
+    const now = new Date();
+    await useGlmAgent(agentId, runId, now);
+    const [sourceRunId] = await seedAdmittedGlmIssueRuns({ companyId, agentId, issueId, now, count: 5 });
+    const source = await db
+      .select({ contextSnapshot: heartbeatRuns.contextSnapshot })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, sourceRunId!))
+      .then((rows) => rows[0]);
+    await db.update(heartbeatRuns).set({
+      retryOfRunId: sourceRunId,
+      contextSnapshot: {
+        ...(source?.contextSnapshot ?? {}),
+        taskId: issueId,
+        wakeReason: "issue_assigned",
+        retryOfRunId: sourceRunId,
+      },
+    }).where(eq(heartbeatRuns.id, runId));
+    const heartbeat = heartbeatService(db);
+
+    await heartbeat.resumeQueuedRuns();
+    await waitForRunToSettle(heartbeat, runId);
+    await heartbeat.waitForRunExecutionDrain(runId);
+
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+    expect(await heartbeat.getRun(runId)).toMatchObject({
+      status: "cancelled",
+      errorCode: "provider_usage_limited",
+      contextSnapshot: {
+        providerUsageAdmission: {
+          status: "blocked",
+          providerKey: "glm",
+          block: { scope: "issue", metric: "runs", observed: 6, limit: 6 },
+        },
+      },
+    });
+  });
+
   it("persists the normalized failure without permanently blocking the conversation", async () => {
     mockAdapterExecute.mockResolvedValueOnce({
       exitCode: 1,

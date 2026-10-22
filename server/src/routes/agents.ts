@@ -43,6 +43,8 @@ import {
   updateAgentPermissionsSchema,
   updateAgentInstructionsPathSchema,
   wakeAgentSchema,
+  createG6CertificationReservationSchema,
+  closeG6CertificationReservationSchema,
   updateAgentSchema,
   supportedEnvironmentDriversForAdapter,
   LOW_TRUST_REVIEW_PRESET,
@@ -82,6 +84,7 @@ import {
   syncInstructionsBundleConfigFromFilePath,
   workspaceOperationService,
 } from "../services/index.js";
+import { g6CertificationReservationService } from "../services/g6-certification-reservations.js";
 import { badRequest, conflict, forbidden, HttpError, notFound, unprocessable } from "../errors.js";
 import { ONBOARDING_FIRST_TASK_SKILL_KEY, PAPERCLIP_CORE_SKILL_KEYS } from "../services/company-skills.js";
 import { createRunSecretRedactionRegistry } from "../services/run-secret-redaction.js";
@@ -532,6 +535,7 @@ export function agentRoutes(
   const access = accessService(db);
   const approvalsSvc = approvalService(db);
   const budgets = budgetService(db);
+  const g6Reservations = g6CertificationReservationService(db);
   const environmentsSvc = environmentService(db);
   const environmentRuntime = environmentRuntimeService(db, {
     pluginWorkerManager: options.pluginWorkerManager,
@@ -4589,6 +4593,99 @@ export function agentRoutes(
     res.json(state);
   });
 
+  router.post(
+    "/agents/:id/g6-certification-reservations",
+    validate(createG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      const reservation = await g6Reservations.create({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        expectedIssueIds: req.body.expectedIssueIds,
+        expiresAt: new Date(req.body.expiresAt),
+        actor: { userId: req.actor.userId ?? "board" },
+      });
+      res.status(201).json(reservation);
+    },
+  );
+
+  router.get("/agents/:id/g6-certification-reservations/active", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+    if (!agent) return;
+    await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+    const reservation = await g6Reservations.getActive(agent.companyId, agent.id);
+    if (!reservation) {
+      res.status(404).json({ error: "Active G6 certification reservation not found" });
+      return;
+    }
+    res.json(reservation);
+  });
+
+  router.get("/agents/:id/g6-certification-reservations/:reservationId", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+    if (!agent) return;
+    await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+    const reservation = await g6Reservations.getById(
+      agent.companyId,
+      agent.id,
+      req.params.reservationId as string,
+    );
+    if (!reservation) {
+      res.status(404).json({ error: "G6 certification reservation not found" });
+      return;
+    }
+    res.json(reservation);
+  });
+
+  router.post(
+    "/agents/:id/g6-certification-reservations/:reservationId/verify-and-release",
+    validate(closeG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      res.json(await g6Reservations.verifyAndRelease({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        reservationId: req.params.reservationId as string,
+        actor: { userId: req.actor.userId ?? "board" },
+        reason: req.body.reason,
+      }));
+    },
+  );
+
+  router.post(
+    "/agents/:id/g6-certification-reservations/:reservationId/abort",
+    validate(closeG6CertificationReservationSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const agent = await getAccessibleResource(req, res, svc.getById(id), "Agent not found");
+      if (!agent) return;
+      await assertBoardCanManageAgentsForCompany(req, agent.companyId);
+      const reservation = await g6Reservations.abort({
+        companyId: agent.companyId,
+        agentId: agent.id,
+        reservationId: req.params.reservationId as string,
+        actor: { userId: req.actor.userId ?? "board" },
+        reason: req.body.reason,
+      });
+      await heartbeat.cancelActiveForAgent(id);
+      await g6Reservations.markContainmentCompleted(id);
+      res.json(reservation);
+    },
+  );
+
   router.get("/agents/:id/task-sessions", async (req, res) => {
     assertBoard(req);
     const id = req.params.id as string;
@@ -5657,6 +5754,13 @@ export function agentRoutes(
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });
       return;
+    }
+
+    // A paused agent holds no queued or running work, matching
+    // POST /agents/:id/pause. Run on every PATCH that leaves the agent paused,
+    // including a repeat, so it also sweeps rows that raced in (agentos#596).
+    if (agent.status === "paused") {
+      await heartbeat.cancelActiveForAgent(id);
     }
 
     await logActivity(db, {
@@ -7103,11 +7207,15 @@ export function agentRoutes(
     // Stamp the cancellation as operator-initiated (this route is board-only).
     // Recovery reads this to stand down instead of classifying the cancelled
     // run as agent stranding and re-waking the agent the operator just stopped.
+    // The release tail runs immediately and does not read that stamp, so also
+    // suppress immediate recovery: a stop of one run must not re-queue the
+    // same agent on the same card. Card status is never written here.
     const run = await heartbeat.cancelRun(runId, "Cancelled by a board operator", {
       resultJson: {
         cancelledByActorType: "user",
         cancelledByUserId: req.actor.userId ?? null,
       },
+      suppressImmediateRecovery: true,
     });
 
     if (run) {

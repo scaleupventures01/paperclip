@@ -242,6 +242,23 @@ Triage writes serialize on the company and attention-source identity so concurre
 
 `decision_retention` tracks the last observed source `activityAt`, Keep, reversible archive provenance, and monotonic source/archive versions. `decision_archive_notification_outbox` has a unique key over company, source identity, archive version, and immutable origin agent so repeated sweeps cannot enqueue duplicate notifications; delivery claims are retryable and coalesced per agent.
 
+## G6 certification reservations
+
+`g6_certification_reservations` and
+`g6_certification_reservation_issues` hold the durable, company-scoped admission
+fence used for exact-issue G6 certification batches. A partial unique index
+allows only one active reservation per agent. The parent row preserves the
+agent's pre-certification runtime configuration, operator provenance, expiry,
+close disposition, and verification receipt; member rows preserve ordered exact
+issue identity and the single admitted/terminal run binding.
+
+Actionable issue writes and queued/running heartbeat admissions take the same
+transaction-scoped advisory lock as reserve-and-activate. Therefore a concurrent unrelated assignment or run either lands
+before the reservation's exact-demand scan and makes creation fail, or lands
+after activation and is deferred by both heartbeat admission checks. Expiry,
+abort, and verification release are explicit durable transitions; expiry and
+abort restore preset state and leave the agent paused.
+
 ## Native runner persistence
 
 Native runner state is additive to the existing heartbeat tables. Every existing

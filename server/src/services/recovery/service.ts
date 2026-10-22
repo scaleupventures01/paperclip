@@ -1,4 +1,6 @@
 import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
+import { isIntentionallyPausedAgent } from "../intentional-pause.js";
+import { evaluateFleetReleaseGate } from "../fleet-release-gate.js";
 import { externalConversationStateSql } from "../slack-conversation-state.js";
 import { hasLiveLegacyController } from "../legacy-controller-lease.js";
 import { instanceSettingsService } from "../instance-settings.js";
@@ -167,6 +169,7 @@ const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON =
   "execution_review_participant_recovery";
 const STRANDED_BOARD_ESCALATION_POLICY = "board_escalation_no_takeover_v1";
+export { isIntentionallyPausedAgent };
 const DISPOSITION_REPAIR_IDEMPOTENCY_INDEX =
   "agent_wakeup_requests_disposition_repair_idempotency_uq";
 const RESOLVED_DEPENDENCY_WAKE_BACKSTOP_CANDIDATE_LIMIT = 500;
@@ -480,6 +483,7 @@ const TRANSIENT_INFRA_CONTINUATION_ERROR_CODES = new Set<string>([
   "codex_transient_upstream",
   "codex_harness_crash",
   "claude_transient_upstream",
+  "provider_http_5xx",
   "provider_quota",
   "timeout",
 ]);
@@ -490,6 +494,12 @@ const NON_RETRYABLE_CONTINUATION_ERROR_CODES = new Set<string>([
   "agent_not_found",
   "budget_blocked",
   "budget_exhausted",
+  // AgentOS launcher refusal (exit 78, "capability_missing: ..."). A retry
+  // repeats the identical refusal and spends the usage breaker's card cap.
+  "capability_missing",
+  // A 4xx refusal from our own API to the agent's request (heartbeat.ts
+  // isApiRefusalFailure). A retry sends the same request again.
+  "api_refusal",
   "issue_paused",
   "issue_dependencies_blocked",
   // This is the fail-closed fallback for exceptions raised before an adapter
@@ -526,7 +536,11 @@ export const PROVIDER_QUOTA_RECOVERY_DEFAULT_BACKOFF_MS = 60 * 60 * 1000;
 const PROVIDER_QUOTA_ERROR_RE =
   /(?:you(?:'|’)ve hit your (?:\w+ )?limit|usage limit(?: reached| exceeded)?|provider quota|quota (?:limit )?exceeded|model (?:is )?at capacity)/i;
 const CONFIGURATION_INCOMPLETE_ERROR_RE =
-  /(?:model_not_found|model [^\n]{0,120} not found|missing (?:api )?(?:key|credentials?)|credentials? (?:are |is )?missing|no (?:api )?(?:key|credentials?) (?:was |were )?(?:found|configured|provided)|api key (?:is )?(?:not set|unavailable))/i;
+  // `model (?!metadata for )`: codex prints "Model metadata for `glm-5.3-flash`
+  // not found. Defaulting to fallback metadata" on healthy GLM runs; it is a
+  // warning, not a missing model (2026-10-16: on 17 of 17 failed 502 runs and
+  // 46 of 134 succeeded codex_local runs).
+  /(?:model_not_found|model (?!metadata for )[^\n]{0,120} not found|missing (?:api )?(?:key|credentials?)|credentials? (?:are |is )?missing|no (?:api )?(?:key|credentials?) (?:was |were )?(?:found|configured|provided)|api key (?:is )?(?:not set|unavailable))/i;
 
 export type AdapterFailureRecoveryClassification =
   | { kind: "provider_quota"; retryAt: Date; parsedResetTime: boolean }
@@ -3943,6 +3957,18 @@ export function recoveryService(
     const updated = await issuesSvc.update(input.issue.id, {
       status: "blocked",
       blockedByIssueIds: blockerIds,
+      ...(isProviderQuotaWait
+        ? {}
+        : {
+            unblockDescriptor: {
+              owner: recoveryAction.ownerAgentId
+                ? { agentId: recoveryAction.ownerAgentId }
+                : recoveryAction.ownerUserId
+                  ? { userId: recoveryAction.ownerUserId }
+                  : ("board" as const),
+              action: recoveryAction.nextAction,
+            },
+          }),
     });
     if (!updated) return null;
     if (isProviderQuotaWait) return updated;
@@ -4351,6 +4377,8 @@ export function recoveryService(
       recentProgressExempted: 0,
       operatorCancelExempted: 0,
       onboardingFirstTaskExempted: 0,
+      intentionalPauseFrozen: 0,
+      fleetReleaseGateHeld: 0,
       skipped: 0,
       issueIds: [] as string[],
     };
@@ -4446,6 +4474,30 @@ export function recoveryService(
       }
 
       const agent = await getAgent(agentId);
+      // An agent paused on purpose freezes its cards exactly as they are
+      // (Calvin 2026-10-14). Recovery must not move them to blocked or post
+      // escalation comments; wakes for them stay refused by the invokability
+      // and fleet release gates. A budget pause is automatic, so it keeps the
+      // existing escalation below.
+      if (
+        agent?.companyId === issue.companyId &&
+        isIntentionallyPausedAgent(agent)
+      ) {
+        result.intentionalPauseFrozen += 1;
+        continue;
+      }
+      // An owner held off the fleet release allowlist is frozen the same way.
+      // Every wake for it is refused at admission, and a refused (skipped) wake
+      // is invisible to hasQueuedIssueWake, so this sweep used to re-dispatch an
+      // assigned-todo wake about every 15 s per held card (5,566 skipped rows on
+      // 2026-10-14, wakestorm-20261014). The gate is re-read on every call.
+      if (
+        agent?.companyId === issue.companyId &&
+        !evaluateFleetReleaseGate(agentId).allowed
+      ) {
+        result.fleetReleaseGateHeld += 1;
+        continue;
+      }
       const agentInvokable =
         agent && agent.companyId === issue.companyId
           ? await isAgentInvokable(agent)
@@ -5544,6 +5596,7 @@ export function recoveryService(
       interactionSkipped: 0,
       pauseHoldSkipped: 0,
       notReadySkipped: 0,
+      durableWaitSkipped: 0,
       candidateLimitSkipped: 0,
       deferredOrFailed: 0,
       enqueueFailed: 0,
@@ -5585,6 +5638,11 @@ export function recoveryService(
             identifier: issues.identifier,
             assigneeAgentId: issues.assigneeAgentId,
             blockedTransitionAt: issues.blockedTransitionAt,
+            status: issues.status,
+            assigneeUserId: issues.assigneeUserId,
+            executionPolicy: issues.executionPolicy,
+            executionState: issues.executionState,
+            monitorNextCheckAt: issues.monitorNextCheckAt,
             totalCount: sql<number>`count(*) over()::int`,
           })
           .from(issueRelations)
@@ -5601,6 +5659,11 @@ export function recoveryService(
           identifier: issues.identifier,
           assigneeAgentId: issues.assigneeAgentId,
           blockedTransitionAt: issues.blockedTransitionAt,
+          status: issues.status,
+          assigneeUserId: issues.assigneeUserId,
+          executionPolicy: issues.executionPolicy,
+          executionState: issues.executionState,
+          monitorNextCheckAt: issues.monitorNextCheckAt,
           totalCount: sql<number>`count(*) over()::int`,
         })
         .from(issues)
@@ -5717,6 +5780,22 @@ export function recoveryService(
 
         if (await hasPendingWakeInteraction(companyId, candidate.id)) {
           result.interactionSkipped += 1;
+          continue;
+        }
+
+        // Run dispatch parks an issue_blockers_resolved continuation whenever a
+        // durable wait (open child, user owner, future monitor, pending stage,
+        // interaction or approval) owns the next action. Enqueueing here while
+        // that wait holds only produces a run that is cancelled before the
+        // provider, and the parked wake row is `skipped`, which the ready-state
+        // dedup does not count, so every pass re-enqueued it (Gate 3 P_child,
+        // 2026-10-14). Wait for the durable wait to clear; the next pass after
+        // that emits exactly one wake for the same ready state.
+        const durableWait = await collectDispositionRepairSourceState(db, {
+          issue: { ...candidate, companyId },
+        });
+        if (durableWait.hasDurableWaitingPath) {
+          result.durableWaitSkipped += 1;
           continue;
         }
 

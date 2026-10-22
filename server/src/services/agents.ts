@@ -1003,16 +1003,12 @@ export function agentService(db: Db) {
             notInArray(issues.status, ["done", "cancelled"]),
           ))
           .for("update");
+        // Without a replacement, pausing freezes the agent's cards exactly as
+        // they are (status, assignee and blockers untouched) so resuming puts
+        // each card back where it was (Calvin 2026-10-14).
         if (replacementId) {
           await tx.update(issues)
             .set({ assigneeAgentId: replacementId, updatedAt: new Date() })
-            .where(and(
-              eq(issues.assigneeAgentId, id),
-              notInArray(issues.status, ["done", "cancelled"]),
-            ));
-        } else {
-          await tx.update(issues)
-            .set({ status: "cancelled", updatedAt: new Date() })
             .where(and(
               eq(issues.assigneeAgentId, id),
               notInArray(issues.status, ["done", "cancelled"]),
@@ -1044,7 +1040,8 @@ export function agentService(db: Db) {
           cardChanges: {
             openBefore: openIssues.length,
             moved: replacementId ? openIssues.length : 0,
-            closed: replacementId ? 0 : openIssues.length,
+            closed: 0,
+            frozen: replacementId ? 0 : openIssues.length,
           },
         };
       });

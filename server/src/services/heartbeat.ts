@@ -7,6 +7,7 @@ import { readQueuedInteractionResponse } from "./queued-interaction-response.js"
 import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversationExecutionWake, isWaitingConversation, prepareConversationTurn, settleConversationTurn } from "./agent-conversations.js";
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
+import { handoffWakeReleaseEnabled } from "./handoff-wake-release.js";
 import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteExecutionHasStopped, remoteTerminationReceipt, stoppedRemoteCleanupScopes } from "./remote-execution-termination.js";
@@ -35,6 +36,7 @@ import {
 import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { admitProviderUsage, resolveUsageProviderKey } from "./provider-usage-breaker.js";
+import { g6CertificationReservationService } from "./g6-certification-reservations.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
@@ -548,6 +550,10 @@ import {
   DIRECT_NON_INVOKABLE_STATUSES,
   type AgentOrgRow,
 } from "./agent-invokability.js";
+import {
+  evaluateFleetReleaseGate,
+  FLEET_RELEASE_GATE_SKIP_REASON,
+} from "./fleet-release-gate.js";
 import { isHeartbeatWakeOnDemandEnabled } from "./heartbeat-policy.js";
 import {
   isLowTrustQuarantined,
@@ -799,6 +805,10 @@ export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [
   30_000, 30_000,
 ] as const;
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_JITTER_RATIO = 0;
+// A finishing run releases its card inline, seconds after its terminal status
+// is written (SCAA-1001 c72e8311: finished 02:41:30.45Z, release side effects
+// at 02:41:32.38Z). Two minutes keeps the stranded-queue sweep out of that path.
+const TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS = 2 * 60 * 1000;
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON = "transient_failure";
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON = "transient_failure_retry";
 function isTransientWorkspaceGitScanCode(code: string | null | undefined): boolean {
@@ -1083,6 +1093,7 @@ function readHeartbeatRunErrorFamily(
   if (
     run.errorCode === "codex_transient_upstream" ||
     run.errorCode === "claude_transient_upstream" ||
+    run.errorCode === "provider_http_5xx" ||
     run.errorCode === "codex_harness_crash"
   ) {
     return "transient_upstream";
@@ -1127,6 +1138,102 @@ function readTransientRecoveryContractFromRun(
         retryNotBefore: readTransientRetryNotBeforeFromRun(run),
       }
     : null;
+}
+
+// AgentOS managed launchers (agentos-codex-glm-managed and its siblings) exit
+// 78 (EX_CONFIG) when a required capability is missing and print
+// "capability_missing: ..." on stderr, e.g. an unhealthy Akili lane. Running
+// the agent again produces the identical refusal, so it is never a transient
+// failure and must not spend the bounded retry budget or the provider usage
+// breaker's per-card cap.
+const CAPABILITY_MISSING_ERROR_CODE = "capability_missing";
+const CAPABILITY_MISSING_EXIT_CODE = 78;
+const CAPABILITY_MISSING_MESSAGE_RE = /^\s*capability_missing:/;
+
+function isCapabilityMissingFailure(input: {
+  exitCode?: number | null;
+  errorCode?: string | null;
+  errorMessages: unknown[];
+}) {
+  return (
+    input.errorCode === CAPABILITY_MISSING_ERROR_CODE ||
+    input.exitCode === CAPABILITY_MISSING_EXIT_CODE ||
+    input.errorMessages.some(
+      (value) =>
+        typeof value === "string" && CAPABILITY_MISSING_MESSAGE_RE.test(value),
+    )
+  );
+}
+
+function isCapabilityMissingRun(
+  run: Pick<
+    typeof heartbeatRuns.$inferSelect,
+    "error" | "errorCode" | "exitCode" | "resultJson"
+  >,
+) {
+  const resultJson = parseObject(run.resultJson);
+  return isCapabilityMissingFailure({
+    exitCode: run.exitCode,
+    errorCode: run.errorCode,
+    errorMessages: [run.error, resultJson.errorMessage],
+  });
+}
+
+// A 4xx answer from our own API to the agent's request (the AgentOS jev seat
+// prints "agentos-http http_error status=NNN") is a deterministic refusal:
+// a rerun sends the same request and gets the same answer (SCAA-1001, 409
+// "Delegation cycle", 2026-10-15). 401, 408 and 429 can clear on their own
+// (fresh token, timeout, rate limit) and stay retryable.
+const API_REFUSAL_ERROR_CODE = "api_refusal";
+const API_REFUSAL_MESSAGE_RE =
+  /agentos-http http_error status=(400|403|404|409|410|422)\b/;
+// The sandbox host bridge answers an uncertain write (its host call timed out
+// or lost its receipt) with 409 and outcome "indeterminate" so that one HTTP
+// request is not repeated (adapter-utils sandbox-callback-bridge.ts). That is a
+// transient bridge failure, not a refusal by our API: a fresh run re-reads the
+// card and decides (P3, run 066a9cab, 2026-10-16 00:02Z).
+const HOST_BRIDGE_INDETERMINATE_RE =
+  /"outcome"\s*:\s*"indeterminate"|Timed out waiting for host bridge response/;
+
+function isApiRefusalFailure(input: {
+  errorCode?: string | null;
+  errorMessages: unknown[];
+}) {
+  const messages = input.errorMessages.filter(
+    (value): value is string => typeof value === "string",
+  );
+  if (messages.some((value) => HOST_BRIDGE_INDETERMINATE_RE.test(value))) {
+    return false;
+  }
+  return (
+    input.errorCode === API_REFUSAL_ERROR_CODE ||
+    messages.some((value) => API_REFUSAL_MESSAGE_RE.test(value))
+  );
+}
+
+function isApiRefusalRun(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "error" | "errorCode" | "resultJson">,
+) {
+  const resultJson = parseObject(run.resultJson);
+  return isApiRefusalFailure({
+    errorCode: run.errorCode,
+    errorMessages: [run.error, resultJson.errorMessage],
+  });
+}
+
+// A provider answering HTTP 500, 502, 503 or 504 (codex prints "unexpected
+// status 502 Bad Gateway: <html>...</html>, url: ...") is an upstream outage,
+// not a fault in the agent or its configuration. Live 2026-10-16 08:03 to
+// 08:51 ET: 17 GLM runs failed this way and five agents sat in `error` until
+// cleared by hand. Matched on the adapter's error message only,
+// never on stdout, so agent output that quotes a 502 does not count. 429 is
+// left to its existing rate-limit handling.
+const PROVIDER_HTTP_5XX_ERROR_CODE = "provider_http_5xx";
+const PROVIDER_HTTP_5XX_MESSAGE_RE =
+  /\bunexpected status (?:500|502|503|504)\b|<title>\s*(?:500|502|503|504)\b[^<]*<\/title>/i;
+
+function isProviderHttp5xxFailure(errorMessage: unknown) {
+  return typeof errorMessage === "string" && PROVIDER_HTTP_5XX_MESSAGE_RE.test(errorMessage);
 }
 
 function isSpawnLikeFailureMessage(value: unknown) {
@@ -1288,6 +1395,100 @@ const failedProcessRunCancellations = new Map<
   string,
   { settled: Promise<void>; failed: boolean; error?: unknown }
 >();
+// Runs whose owner stop (below) is in flight, so overlapping sweeps and a
+// direct cancel never signal the same process twice.
+const ownerStopsInFlight = new Set<string>();
+
+/**
+ * Stops every run THIS process executes whose database row is already
+ * `cancelled`. A cancel only acts inside the process that receives it, and two
+ * control planes share one database: a cancel received by the other plane (or a
+ * second cancel after the row is already cancelled) used to flip the row and
+ * leave this process's ssh child and callback bridge running to completion.
+ * Killing the local child ends the adapter attempt, whose `finally` stops the
+ * callback bridge. Returns the run ids it stopped.
+ *
+ * Kill switch: PAPERCLIP_CROSS_PROCESS_CANCEL_SWEEP=false (read per call).
+ */
+export async function stopLocallyOwnedCancelledRuns(
+  db: Db,
+  onlyRunIds?: readonly string[],
+): Promise<string[]> {
+  if (process.env.PAPERCLIP_CROSS_PROCESS_CANCEL_SWEEP?.trim().toLowerCase() === "false") return [];
+  const owned = [...new Set([...runningProcesses.keys(), ...adapterExecutionControls.keys()])]
+    .filter((id) => !onlyRunIds || onlyRunIds.includes(id))
+    .filter((id) => isUuidLike(id));
+  if (owned.length === 0) return [];
+  const cancelled = await db
+    .select({ id: heartbeatRuns.id, adapterType: agents.adapterType })
+    .from(heartbeatRuns)
+    .leftJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+    .where(and(inArray(heartbeatRuns.id, owned), eq(heartbeatRuns.status, "cancelled")));
+  const stopped: string[] = [];
+  for (const row of cancelled) {
+    // A local cancel is already terminating this run; it owns the stop.
+    if (processRunCancellationSettlements.has(row.id) || ownerStopsInFlight.has(row.id)) continue;
+    ownerStopsInFlight.add(row.id);
+    try {
+      const control = adapterExecutionControls.get(row.id);
+      const running = runningProcesses.get(row.id);
+      if (!control && !running) continue;
+      control?.controller.abort(new Error("Run was cancelled"));
+      if (running) {
+        await terminateHeartbeatRunProcess({
+          pid: running.child.pid,
+          processGroupId: running.processGroupId,
+          // Codex handles Ctrl-C by cancelling its tool sessions.
+          signal: !control && row.adapterType === "codex_local" ? "SIGINT" : undefined,
+          graceMs: Math.max(100, Math.min(30_000, Math.max(1, running.graceSec) * 1000)),
+        });
+        if (runningProcesses.get(row.id) === running) runningProcesses.delete(row.id);
+      }
+      await db.update(heartbeatRuns).set({
+        resultJson: sql`coalesce(${heartbeatRuns.resultJson}, '{}'::jsonb) || ${JSON.stringify({
+          executionCancellation: {
+            state: "acknowledged",
+            acknowledgedAt: new Date().toISOString(),
+            proof: "owner_stop",
+            ownerInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default",
+          },
+        })}::jsonb`,
+        updatedAt: new Date(),
+      }).where(and(eq(heartbeatRuns.id, row.id), eq(heartbeatRuns.status, "cancelled")));
+      stopped.push(row.id);
+      logger.warn(
+        { runId: row.id, ownerInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default" },
+        "stopped a locally executed run that was cancelled in the database",
+      );
+    } catch (err) {
+      logger.error({ err, runId: row.id }, "failed to stop a locally executed cancelled run");
+    } finally {
+      ownerStopsInFlight.delete(row.id);
+    }
+  }
+  return stopped;
+}
+
+/**
+ * Every `intervalMs` (default 5 s, env PAPERCLIP_CANCEL_SWEEP_INTERVAL_MS),
+ * stop locally executed runs that were cancelled anywhere. Single flight.
+ */
+export function startOwnedCancelledRunSweep(db: Db, intervalMs?: number) {
+  const configured = Number(process.env.PAPERCLIP_CANCEL_SWEEP_INTERVAL_MS);
+  const everyMs = intervalMs ?? (Number.isFinite(configured) && configured >= 1000 ? configured : 5_000);
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (inFlight) return;
+    inFlight = true;
+    void stopLocallyOwnedCancelledRuns(db)
+      .catch((err) => logger.error({ err }, "cancelled-run owner sweep failed"))
+      .finally(() => {
+        inFlight = false;
+      });
+  }, everyMs);
+  timer.unref?.();
+  return timer;
+}
 // Background heartbeat executions are dispatched fire-and-forget (see
 // startNextQueuedRunForAgent), so the promise that resolves once a run's DB
 // writes are fully flushed is otherwise unobservable. Track those promises here
@@ -5716,10 +5917,26 @@ export function formatRuntimeWorkspaceWarningLog(warning: string) {
  * Queued runs are never zombies — they don't have processes yet.
  */
 export function isZombieRun(
-  run: { status: string; id: string },
+  run: {
+    status: string;
+    id: string;
+    runtimeMode?: string | null;
+    controllerLeaseExpiresAt?: Date | string | null;
+  },
   tracked: { has(id: string): boolean },
+  now: number = Date.now(),
 ): boolean {
-  return run.status === "running" && !tracked.has(run.id);
+  if (run.status !== "running" || tracked.has(run.id)) return false;
+  // claimQueuedRun marks a legacy run running and writes a 60 s controller
+  // lease in the same UPDATE, but executeRun adds it to the in-memory live set
+  // only after its prologue (P1, SCAA-5220 2026-10-15: a continuation wake in
+  // that window queued a duplicate run). An unexpired lease means a controller
+  // owns the run; after a restart the lease lapses within 60 s.
+  if (run.runtimeMode !== "native" && run.controllerLeaseExpiresAt) {
+    const leaseExpiresAt = new Date(run.controllerLeaseExpiresAt).getTime();
+    if (Number.isFinite(leaseExpiresAt) && leaseExpiresAt > now) return false;
+  }
+  return true;
 }
 
 /**
@@ -9503,6 +9720,7 @@ export function heartbeatService(
   const secretsSvc = secretService(db);
   const companySkills = companySkillService(db);
   const issuesSvc = issueService(db);
+  const g6Reservations = g6CertificationReservationService(db);
   const treeControlSvc = issueTreeControlService(db);
   const executionWorkspacesSvc = executionWorkspaceService(db);
   const environmentsSvc = environmentService(db);
@@ -14071,6 +14289,19 @@ export function heartbeatService(
       });
       return null;
     }
+    // This retry inserts its run directly, not through enqueueWakeup, so the
+    // fleet release gate is checked here too (agentos#596).
+    const commentRetryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!commentRetryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Missing-comment retry suppressed: ${commentRetryFleetGate.message}`,
+        payload: { reason: FLEET_RELEASE_GATE_SKIP_REASON },
+      });
+      return null;
+    }
 
     const contextSnapshot = parseObject(run.contextSnapshot);
     const taskKey = deriveTaskKeyWithHeartbeatFallback(contextSnapshot, null);
@@ -15308,6 +15539,51 @@ export function heartbeatService(
         opts?.maxAttempts ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
       ),
     );
+    if (
+      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON &&
+      isCapabilityMissingRun(run)
+    ) {
+      const reason =
+        "Transient retry refused: the run failed on a missing capability, which a retry cannot fix";
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: reason,
+        payload: {
+          retryReason,
+          errorCode: CAPABILITY_MISSING_ERROR_CODE,
+          exitCode: run.exitCode ?? null,
+          retryable: false,
+        },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason,
+        errorCode: "non_retryable_capability_missing" as const,
+        issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+      };
+    }
+    if (
+      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON &&
+      isApiRefusalRun(run)
+    ) {
+      const reason =
+        "Transient retry refused: our API refused the agent's request (4xx), which a retry cannot fix";
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: reason,
+        payload: { retryReason, errorCode: API_REFUSAL_ERROR_CODE, retryable: false },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason,
+        errorCode: "non_retryable_api_refusal" as const,
+        issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+      };
+    }
     const nextAttempt =
       (retryReason === WORKSPACE_BUSY_RETRY_REASON ||
       retryReason === AI_CONNECTION_BUSY_RETRY_REASON ||
@@ -15422,6 +15698,24 @@ export function heartbeatService(
           issueId,
         };
       }
+    }
+    // The retry run is inserted here, not through enqueueWakeup, so the fleet
+    // release gate is checked here too (agentos#596).
+    const retryFleetGate = evaluateFleetReleaseGate(agent.id);
+    if (!retryFleetGate.allowed) {
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: `Scheduled retry suppressed: ${retryFleetGate.message}`,
+        payload: { retryReason, scheduledRetryAttempt: nextAttempt, maxAttempts },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason: retryFleetGate.message,
+        errorCode: "fleet_release_gate_not_allowed" as const,
+        issueId,
+      };
     }
 
     const schedule =
@@ -15610,6 +15904,33 @@ export function heartbeatService(
               run: existing,
               reusedExisting: true,
             };
+          // P2 (SCAA-5094, 2026-10-15 17:41:52Z): two runs of one agent on one
+          // card failed together and each scheduled its own transient retry,
+          // so two retries ran side by side. The issue row lock above
+          // serializes this check: a pending transient retry of the same agent
+          // on the same card already carries the work forward.
+          if (issueId && retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON) {
+            const [sibling] = await tx
+              .select()
+              .from(heartbeatRuns)
+              .where(
+                and(
+                  eq(heartbeatRuns.companyId, run.companyId),
+                  eq(heartbeatRuns.agentId, run.agentId),
+                  inArray(heartbeatRuns.status, ["scheduled_retry", "queued"]),
+                  eq(heartbeatRuns.scheduledRetryReason, retryReason),
+                  sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`,
+                ),
+              )
+              .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id))
+              .limit(1);
+            if (sibling)
+              return {
+                outcome: "scheduled",
+                run: sibling,
+                reusedExisting: true,
+              };
+          }
         }
         if (retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON) {
           if (issueId) {
@@ -16663,6 +16984,7 @@ export function heartbeatService(
       maxConcurrentRuns: normalizeMaxConcurrentRuns(
         heartbeat.maxConcurrentRuns,
       ),
+      parallelRunsPerRepo: asBoolean(heartbeat.parallelRunsPerRepo, false),
       skipTimerWhenNoActionableWork: asBoolean(
         heartbeat.skipTimerWhenNoActionableWork ??
           heartbeat.requireActionableTimerWork ??
@@ -17244,6 +17566,16 @@ export function heartbeatService(
       );
       return null;
     }
+    // A reservation is rechecked at claim, after wake admission. This closes
+    // the enqueue/claim window and binds the one allowed run to its exact issue.
+    const g6Claim = await g6Reservations.admitClaim(run);
+    if (!g6Claim.allowed) {
+      await cancelRunInternal(
+        run.id,
+        `Cancelled by G6 certification reservation admission: ${g6Claim.reason}`,
+      );
+      return null;
+    }
     const invokability = companyAgents
       ? evaluateAgentInvokability(toAgentOrgRow(agent), companyAgents)
       : await getAgentInvokability(agent);
@@ -17251,6 +17583,18 @@ export function heartbeatService(
       await cancelRunInternal(
         run.id,
         `Cancelled because the agent is not invokable: ${invokability.reason}`,
+        invokability.reason === "paused" ? { errorCode: "agent_paused" } : {},
+      );
+      return null;
+    }
+    // Every queued run reaches execution through this claim, whichever
+    // producer inserted it, so the fleet release gate is enforced here too.
+    const claimFleetGate = evaluateFleetReleaseGate(run.agentId);
+    if (!claimFleetGate.allowed) {
+      await cancelQueuedRunAtClaim(
+        run,
+        "fleet_release_gate_not_allowed",
+        `Cancelled before start: ${claimFleetGate.message}`,
       );
       return null;
     }
@@ -17933,6 +18277,61 @@ export function heartbeatService(
         issueId,
         unresolvedBlockerIssueIds,
       },
+    });
+
+    return cancelled;
+  }
+
+  // agentos#596: cancel a queued run at claim, before any adapter work, the
+  // same way cancelQueuedRunForBlockedDependencies does (run cancelled,
+  // wakeup skipped, issue execution lock released).
+  async function cancelQueuedRunAtClaim(
+    run: typeof heartbeatRuns.$inferSelect,
+    errorCode: "fleet_release_gate_not_allowed" | "agent_paused",
+    reason: string,
+  ) {
+    const now = new Date();
+    const cancelled = await setRunStatus(run.id, "cancelled", {
+      finishedAt: now,
+      error: reason,
+      errorCode,
+      resultJson: {
+        ...parseObject(run.resultJson),
+        stopReason: errorCode,
+      },
+    });
+    if (!cancelled) return null;
+
+    await setWakeupStatus(run.wakeupRequestId, "skipped", {
+      finishedAt: now,
+      error: reason,
+    });
+
+    const issueId = readNonEmptyString(parseObject(run.contextSnapshot).issueId);
+    if (issueId) {
+      await db
+        .update(issues)
+        .set({
+          executionRunId: null,
+          executionAgentNameKey: null,
+          executionLockedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(issues.companyId, run.companyId),
+            eq(issues.id, issueId),
+            eq(issues.executionRunId, run.id),
+          ),
+        );
+    }
+
+    await appendRunEvent(cancelled, {
+      eventType: "lifecycle",
+      stream: "system",
+      level: "warn",
+      message: reason,
+      payload: { errorCode },
     });
 
     return cancelled;
@@ -19398,7 +19797,80 @@ export function heartbeatService(
     return { reaped: reaped.length, runIds: reaped };
   }
 
+  /** The other agent's issue_reassigned run that parked this wake, when the
+   * wake records it as interruptedRunId. Kill switch:
+   * PAPERCLIP_HANDOFF_WAKE_RELEASE=0 returns nothing (the earlier skip). */
+  async function findHandoffSourceRun(wake: typeof agentWakeupRequests.$inferSelect) {
+    if (!handoffWakeReleaseEnabled()) return undefined;
+    const issueId = readNonEmptyString(wake.payload?.issueId);
+    const interruptedRunId = readNonEmptyString(wake.payload?.interruptedRunId);
+    if (!issueId || !interruptedRunId || !isUuidLike(interruptedRunId)) return undefined;
+    const [run] = await db.select().from(heartbeatRuns).where(and(
+      eq(heartbeatRuns.companyId, wake.companyId),
+      eq(heartbeatRuns.id, interruptedRunId),
+      ne(heartbeatRuns.agentId, wake.agentId),
+      eq(heartbeatRuns.status, "cancelled"),
+      eq(heartbeatRuns.errorCode, "issue_reassigned"),
+      eq(heartbeatRuns.runtimeMode, "legacy"),
+      sql`coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${issueId}`,
+    )).limit(1);
+    return run;
+  }
+
+  // P6 (2026-10-15 21:50 ET, live: 83 parked wakes on done or cancelled
+  // cards). The stranded-queue sweep below selects only wakes owned by the
+  // card's assignee that carry comment ids or an interaction, so a parked wake
+  // owned by another agent (a handoff or reassignment) or carrying no comment
+  // ids was never revisited and never settled. A done or cancelled card with
+  // no execution run cannot use any of them: settle them with the drain's own
+  // terminal-task reason, under the same rule as the sweep's settle (the
+  // wake's agent has no live run there and its latest run there finished
+  // outside the grace window).
+  async function settleParkedWakesOnTerminalCards(
+    cutoff: Awaited<ReturnType<typeof getWorktreeExecutionCutoff>>,
+  ) {
+    const graceStart = new Date(Date.now() - TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS);
+    const parked = await db.select({ wake: agentWakeupRequests })
+      .from(agentWakeupRequests)
+      .innerJoin(issues, and(eq(issues.companyId, agentWakeupRequests.companyId),
+        sql`${issues.id}::text = ${agentWakeupRequests.payload}->>'issueId'`))
+      .innerJoin(companies, and(eq(companies.id, issues.companyId), eq(companies.status, "active")))
+      .where(and(eq(agentWakeupRequests.status, "deferred_issue_execution"),
+        inArray(issues.status, ["done", "cancelled"]),
+        isNull(issues.executionRunId),
+        sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`,
+        lte(agentWakeupRequests.updatedAt, graceStart),
+        cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
+      .orderBy(asc(agentWakeupRequests.updatedAt)).limit(200);
+    for (const { wake } of parked) {
+      const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
+        eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
+        sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
+      )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
+      if (ownLatest && !(isHeartbeatRunTerminalStatus(ownLatest.status) &&
+          (ownLatest.finishedAt ?? ownLatest.updatedAt).getTime() <= graceStart.getTime())) continue;
+      const settledAt = new Date();
+      await db.update(agentWakeupRequests).set({
+        status: "cancelled",
+        finishedAt: settledAt,
+        error: "Deferred execution wake no longer applies to a terminal task",
+        updatedAt: settledAt,
+      }).where(and(
+        eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
+      ));
+    }
+  }
+
   async function resumeQueuedRuns() {
+    const expiration = await g6Reservations.expireDue();
+    for (const agentId of expiration.expiredAgentIds) {
+      await cancelActiveForAgentInternal(
+        agentId,
+        "Cancelled because the G6 certification reservation expired",
+        "g6_certification_reservation_expired",
+      );
+      await g6Reservations.markContainmentCompleted(agentId);
+    }
     if ((await getSchedulingSuppression()).suppressed) return;
     await resumeExecutionWaitComments();
     const cutoff = await getWorktreeExecutionCutoff();
@@ -19418,10 +19890,11 @@ export function heartbeatService(
         logger.warn({ err, queueId: wake.id }, "failed to resume interrupted comment queue");
       });
     }
+    await settleParkedWakesOnTerminalCards(cutoff);
     // A server restart or a message/cleanup race can leave a deferred wake
     // after its owner has released the issue lock. Revisit it through the same
     // release admission, so recovery holds and operator Stops still apply.
-    const strandedQueues = await db.select({ wake: agentWakeupRequests })
+    const strandedQueues = await db.select({ wake: agentWakeupRequests, issueStatus: issues.status })
       .from(agentWakeupRequests)
       .innerJoin(issues, and(eq(issues.companyId, agentWakeupRequests.companyId),
         sql`${issues.id}::text = ${agentWakeupRequests.payload}->>'issueId'`,
@@ -19436,13 +19909,47 @@ export function heartbeatService(
         sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`,
         cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
       .orderBy(asc(agentWakeupRequests.updatedAt)).limit(50);
-    for (const { wake } of strandedQueues) {
-      if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
-          !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
-      const [latest] = await db.select().from(heartbeatRuns).where(and(
+    for (const { wake, issueStatus } of strandedQueues) {
+      const [ownLatest] = await db.select().from(heartbeatRuns).where(and(
         eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.agentId, wake.agentId),
         sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${String(wake.payload?.issueId)}`,
       )).orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
+      // A parked wake on a done or cancelled card can never run. The release
+      // below often returns before the drain's own terminal-task cancel (an
+      // acknowledged stop, a held or paused agent, no run of its own), which
+      // left such rows parked and re-touched every tick (2026-10-15 02:50Z,
+      // IT Manager 32 on cancelled cards). Settle it here with the drain's
+      // reason, whatever the agent's state, unless the agent still has a live
+      // run on the card or its latest run finished inside the grace window
+      // (that run's own inline release still owns the drain).
+      if (
+        (issueStatus === "done" || issueStatus === "cancelled") &&
+        (!ownLatest ||
+          (isHeartbeatRunTerminalStatus(ownLatest.status) &&
+            (ownLatest.finishedAt ?? ownLatest.updatedAt).getTime() <=
+              Date.now() - TERMINAL_CARD_PARKED_WAKE_SETTLE_GRACE_MS))
+      ) {
+        const settledAt = new Date();
+        await db.update(agentWakeupRequests).set({
+          status: "cancelled",
+          finishedAt: settledAt,
+          error: "Deferred execution wake no longer applies to a terminal task",
+          updatedAt: settledAt,
+        }).where(and(
+          eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
+        ));
+        continue;
+      }
+      // P6: this skip used to run before the terminal settle above, so an
+      // interaction wake with no readable response on a done or cancelled card
+      // stayed parked for good.
+      if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
+          !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
+      // A new owner that has never run on the card has no run of its own to
+      // release. When another agent handed the card over from inside its own
+      // run, that cancelled run is the one holding this wake: release it
+      // instead. Admission still checks process ownership and leases first.
+      const latest = ownLatest ?? await findHandoffSourceRun(wake);
       await db.update(agentWakeupRequests).set({ updatedAt: new Date() }).where(and(
         eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
       ));
@@ -19818,6 +20325,37 @@ export function heartbeatService(
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
       if (!agent) return [];
+      // agentos#596: a queued run for an agent the fleet release gate excludes,
+      // or for a paused agent, must not sit waiting for a slot. Cancel every
+      // such queued run here, before the slot check, so none can start later.
+      const startFleetGate = evaluateFleetReleaseGate(agentId);
+      const queuedHold = !startFleetGate.allowed
+        ? {
+            errorCode: "fleet_release_gate_not_allowed" as const,
+            reason: `Cancelled before start: ${startFleetGate.message}`,
+          }
+        : agent.status === "paused"
+          ? {
+              errorCode: "agent_paused" as const,
+              reason: "Cancelled before start because the agent is paused",
+            }
+          : null;
+      if (queuedHold) {
+        const heldRuns = await db
+          .select()
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.agentId, agentId),
+              eq(heartbeatRuns.status, "queued"),
+              cutoff ? gte(heartbeatRuns.createdAt, cutoff) : undefined,
+            ),
+          );
+        for (const heldRun of heldRuns) {
+          await cancelQueuedRunAtClaim(heldRun, queuedHold.errorCode, queuedHold.reason);
+        }
+        return [];
+      }
       const invokability = await getAgentInvokability(agent);
       if (!invokability.invokable) {
         if (shouldCancelRunsForNonInvokableAgent(invokability)) {
@@ -19957,16 +20495,32 @@ export function heartbeatService(
       const busyPods = new Set(
         runningRuns.map(podForRun).filter((pod): pod is string => Boolean(pod)),
       );
+      // AgentOS: agents whose runtime_config sets heartbeat.parallelRunsPerRepo (QA, which
+      // does not write and starts its app on its own port per run) skip the per-repo hold
+      // and may run several cards of one repo at once (Calvin 2026-10-16, Akili 8bdca992,
+      // agentos#732). The repo hold was also what kept a card to one running run, and
+      // claimQueuedRun has no general per-card gate, so the opted-in path keeps a per-card
+      // (issueId) busy set instead. maxConcurrentRuns still caps the total via availableSlots.
+      const parallelRunsPerRepo = policy.parallelRunsPerRepo;
+      const busyIssueIds = new Set(
+        runningRuns.map(runIssueId).filter((issueId): issueId is string => Boolean(issueId)),
+      );
 
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
       for (const queuedRun of prioritizedRuns) {
         if (claimedRuns.length >= availableSlots) break;
         const pod = podForRun(queuedRun);
-        if (pod && busyPods.has(pod)) continue;
+        const issueId = runIssueId(queuedRun);
+        if (parallelRunsPerRepo) {
+          if (issueId && busyIssueIds.has(issueId)) continue;
+        } else if (pod && busyPods.has(pod)) {
+          continue;
+        }
         const claimed = await claimQueuedRun(queuedRun, companyAgents);
         if (claimed) {
           claimedRuns.push(claimed);
           if (pod) busyPods.add(pod);
+          if (issueId) busyIssueIds.add(issueId);
         }
       }
       if (claimedRuns.length === 0) return [];
@@ -24878,9 +25432,21 @@ export function heartbeatService(
             : outcome === "cancelled"
               ? (latestRun?.errorCode ?? "cancelled")
               : outcome === "failed"
-                ? (adapterResult.errorCode ??
-                  recordedResponsibleUserDenialCode ??
-                  "adapter_failed")
+                ? isCapabilityMissingFailure({
+                    exitCode: adapterResult.exitCode,
+                    errorCode: adapterResult.errorCode,
+                    errorMessages: [adapterResult.errorMessage],
+                  })
+                  ? CAPABILITY_MISSING_ERROR_CODE
+                  : isApiRefusalFailure({
+                        errorMessages: [adapterResult.errorMessage],
+                      })
+                    ? API_REFUSAL_ERROR_CODE
+                    : isProviderHttp5xxFailure(adapterResult.errorMessage)
+                      ? PROVIDER_HTTP_5XX_ERROR_CODE
+                      : (adapterResult.errorCode ??
+                    recordedResponsibleUserDenialCode ??
+                    "adapter_failed")
                 : null;
 
         let logSummary: {
@@ -24990,8 +25556,14 @@ export function heartbeatService(
                   : {}),
                 configFreshness: configFreshnessResultMetadata,
               },
-              errorFamily: adapterResult.errorFamily ?? null,
-              retryNotBefore: adapterResult.retryNotBefore ?? null,
+              errorFamily:
+                runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE
+                  ? "transient_upstream"
+                  : (adapterResult.errorFamily ?? null),
+              retryNotBefore:
+                runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE
+                  ? null
+                  : (adapterResult.retryNotBefore ?? null),
             }),
             errorCode: runErrorCode,
             errorMessage: runErrorMessage,
@@ -25093,6 +25665,10 @@ export function heartbeatService(
             payload: {
               status,
               exitCode: adapterResult.exitCode,
+              ...(runErrorCode === CAPABILITY_MISSING_ERROR_CODE ||
+              runErrorCode === API_REFUSAL_ERROR_CODE
+                ? { errorCode: runErrorCode, retryable: false }
+                : {}),
             },
           });
           try {
@@ -25430,6 +26006,7 @@ export function heartbeatService(
             ((finalizedRun
               ? readHeartbeatRunErrorFamily(finalizedRun) === "provider_quota"
               : runErrorCode === "provider_quota") ||
+              runErrorCode === PROVIDER_HTTP_5XX_ERROR_CODE ||
               isWorkspaceSyncConflictFailure(adapterResult.errorMessage)),
           wasFirstHeartbeat: timerClaimWasFirstHeartbeat(run),
         });
@@ -26477,6 +27054,62 @@ export function heartbeatService(
         },
       });
     };
+    // agentos#596: the invokability check below reads the agent before the
+    // queueing transaction opens, so a pause can commit in between. Each
+    // queueing transaction calls this right before it creates queued rows. It
+    // re-reads the status with the transaction and, when the agent is no longer
+    // directly invokable, records a skipped request instead. Returns true when
+    // the caller must not queue.
+    // The fleet release gate (AgentOS staged rollout allowlist) is evaluated
+    // here too, so a cohort change between the early check and the queueing
+    // transaction is honored for every wake source.
+    const skipWhenAgentNoLongerInvokable = async (tx: Db) => {
+      const current = await tx
+        .select({ status: agents.status })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .then((rows) => rows[0] ?? null);
+      const gate = evaluateFleetReleaseGate(agentId);
+      const block = !current
+        ? null
+        : !gate.allowed
+          ? { reason: FLEET_RELEASE_GATE_SKIP_REASON, error: gate.message }
+          : DIRECT_NON_INVOKABLE_STATUSES.has(current.status)
+            ? { reason: "agent.not_invokable", error: "Agent is not invokable in its current state" }
+            : null;
+      if (current && !block) {
+        return false;
+      }
+      // A saved execution-wait request stays deferred; the next admission
+      // attempt rejects it at the early checks.
+      if (block && !executionWaitRequestId) {
+        await tx.insert(agentWakeupRequests).values({
+          ...durableReceiptFields,
+          companyId: agent.companyId,
+          agentId,
+          source,
+          triggerDetail,
+          reason: block.reason,
+          payload,
+          status: "skipped",
+          requestedByActorType: opts.requestedByActorType ?? null,
+          requestedByActorId: opts.requestedByActorId ?? null,
+          idempotencyKey: opts.idempotencyKey ?? null,
+          error: block.error,
+          finishedAt: new Date(),
+        });
+      }
+      return true;
+    };
+
+    // Fleet release gate, early check: refuse every wake source, user wakes
+    // included, before any other admission work. Fails closed when the
+    // configured policy file is unreadable or invalid.
+    const fleetGate = evaluateFleetReleaseGate(agentId);
+    if (!fleetGate.allowed) {
+      await writeSkippedRequest(FLEET_RELEASE_GATE_SKIP_REASON, { error: fleetGate.message });
+      return null;
+    }
 
     const schedulingSuppression = await getSchedulingSuppression();
     if (schedulingSuppression.suppressed) {
@@ -26617,6 +27250,43 @@ export function heartbeatService(
     // project workspace even when context.projectId wasn't set by the caller.
     if (projectId && !readNonEmptyString(enrichedContextSnapshot.projectId)) {
       enrichedContextSnapshot.projectId = projectId;
+    }
+    const g6Admission = await g6Reservations.admitWake(
+      agent.companyId,
+      agent.id,
+      issueId ?? null,
+    );
+    if (g6Admission.kind === "deferred" || g6Admission.kind === "expired") {
+      await writeSkippedRequest(
+        g6Admission.kind === "expired"
+          ? "g6_certification.reservation_expired"
+          : "g6_certification.non_reserved_issue_deferred",
+        {
+          status: "deferred_issue_execution",
+          error: g6Admission.kind === "expired"
+            ? "G6 certification reservation expired; operator verification is required"
+            : "Wake deferred while an exact-issue G6 certification reservation is active",
+          payload: {
+            ...(payload ?? {}),
+            ...(issueId ? { issueId } : {}),
+            g6CertificationReservationId:
+              "reservationId" in g6Admission ? g6Admission.reservationId : null,
+          },
+        },
+      );
+      if (g6Admission.kind === "expired") {
+        await cancelActiveForAgentInternal(
+          agent.id,
+          "Cancelled because the G6 certification reservation expired",
+          "g6_certification_reservation_expired",
+        );
+        await g6Reservations.markContainmentCompleted(agent.id);
+      }
+      return null;
+    }
+    if (g6Admission.kind === "allowed") {
+      enrichedContextSnapshot.g6CertificationReservationId =
+        g6Admission.reservationId;
     }
     const isolatedWorkspacesEnabled = issueId
       ? (await instanceSettings.getExperimental()).enableIsolatedWorkspaces
@@ -27807,6 +28477,8 @@ export function heartbeatService(
                   id: activeExecutionRun.id,
                   agentId: activeExecutionRun.agentId,
                   status: activeExecutionRun.status,
+                  runtimeMode: activeExecutionRun.runtimeMode,
+                  controllerLeaseExpiresAt: activeExecutionRun.controllerLeaseExpiresAt,
                   contextSnapshot: activeExecutionRun.contextSnapshot,
                   wakeupRequestId: activeExecutionRun.wakeupRequestId,
                 },
@@ -28038,6 +28710,14 @@ export function heartbeatService(
                 return { kind: "skipped" as const };
               }
             }
+          }
+
+          // Re-check before the queueing tail. This holds only the issue row
+          // lock; the plain agent read takes no agent lock, so it cannot
+          // deadlock with a pause that updates the agent and then its issues.
+          // It sits ahead of admitExplicitNativeContinuation, which writes.
+          if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+            return { kind: "skipped" as const };
           }
 
           const dailyCapBlock = await getHeartbeatDailyCapBlock(
@@ -28388,6 +29068,11 @@ export function heartbeatService(
       await tx.execute(
         sql`select id from agents where id = ${agentId} and company_id = ${agent.companyId} for update`,
       );
+      // The agent row is locked above; re-read its status rather than trust
+      // the object read before this transaction (agentos#596).
+      if (await skipWhenAgentNoLongerInvokable(tx as unknown as Db)) {
+        return { kind: "skipped" as const };
+      }
 
       const dailyCapBlock = await getHeartbeatDailyCapBlock(
         agent,
@@ -28965,8 +29650,15 @@ export function heartbeatService(
       !CANCELLABLE_HEARTBEAT_RUN_STATUSES.includes(
         run.status as (typeof CANCELLABLE_HEARTBEAT_RUN_STATUSES)[number],
       )
-    )
+    ) {
+      // Another control plane may already have flipped the row to cancelled
+      // while this process still executes the run. Stop it here too.
+      if (run.status === "cancelled") {
+        const stopped = await stopLocallyOwnedCancelledRuns(db, [run.id]);
+        if (stopped.length > 0) return (await getRun(run.id)) ?? run;
+      }
       return run;
+    }
     const agent = await getAgent(run.agentId);
     const errorCode = options.errorCode ?? "cancelled";
 
@@ -29159,6 +29851,22 @@ export function heartbeatService(
                             },
                             errorCode, errorMessage: reason,
                           })
+                        : {}),
+                      // No process here owns this running run: it may be executing
+                      // on another control plane. Record the stop as requested, not
+                      // done; the owning plane's sweep acknowledges it once it has
+                      // actually stopped the worker.
+                      // A caller that already states the stop outcome (for example an
+                      // acknowledged provider stop) keeps it.
+                      ...(!running && !control && run.status === "running" && run.runtimeMode !== "native" &&
+                        !parseObject(resultJson?.executionCancellation).state
+                        ? {
+                            executionCancellation: {
+                              state: "requested",
+                              requestedAt: finishedAt.toISOString(),
+                              requestedByInstanceId: process.env.PAPERCLIP_INSTANCE_ID ?? "default",
+                            },
+                          }
                         : {}),
                       // The native cancellation helper may have advanced a durable
                       // pending intent to its acknowledged state after `run` was
@@ -29774,6 +30482,15 @@ export function heartbeatService(
     buildRunOutputSilence,
 
     tickTimers: async (now = new Date()) => {
+      const expiration = await g6Reservations.expireDue(now);
+      for (const agentId of expiration.expiredAgentIds) {
+        await cancelActiveForAgentInternal(
+          agentId,
+          "Cancelled because the G6 certification reservation expired",
+          "g6_certification_reservation_expired",
+        );
+        await g6Reservations.markContainmentCompleted(agentId);
+      }
       if ((await getSchedulingSuppression()).suppressed) {
         return {
           checked: 0,

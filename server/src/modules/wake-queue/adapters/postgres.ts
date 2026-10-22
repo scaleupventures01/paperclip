@@ -1,4 +1,5 @@
 import { isAcknowledgedNativeReassignmentStop, isAcknowledgedNativeStop } from "../../../services/acknowledged-native-stop.js";
+import { isLegacyHandoffStop } from "../../../services/handoff-wake-release.js";
 import { instanceSettingsService } from "../../../services/instance-settings.js";
 import { currentConversationCommentCondition } from "../../../services/agent-conversations.js";
 import { getExecutionBlocker } from "../../../services/execution-blocker.js";
@@ -19,6 +20,7 @@ import {
 } from "@paperclipai/db";
 import { hasConversationContinuationPolicy } from "../../../services/conversation-continuation.js";
 import { legacyExecutionNeedsReconciliation } from "../../../services/legacy-execution-recovery.js";
+import { isIntentionallyPausedAgent } from "../../../services/intentional-pause.js";
 import {
   authorizeFailedChatRunRetryWake,
   FailedChatRunRetryAuthorizationError,
@@ -198,7 +200,13 @@ function buildTransaction(tx: Db, deps: WakeQueuePostgresAdapterDeps, db: Db, ru
         .then((rows) => rows[0] ?? null);
       if (!agent) return null;
       const invokability = await evaluateAgentInvokabilityFromDb(tx, agent);
-      return { id: agent.id, companyId: agent.companyId, name: agent.name, invokable: invokability.invokable };
+      return {
+        id: agent.id,
+        companyId: agent.companyId,
+        name: agent.name,
+        invokable: invokability.invokable,
+        intentionallyPaused: isIntentionallyPausedAgent(agent),
+      };
     },
 
     async findNextDeferredWake({ companyId, issueId, excludedWakeIds }) {
@@ -1124,6 +1132,11 @@ export function createPostgresWakeQueueAdapter(db: Db, deps: WakeQueuePostgresAd
             (run.status === "cancelled" &&
             (parseObject(run.resultJson?.executionCancellation).state === "acknowledged" || isAcknowledgedNativeStop(run)) &&
             !interruptedQueue),
+          // A self-reassign is a handoff, not an operator stop: the new owner's
+          // parked wake may drain. The ownership-blocker check below still runs
+          // before any promotion, so nothing moves while the old process or
+          // lease is alive. Kill switch: PAPERCLIP_HANDOFF_WAKE_RELEASE=0.
+          handoffStop: isLegacyHandoffStop(run, issueRow),
         };
         const preDrain = decidePreDrain(preDrainFacts);
 
