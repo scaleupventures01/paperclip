@@ -95,7 +95,7 @@ export const heartbeatRuns = pgTable(
     nextAction: text("next_action"),
     contextSnapshot: jsonb("context_snapshot").$type<Record<string, unknown>>(),
     // Narrow copies of context_snapshot ->> 'issueId' / 'taskId'. A BEFORE
-    // INSERT OR UPDATE OF context_snapshot trigger (migration 0284) keeps them
+    // INSERT OR UPDATE OF context_snapshot trigger (migration 0286) keeps them
     // in step, so hot reads never detoast the whole snapshot. Never write them
     // directly; write context_snapshot and the trigger derives them.
     contextIssueId: text("context_issue_id"),
