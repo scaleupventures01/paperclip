@@ -67,6 +67,7 @@ import {
   isCodexTransientUpstreamError,
   isCodexUnknownSessionError,
 } from "./parse.js";
+import { boundCodexPromptInput, CODEX_MAX_INPUT_CHARS } from "./prompt-input.js";
 import {
   codexHomeHasUsableAuth,
   evaluateCodexCredentialReadiness,
@@ -1209,7 +1210,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       ? ""
       : renderTemplate(promptTemplate, templateData);
     const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
-    const prompt = joinPromptSections([
+    const promptSections = [
       promptInstructionsPrefix,
       renderedBootstrapPrompt,
       wakePrompt,
@@ -1217,7 +1218,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionHandoffNote,
       taskContextNote,
       renderedPrompt,
-    ]);
+    ];
+    const unboundedPrompt = joinPromptSections(promptSections);
+    if (unboundedPrompt.length > CODEX_MAX_INPUT_CHARS && taskContextNote) {
+      promptSections[promptSections.indexOf(taskContextNote)] =
+        "Full task brief omitted to stay within the Codex input limit; use the continuation context and fetch only the task details you need.";
+    }
+    const prompt = boundCodexPromptInput(joinPromptSections(promptSections));
     const promptMetrics = {
       promptChars: prompt.length,
       instructionsChars,
@@ -1226,6 +1233,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionHandoffChars: sessionHandoffNote.length,
       taskContextChars: taskContextNote.length,
       heartbeatPromptChars: renderedPrompt.length,
+      codexInputLimitChars: CODEX_MAX_INPUT_CHARS,
     };
 
     const runAttempt = async (resumeSessionId: string | null) => {
