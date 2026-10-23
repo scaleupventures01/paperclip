@@ -2797,6 +2797,36 @@ async function listUnresolvedBlockerIssueIds(
     )
     .then((rows) => rows.map((row) => row.id));
 }
+async function listFollowUpNonterminalBlockerIssueIds(
+  dbOrTx: Pick<Db, "select">,
+  companyId: string,
+  issueId: string,
+) {
+  const rows = await dbOrTx
+    .select({
+      blockerIssueId: issueRelations.issueId,
+      blockerStatus: issues.status,
+    })
+    .from(issueRelations)
+    .innerJoin(issues, eq(issueRelations.issueId, issues.id))
+    .where(
+      and(
+        eq(issueRelations.companyId, companyId),
+        eq(issues.companyId, companyId),
+        eq(issueRelations.type, "blocks"),
+        eq(issueRelations.relatedIssueId, issueId),
+      ),
+    );
+  return rows
+    .filter(
+      (row) =>
+        !(TERMINAL_ISSUE_STATUSES as readonly string[]).includes(
+          row.blockerStatus,
+        ),
+    )
+    .map((row) => row.blockerIssueId);
+}
+
 async function getProjectDefaultGoalId(
   db: ProjectGoalReader,
   companyId: string,
@@ -9078,6 +9108,24 @@ export function issueService(db: Db) {
       return readiness.get(issueId) ?? createIssueDependencyReadiness(issueId);
     },
 
+    getFollowUpBlockerGate: async (issueId: string, dbOrTx: any = db) => {
+      const issue = await dbOrTx
+        .select({ id: issues.id, companyId: issues.companyId })
+        .from(issues)
+        .where(eq(issues.id, issueId))
+        .then(
+          (rows: Array<{ id: string; companyId: string }>) => rows[0] ?? null,
+        );
+      if (!issue) throw notFound("Issue not found");
+      return {
+        nonterminalBlockerIssueIds: await listFollowUpNonterminalBlockerIssueIds(
+          dbOrTx,
+          issue.companyId,
+          issueId,
+        ),
+      };
+    },
+
     listDependencyReadiness: async (
       companyId: string,
       issueIds: string[],
@@ -10758,6 +10806,14 @@ export function issueService(db: Db) {
         throw unprocessable("in_progress issues require an assignee");
       }
       if (patch.status === "in_progress") {
+        const existingFollowUpBlockerIssueIds =
+          blockedByIssueIds === undefined
+            ? await listFollowUpNonterminalBlockerIssueIds(
+                dbOrTx,
+                existing.companyId,
+                id,
+              )
+            : [];
         const dependencyReadiness =
           blockedByIssueIds === undefined
             ? (
@@ -10775,7 +10831,9 @@ export function issueService(db: Db) {
                 existing.companyId,
                 blockedByIssueIds,
               )
-            : (dependencyReadiness?.unresolvedBlockerIssueIds ?? []);
+            : existingFollowUpBlockerIssueIds.length > 0
+              ? existingFollowUpBlockerIssueIds
+              : (dependencyReadiness?.pendingFinalizeBlockerIssueIds ?? []);
         if (unresolvedBlockerIssueIds.length > 0) {
           const unresolvedBlockers = await listUnresolvedBlockerDetails(
             dbOrTx,

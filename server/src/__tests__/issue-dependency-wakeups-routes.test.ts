@@ -28,6 +28,7 @@ const mockIssueService = vi.hoisted(() => ({
   getRelationSummaries: vi.fn(),
   update: vi.fn(),
   getDependencyReadiness: vi.fn(),
+  getFollowUpBlockerGate: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
   findMentionedAgents: vi.fn(async () => []),
@@ -160,6 +161,13 @@ describe("issue dependency wakeups in issue routes", () => {
     vi.doUnmock("../routes/authz.js");
     vi.doUnmock("../middleware/index.js");
     vi.clearAllMocks();
+    mockIssueService.getFollowUpBlockerGate.mockImplementation(
+      async (issueId: string) => ({
+        nonterminalBlockerIssueIds: (
+          await mockIssueService.getDependencyReadiness(issueId)
+        ).unresolvedBlockerIssueIds ?? [],
+      }),
+    );
     mockFindExistingIssueBlockersResolvedWakeForReadyState.mockResolvedValue(null);
     mockIssueService.getAncestors.mockResolvedValue([]);
     mockIssueService.getByIdForUpdate.mockImplementation(async () => mockIssueService.getById());

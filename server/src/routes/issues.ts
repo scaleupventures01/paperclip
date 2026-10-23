@@ -6769,13 +6769,13 @@ export function issueRoutes(
     }
 
     if (issue.status === "blocked") {
-      const readiness = await svc.getDependencyReadiness(issue.id);
-      if (readiness.unresolvedBlockerCount > 0) {
+      const followUpGate = await svc.getFollowUpBlockerGate(issue.id);
+      if (followUpGate.nonterminalBlockerIssueIds.length > 0) {
         res.status(409).json({
           error: "Issue follow-up blocked by unresolved blockers",
           details: {
             issueId: issue.id,
-            unresolvedBlockerIssueIds: readiness.unresolvedBlockerIssueIds,
+            unresolvedBlockerIssueIds: followUpGate.nonterminalBlockerIssueIds,
           },
         });
         return false;
@@ -13278,15 +13278,15 @@ export function issueRoutes(
       const updateReferenceSummaryBefore = titleOrDescriptionChanged
         ? await issueReferencesSvc.listIssueReferenceSummary(existing.id)
         : null;
-      const hasUnresolvedFirstClassBlockers =
+      const hasFollowUpBlockingBlockers =
         isBlocked && effectiveMoveToTodoRequested
-          ? (await svc.getDependencyReadiness(existing.id))
-              .unresolvedBlockerCount > 0
+          ? (await svc.getFollowUpBlockerGate(existing.id))
+              .nonterminalBlockerIssueIds.length > 0
           : false;
       if (
         resumeRequested === true &&
         isBlocked &&
-        hasUnresolvedFirstClassBlockers
+        hasFollowUpBlockingBlockers
       ) {
         res
           .status(409)
@@ -13382,7 +13382,7 @@ export function issueRoutes(
         commentBody &&
         effectiveMoveToTodoRequested &&
         (isClosed ||
-          (isBlocked && !hasUnresolvedFirstClassBlockers) ||
+          (isBlocked && !hasFollowUpBlockingBlockers) ||
           shouldResumeInProgressScheduledRetry) &&
         updateFields.status === undefined
       ) {
@@ -14276,7 +14276,7 @@ export function issueRoutes(
       const reopened =
         commentBody &&
         effectiveMoveToTodoRequested &&
-        (isClosed || (isBlocked && !hasUnresolvedFirstClassBlockers)) &&
+        (isClosed || (isBlocked && !hasFollowUpBlockingBlockers)) &&
         previous.status !== undefined &&
         issue.status === "todo";
       const reopenFromStatus = reopened ? existing.status : null;
@@ -17776,15 +17776,15 @@ export function issueRoutes(
             executionRunId: issue.executionRunId,
           }) ||
           shouldResumeInProgressScheduledRetry);
-      const hasUnresolvedFirstClassBlockers =
+      const hasFollowUpBlockingBlockers =
         isBlocked && effectiveMoveToTodoRequested
-          ? (await svc.getDependencyReadiness(issue.id))
-              .unresolvedBlockerCount > 0
+          ? (await svc.getFollowUpBlockerGate(issue.id))
+              .nonterminalBlockerIssueIds.length > 0
           : false;
       if (
         resumeRequested === true &&
         isBlocked &&
-        hasUnresolvedFirstClassBlockers
+        hasFollowUpBlockingBlockers
       ) {
         res
           .status(409)
@@ -17855,7 +17855,7 @@ export function issueRoutes(
       if (
         effectiveMoveToTodoRequested &&
         (isClosed ||
-          (isBlocked && !hasUnresolvedFirstClassBlockers) ||
+          (isBlocked && !hasFollowUpBlockingBlockers) ||
           shouldResumeInProgressScheduledRetry)
       ) {
         scheduledRetrySupersededByComment =
@@ -17873,7 +17873,8 @@ export function issueRoutes(
           res.status(404).json({ error: "Issue not found" });
           return;
         }
-        reopened = isClosed || (isBlocked && !hasUnresolvedFirstClassBlockers);
+        reopened =
+          isClosed || (isBlocked && !hasFollowUpBlockingBlockers);
         reopenFromStatus = reopened ? issue.status : null;
         currentIssue = reopenedIssue;
 

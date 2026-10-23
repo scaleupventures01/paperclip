@@ -16,6 +16,7 @@ const mockIssueService = vi.hoisted(() => ({
   findMentionedAgents: vi.fn(),
   getRelationSummaries: vi.fn(),
   getDependencyReadiness: vi.fn(),
+  getFollowUpBlockerGate: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
   getCurrentScheduledRetry: vi.fn(),
@@ -255,6 +256,16 @@ describe("issue update comment wakeups", () => {
     vi.doUnmock("../middleware/index.js");
     registerModuleMocks();
     vi.clearAllMocks();
+    mockIssueService.getFollowUpBlockerGate.mockImplementation(
+      async (issueId: string) => {
+        const readiness =
+          await mockIssueService.getDependencyReadiness(issueId);
+        return {
+          nonterminalBlockerIssueIds:
+            readiness.unresolvedBlockerCount > 0 ? ["blocker-1"] : [],
+        };
+      },
+    );
     mockAccessDecide.mockImplementation(async (input) => ({ allowed: true, action: input.action, reason: "allow_explicit_grant", explanation: "Allowed by test grant." }));
     mockPauseGate.mockResolvedValue(null);
     mockIssueService.findMentionedAgents.mockResolvedValue([]);
