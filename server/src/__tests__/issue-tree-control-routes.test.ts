@@ -327,6 +327,26 @@ describe("issue tree control routes", () => {
     expect(mockTreeControlService.createHold).not.toHaveBeenCalled();
   });
 
+  it("requires board access for hold release by a different agent", async () => {
+    const rootId = "11111111-1111-4111-8111-111111111111";
+    const holdId = "33333333-3333-4333-8333-333333333333";
+    const app = await createApp({
+      type: "agent",
+      agentId: "22222222-2222-4222-8222-222222222222",
+      companyId: "company-2",
+      runId: null,
+      source: "api_key",
+    });
+
+    const response = await request(app)
+      .post(`/api/issues/${rootId}/tree-holds/${holdId}/release`)
+      .send({ reason: "unauthorized release" });
+
+    expect(response.status).toBe(403);
+    expect(mockIssueService.getById).not.toHaveBeenCalled();
+    expect(mockTreeControlService.releaseHold).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed tree hold IDs before querying the hold service", async () => {
     const app = await createApp({
       type: "board",
