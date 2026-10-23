@@ -11,6 +11,7 @@ const mockIssueService = vi.hoisted(() => ({
   update: vi.fn(),
   addComment: vi.fn(),
   getDependencyReadiness: vi.fn(),
+  getFollowUpBlockerGate: vi.fn(),
   getCurrentScheduledRetry: vi.fn(),
   findMentionedAgents: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
@@ -321,6 +322,13 @@ async function waitForWakeup(assertion: () => void) {
 describe.sequential("issue comment reopen routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIssueService.getFollowUpBlockerGate.mockImplementation(
+      async (issueId: string) => ({
+        nonterminalBlockerIssueIds: (
+          await mockIssueService.getDependencyReadiness(issueId)
+        ).unresolvedBlockerIssueIds ?? [],
+      }),
+    );
     mockIssueService.getById.mockReset();
     mockIssueService.getByIdForUpdate.mockReset();
     mockIssueService.assertCheckoutOwner.mockReset();
@@ -1669,6 +1677,51 @@ describe.sequential("issue comment reopen routes", () => {
     expect(patch.status).toBeUndefined();
     expect(patch.blockedByIssueIds).toEqual([
       "33333333-3333-4333-8333-333333333333",
+    ]);
+  });
+
+  it("replaces a terminal blocker and moves the issue to todo", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue("blocked"));
+    mockIssueService.getRelationSummaries.mockResolvedValue({
+      blockedBy: [
+        { id: "33333333-3333-4333-8333-333333333333", status: "cancelled" },
+      ],
+      blocks: [],
+    });
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      blockerIssueIds: ["33333333-3333-4333-8333-333333333333"],
+      unresolvedBlockerIssueIds: ["33333333-3333-4333-8333-333333333333"],
+      unresolvedBlockerCount: 1,
+      allBlockersDone: false,
+      isDependencyReady: false,
+    });
+    mockIssueService.getFollowUpBlockerGate.mockResolvedValue({
+      nonterminalBlockerIssueIds: [],
+    });
+    mockIssueService.update.mockImplementation(
+      async (_id: string, patch: Record<string, unknown>) => ({
+        ...makeIssue("todo"),
+        ...patch,
+      }),
+    );
+
+    const res = await request(await installActor(createApp()))
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({
+        status: "todo",
+        blockedByIssueIds: ["55555555-5555-4555-8555-555555555555"],
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalled();
+    const patch = mockIssueService.update.mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
+    expect(patch.status).toBe("todo");
+    expect(patch.blockedByIssueIds).toEqual([
+      "55555555-5555-4555-8555-555555555555",
     ]);
   });
 

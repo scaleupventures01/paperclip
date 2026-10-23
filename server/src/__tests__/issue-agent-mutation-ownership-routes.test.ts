@@ -29,6 +29,7 @@ const mockIssueService = vi.hoisted(() => ({
   getByIdForUpdate: vi.fn(),
   getComment: vi.fn(),
   getDependencyReadiness: vi.fn(),
+  getFollowUpBlockerGate: vi.fn(),
   getRelationSummaries: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
   list: vi.fn(),
@@ -466,6 +467,13 @@ describe("agent issue mutation checkout ownership", () => {
     // by an earlier test.
     routeModules.value.__clearIssueListResponseCacheForTests();
     vi.clearAllMocks();
+    mockIssueService.getFollowUpBlockerGate.mockImplementation(
+      async (issueId: string) => ({
+        nonterminalBlockerIssueIds: (
+          await mockIssueService.getDependencyReadiness(issueId)
+        ).unresolvedBlockerIssueIds ?? [],
+      }),
+    );
     mockChatRunRetries.prepareFailedChatRunRetry.mockReset();
     mockChatRunRetries.processFailedChatRunRetry.mockReset();
     mockAccessService.canUser.mockReset();

@@ -244,6 +244,8 @@ Blocked issues should stay idle while blockers remain unresolved. Paperclip shou
 
 `cancelled` is terminal for the blocker issue itself, but it does not satisfy the dependency. A cancelled blocker edge remains unresolved until the edge is removed or replaced, and Paperclip must surface blocker attention on the dependent regardless of whether that dependent is currently displayed as `blocked`, `todo`, `backlog`, or another non-terminal agent-owned status.
 
+A cancelled edge still suppresses the dependency wake, but it does not block a follow-up that removes or replaces that stale edge.
+
 If a parent is truly waiting on a child, model that with blockers. Do not rely on the parent/child relationship alone.
 
 ### Child→Parent Reporting
