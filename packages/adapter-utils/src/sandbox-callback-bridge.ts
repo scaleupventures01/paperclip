@@ -170,6 +170,11 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   { method: "PUT", path: /^\/api\/issues\/[^/]+\/documents\/[^/]+$/ },
   { method: "POST", path: /^\/api\/issues\/[^/]+\/checkout$/ },
   { method: "POST", path: /^\/api\/issues\/[^/]+\/release$/ },
+  // Issue-scoped tree restoration. Server board authorization remains mandatory.
+  {
+    method: "POST",
+    path: /^\/api\/issues\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/tree-holds\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/release$/,
+  },
   { method: "PATCH", path: /^\/api\/issues\/[^/]+$/ },
   { method: "GET", path: /^\/api\/issues\/[^/]+\/approvals$/ },
 
