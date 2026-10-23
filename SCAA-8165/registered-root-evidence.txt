@@ -1,0 +1,5 @@
+SUDO_OK
+sudo: a password is required
+sudo_rc=1
+sudo: a password is required
+sudo: a password is required

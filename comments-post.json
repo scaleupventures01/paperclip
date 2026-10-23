@@ -1,0 +1,419 @@
+{
+  "tags": [
+    "issues"
+  ],
+  "summary": "Add a comment to an issue",
+  "responses": {
+    "201": {
+      "description": "Success",
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      }
+    },
+    "400": {
+      "description": "Bad request",
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/Error"
+          }
+        }
+      }
+    },
+    "401": {
+      "description": "Unauthorized",
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/Error"
+          }
+        }
+      }
+    },
+    "403": {
+      "description": "Forbidden",
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/Error"
+          }
+        }
+      }
+    }
+  },
+  "parameters": [
+    {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+        "type": "string"
+      }
+    }
+  ],
+  "requestBody": {
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "clientRequestId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "body": {
+              "type": "string"
+            },
+            "attachmentIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "onBehalfOfUserId": {
+              "type": "string",
+              "minLength": 1,
+              "nullable": true
+            },
+            "authorType": {
+              "type": "string",
+              "enum": [
+                "user",
+                "agent",
+                "system"
+              ]
+            },
+            "presentation": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "message",
+                    "system_notice"
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "enum": [
+                    "neutral",
+                    "info",
+                    "success",
+                    "warning",
+                    "danger"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "nullable": true
+                },
+                "detailsDefaultOpen": {
+                  "type": "boolean"
+                },
+                "density": {
+                  "type": "string",
+                  "enum": [
+                    "compact"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "nullable": true
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "number",
+                  "enum": [
+                    1
+                  ]
+                },
+                "sourceChannel": {
+                  "type": "string",
+                  "enum": [
+                    "imessage-photon"
+                  ]
+                },
+                "sourceRunId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "authorizationReason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "nullable": true
+                },
+                "sections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160,
+                        "nullable": true
+                      },
+                      "rows": {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "text"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120,
+                                  "nullable": true
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "text"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "code"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120,
+                                  "nullable": true
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 4000
+                                },
+                                "language": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 40,
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "code"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "key_value"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2000
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "label",
+                                "value"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "issue_link"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120,
+                                  "nullable": true
+                                },
+                                "issueId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "nullable": true
+                                },
+                                "identifier": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80,
+                                  "nullable": true
+                                },
+                                "title": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 240,
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "type"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "agent_link"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120,
+                                  "nullable": true
+                                },
+                                "agentId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 160,
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "agentId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "run_link"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120,
+                                  "nullable": true
+                                },
+                                "runId": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "agentId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "nullable": true
+                                },
+                                "title": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 160,
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "runId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "rows"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "version",
+                "sections"
+              ],
+              "additionalProperties": false,
+              "nullable": true
+            },
+            "reopen": {
+              "type": "boolean"
+            },
+            "resume": {
+              "type": "boolean"
+            },
+            "interrupt": {
+              "type": "boolean"
+            },
+            "wakeAssignee": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "body"
+          ]
+        }
+      }
+    },
+    "required": true
+  },
+  "security": [
+    {
+      "BoardSessionAuth": []
+    },
+    {
+      "BoardApiKeyAuth": []
+    },
+    {
+      "AgentBearerAuth": []
+    }
+  ],
+  "x-paperclip-authorization": {
+    "actor": "board_or_agent"
+  }
+}

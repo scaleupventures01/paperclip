@@ -1,0 +1,51 @@
+32:even when the item is not build-ready; the PM routes it to the Requirements
+42:Stale blocked cards (Calvin 2026-10-03, after SCAA-1400 held SourceDox idle ~6.5 hours): a blocked
+52:(key idle-escalate-<pod>), closed with the idle alert when the pod runs again. Kill switch:
+53:ROADMAP_FEEDER_IDLE_ALERT_TO_CALVIN=1 sends the idle alert to Calvin and never escalates. Stale-card
+124:    # Calvin 2026-10-12 rule 2 (#576): an idle alert still open this many minutes escalates once to Calvin.
+126:    # Kill switch (#576): "1" sends the idle alert straight to Calvin with no escalation, as before 2026-10-12.
+165:    # Calvin 2026-10-03: a stale blocked card's children, and each pod member's latest runs (idle alert).
+762:    True when any run is queued or running. Any read problem returns {error}: no idle alert is raised."""
+859:    Manager card for #275 stayed in_progress while its Developer card went stale, and held the pod idle
+875:def idle_state(snapshot, build, holding_cards):
+876:    """{idle, minutes} when the build queue WAITs on open cards and no pod member has had a run start or
+885:        return {"idle": False, "minutes": 0}
+894:    return {"idle": minutes is None or minutes >= limit, "minutes": minutes if minutes is not None else "unknown",
+1554:    # RECONCILE) with no child issue at all is broken into build issues, MVP first. decomposition_gap false means
+1576:            if (not is_feature(item) or item.get("decomposition_gap") is False or number in bad_identity
+1588:                             + ("roadmap decomposition_gap true" if item.get("decomposition_gap") is True
+1626:            return False, f"#{number} not build-ready: {item.get('build_ready_reason') or 'build_ready is false'}"
+1636:    # approval, so the frontier is pulled whole (requirements first, then build) even when it
+1637:    # is not build-ready. Every other rule still holds; a broken PRD receipt still refuses.
+1703:                                   "reason": ("roadmap is the approval: pull the whole issue, requirements first, "
+1760:        build_reason = f"frontier #{frontier['issue']} is not build-ready ({frontier['reason']}); nothing behind it jumps it"
+1825:        "idle": idle_state(snapshot, build, holding_cards),
+1858:        return problem or f"#{number} has no PRD yet (requirements first)"
+1968:    idle = result.get("idle") or {}
+1969:    if idle.get("idle"):
+1970:        out.append(f"  IDLE: no pod run for {idle['minutes']} minutes while the queue waits; flagged to "
+1971:                   + ("Calvin" if idle_alert_to_calvin() else "the Delivery Manager"))
+1972:    elif idle.get("error"):
+1973:        out.append(f"  IDLE CHECK NOT RUN: {idle['error']}")
+1983:            key = key.split(";")[0] + ("; also not build-ready yet" if "; also" in key else "; build-ready")
+2329:    idle = result.get("idle") or {}
+2330:    if idle.get("idle"):
+2331:        alerts.append((f"idle-{pod_key}", f"{pod_key}: pod idle {idle['minutes']} minutes",
+2332:                       f"No {pod_key} pod agent has run for {idle['minutes']} minutes while the roadmap feeder waits "
+2337:def idle_alert_to_calvin():
+2338:    """Kill switch (#576): the idle alert goes straight to Calvin, with no escalation."""
+2361:    """Live only: one alert card per due alert, never twice while one is open. The idle alert goes to the Delivery
+2368:    idle_key = f"idle-{pod_key}"
+2374:        to_dm = (key == idle_key and not idle_alert_to_calvin()) or (stale and not stale_alert_to_calvin())
+2381:            elif to_dm and escalate_idle_alert(result, pod_key, company, open_with_marker(rows, marker)):
+2382:                sent.append(f"idle-escalate-{pod_key}")
+2393:def escalate_idle_alert(result, pod_key, company, idle_cards):
+2394:    """One card to Calvin when the pod's open idle alert is at least ROADMAP_FEEDER_IDLE_ESCALATE_MIN minutes old and
+2396:    oldest = oldest_aged(idle_cards, int(setting("ROADMAP_FEEDER_IDLE_ESCALATE_MIN")))
+2400:    marker = f"{ALERT_MARKER} pod={pod_key} key=idle-escalate-{pod_key}"
+2406:    title = f"{pod_key}: idle alert {ident} still open after {minutes} minutes"
+2407:    text = (f"The Delivery Manager has had the {pod_key} idle alert {ident} for {minutes} minutes (since "
+2408:            f"{et_time(card.get('createdAt'))}) and the pod is still idle while the roadmap feeder waits on: "
+2491:    if f"idle-{pod_key}" in due:
+2492:        due.add(f"idle-escalate-{pod_key}")   # the escalation card lives exactly as long as its idle alert (#576)
+260b7584d935ab984bacdaadc6d28f1e7fc9062a03cae9576242507d37be9f94  /home/calvin/roadmap-feeder/feeder.py

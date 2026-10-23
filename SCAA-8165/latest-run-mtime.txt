@@ -1,0 +1,30 @@
+1792695012.4234962470 2026-10-22T14:50:12.4234962470 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T185012Z.txt
+1792694721.4506899880 2026-10-22T14:45:21.4506899880 /home/calvin/roadmap-feeder/runs/live-registered-20261022T184521Z.txt
+1792694136.6584030440 2026-10-22T14:35:36.6584030440 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T183536Z.txt
+1792693201.8256460360 2026-10-22T14:20:01.8256460360 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T182001Z.txt
+1792693130.1722713110 2026-10-22T14:18:50.1722713110 /home/calvin/roadmap-feeder/runs/20261022T181850Z.txt
+1792693128.6782635800 2026-10-22T14:18:48.6782635800 /home/calvin/roadmap-feeder/runs/live-registered-20261022T181848Z.txt
+1792692319.5400290400 2026-10-22T14:05:19.5400290400 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T180519Z.txt
+1792691625.3880158030 2026-10-22T13:53:45.3880158030 /home/calvin/roadmap-feeder/runs/live-registered-20261022T175345Z.txt
+1792691383.0831201690 2026-10-22T13:49:43.0831201690 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T174943Z.txt
+1792690490.3630684180 2026-10-22T13:34:50.3630684180 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T173450Z.txt
+1792689681.3896240380 2026-10-22T13:21:21.3896240380 /home/calvin/roadmap-feeder/runs/live-registered-20261022T172121Z.txt
+1792689662.7415443880 2026-10-22T13:21:02.7415443880 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T172102Z.txt
+1792689601.8252855560 2026-10-22T13:20:01.8252855560 /home/calvin/roadmap-feeder/runs/20261022T172001Z.txt
+1792688720.5420172560 2026-10-22T13:05:20.5420172560 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T170520Z.txt
+1792687902.0958413370 2026-10-22T12:51:42.0958413370 /home/calvin/roadmap-feeder/runs/live-registered-20261022T165142Z.txt
+1792687802.9063406150 2026-10-22T12:50:02.9063406150 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T165002Z.txt
+1792686989.8240474690 2026-10-22T12:36:29.8240474690 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T163629Z.txt
+1792686017.7789144150 2026-10-22T12:20:17.7789144150 /home/calvin/roadmap-feeder/runs/pod-running-check-20261022T162017Z.txt
+1792685984.5067296120 2026-10-22T12:19:44.5067296120 /home/calvin/roadmap-feeder/runs/20261022T161944Z.txt
+1792685839.5219618190 2026-10-22T12:17:19.5219618190 /home/calvin/roadmap-feeder/runs/live-registered-20261022T161719Z.txt
+LATEST=/home/calvin/roadmap-feeder/runs/pod-running-check-20261022T185012Z.txt
+agentos-internal STALLED read budget POD_RUNNING_CHECK_CARD_READS=12 spent before a moving card was proven (3 of 3 named card(s) reached); SCAA-7253 blocked (step of open card SCAA-7217); SCAA-7309 blocked (step of open card SCAA-7294) | IDLE: no pod run for 53 minutes while the queue waits; flagged to the Delivery Manager
+damon-martin STALLED IDLE: no pod run for 2221 minutes while the queue waits; flagged to the Delivery Manager
+direct-outreach-v1 STALLED SCAA-7623 idle (in_progress, no live run on it or an open step) | IDLE: no pod run for 43 minutes while the queue waits; flagged to the Delivery Manager
+penn STALLED IDLE: no pod run for 868 minutes while the queue waits; flagged to the Delivery Manager
+rentlist919 STALLED IDLE: no pod run for 1773 minutes while the queue waits; flagged to the Delivery Manager
+sourcedox RUNNING the feeder created SCAA-8169 this run
+DUPLICATE SUPPRESSED: damon-martin stall card SCAA-7974 for the same cause was filed at 2026-10-22T12:49:00.289427+00:00; no new card (IDLE: no pod run for 2221 minutes while the queue waits; flagged to the Delivery Manager)
+DUPLICATE SUPPRESSED: direct-outreach-v1 stall card SCAA-8013 for the same cause was filed at 2026-10-22T13:49:00.687687+00:00; no new card (SCAA-7623 idle (in_progress, no live run on it or an open step) | IDLE: no pod run for 43 minutes while the queue waits;)
+CANCELLED: SCAA-8157 (the rentlist919 pod now reads a different cause)

@@ -1,0 +1,319 @@
+  1530	                                             + ", ".join(f"#{d}" for d in deps) + ")") if deps
+  1531	                                  else "no dependencies"})
+  1532	                continue
+  1533	            if "requirements_state" in item:
+  1534	                continue
+  1535	            # receipt-era roadmap: parent PRD approved, its open children without an approved child receipt
+  1536	            for child in children_of(number):
+  1537	                problem = identity_problem(child)
+  1538	                if problem:
+  1539	                    refusals.append(f"child of #{number}: {problem}")
+  1540	                    continue
+  1541	                if gh_closed(child) or str(child) in spec_in_flight or calvin_hold(child):
+  1542	                    continue
+  1543	                child_state, child_problem = prd_state(child, index)
+  1544	                if child_state == "PRD_APPROVED":
+  1545	                    continue
+  1546	                if child_state != "NEEDS_PRD":
+  1547	                    prd_refusals.append(child_problem)
+  1548	                    continue
+  1549	                add_eligible({"issue": child, "lane": lane["id"], "kind": "NEEDS_PRD (child)",
+  1550	                              "reason": f"child of #{number}, whose PRD is approved; child entry pass not yet written"})
+  1551	
+  1552	    # ---------------- DECOMPOSE (Calvin 2026-10-12, Akili d57236ae: "Feeder sends empty features to Requirements",
+  1553	    # "ensure this works for all feeders"): an open feature (class EPIC, or kind tracking that is not INPUT or
+  1554	    # RECONCILE) with no child issue at all is broken into build issues, MVP first. decomposition_gap false means
+  1555	    # decomposed; otherwise any child by any signal the feeder already reads ("Part of #N", a receipt or phased-roadmap
+  1556	    # child, a roadmap item depending on it, an `epic:#N` label) means it is not empty. On a pod whose PM routes
+  1557	    # requirements work (requirements_ahead or pull_whole_issue) the gap rides the requirements queue and cap ahead
+  1558	    # of PRD rows; on any other pod it is listed as a DECOMPOSE GAP and Calvin is alerted.
+  1559	    routes_requirements = req_ahead or pod.get("pull_whole_issue") is True
+  1560	    label_kids = {}
+  1561	    for kid, issue in issues.items():
+  1562	        for label in issue.get("labels") or []:
+  1563	            match = re.fullmatch(r"epic:#(\d+)", str(label))
+  1564	            if match and int(match.group(1)) != kid:
+  1565	                label_kids.setdefault(int(match.group(1)), set()).add(kid)
+  1566	
+  1567	    def has_children(number):
+  1568	        return bool({c for c, claim in claims.items() if number in claim["parents"]}
+  1569	                    or children_of(number) or label_kids.get(number)
+  1570	                    or any(number in {int(d) for d in other.get("depends_on") or []} for other in items.values()))
+  1571	
+  1572	    decompose, decompose_unrouted = [], []
+  1573	    for lane in roadmap["roadmaps"]:
+  1574	        for item in ordered_items(lane):
+  1575	            number = int(item["number"])
+  1576	            if (not is_feature(item) or item.get("decomposition_gap") is False or number in bad_identity
+  1577	                    or number in disagree or is_done(item.get("state")) or gh_closed(number) or calvin_hold(number)
+  1578	                    or has_children(number)):
+  1579	                continue
+  1580	            if str(number) in spec_in_flight or number in spec_active or number in busy_issues:
+  1581	                continue  # an open card already names it
+  1582	            if number in spec_done:
+  1583	                waiting.append({"issue": number, "reason": f"its decompose card {spec_done[number]} is done but no "
+  1584	                                f"child issue says Part of #{number} yet"})
+  1585	                continue
+  1586	            row = {"issue": number, "lane": lane["id"], "kind": "DECOMPOSE",
+  1587	                   "reason": "open feature with no build issues ("
+  1588	                             + ("roadmap decomposition_gap true" if item.get("decomposition_gap") is True
+  1589	                                else "no child issue found") + "); write its MVP issue(s) first"}
+  1590	            (decompose if routes_requirements else decompose_unrouted).append(row)
+  1591	    eligible[:0] = decompose
+  1592	    seen.update(row["issue"] for row in decompose)
+  1593	
+  1594	    slots = max(cap - len(open_spec), 0)
+  1595	    send, over = eligible[:slots], eligible[slots:]
+  1596	    refusals.extend(prd_refusals)
+  1597	
+  1598	    # ---------------- build queue: ONE at a time, single pod order
+  1599	    # order: contract date (earliest first) outranks proposed_sequence, then lane order, then execution_order
+  1600	    ordered = []
+  1601	    for lane_index, lane in enumerate(roadmap["roadmaps"]):
+  1602	        for position, item in enumerate(lane["items"]):
+  1603	            seq = item.get("proposed_sequence")
+  1604	            ordered.append(((str(item.get("contract_due") or "9999-12-31"),
+  1605	                             seq if seq is not None else float("inf"), lane_index,
+  1606	                             item.get("execution_order") is None, item.get("execution_order") or 0, position),
+  1607	                            lane, item))
+  1608	    ordered.sort(key=lambda row: row[0])
+  1609	    ordered = [(key, lane, row) for key, lane, item in ordered for row in with_splits([item])]
+  1610	    split_rows = [{"child": int(item["number"]), "parent": item["split_parent"], "lane": lane["id"]}
+  1611	                  for _, lane, item in ordered if item.get("split_parent")]
+  1612	
+  1613	    def lane_open_builds(lane):
+  1614	        lane_numbers = {str(int(i["number"])) for i in with_splits(lane["items"])}
+  1615	        return [c for c in open_build if str(c["marker"].get("issue")) in lane_numbers]
+  1616	
+  1617	    def build_ready(number, item):
+  1618	        """(True, child-or-self dict) | (False, reason) | (None, reason): None = nothing to build here."""
+  1619	        if "build_ready" in item:
+  1620	            entry = index.get(number)
+  1621	            if entry and entry["receipt"] and entry["problem"]:
+  1622	                return False, entry["problem"]
+  1623	            if item["build_ready"] is True:
+  1624	                return True, {"issue": number, "reason": "roadmap build_ready: " +
+  1625	                              str(item.get("build_ready_reason") or "true")}
+  1626	            return False, f"#{number} not build-ready: {item.get('build_ready_reason') or 'build_ready is false'}"
+  1627	        found = check_build_ready(number, item, identity_problem, lambda n: None, disagree,
+  1628	                                  index, children_of, gh_closed)
+  1629	        if isinstance(found, str):
+  1630	            return False, found
+  1631	        if found is None:
+  1632	            return None, f"#{number}: every child closed; the milestone is next to close, not to build"
+  1633	        return True, found
+  1634	
+  1635	    # Calvin 2026-10-01 (Akili 0e7888df): on an opted-in (prd-build) pod the roadmap IS the
+  1636	    # approval, so the frontier is pulled whole (requirements first, then build) even when it
+  1637	    # is not build-ready. Every other rule still holds; a broken PRD receipt still refuses.
+  1638	    pull_whole = pod.get("pull_whole_issue") is True
+  1639	
+  1640	    def whole_issue_pullable(number):
+  1641	        return pull_whole and prd_state(number, index)[0] not in {"PRD_NO_RECEIPT", "PRD_RECEIPT_INVALID"}
+  1642	
+  1643	    # one frontier for the whole pod, or one per lane on a parallel_lanes pod; nothing jumps its own frontier
+  1644	    refused, frontiers, candidates, next_ready = [], {}, {}, None
+  1645	    for _, lane, item in ordered:
+  1646	        key = lane["id"] if parallel else "_pod"
+  1647	        frontier = frontiers.get(key)
+  1648	        number = int(item["number"])
+  1649	        cls = str(item.get("class", "")).upper()
+  1650	        if item_done(number) and is_done(item.get("state")):
+  1651	            continue  # finished work is not a refusal
+  1652	        reason = None
+  1653	        if cls != "BUILD":
+  1654	            reason = f"class {cls or '?'} never enters the build queue"
+  1655	        elif gh_closed(number):
+  1656	            reason = f"#{number} closed on GitHub; skipped"
+  1657	        elif number in bad_identity:
+  1658	            reason = bad_identity[number]
+  1659	        elif number in disagree:
+  1660	            reason = disagree[number]
+  1661	        elif calvin_hold(number):
+  1662	            reason = calvin_hold(number)
+  1663	        elif number in parked_issues:
+  1664	            reason = f"#{number} PARKED: {park_note.get(number, 'its card waits on Calvin')}; never a second card for it"
+  1665	        elif number in blocked_by_park:
+  1680	            unmet = [int(d) for d in item.get("depends_on") or [] if not item_done(int(d))]
+  1681	            if unmet:
+  1682	                reason = "waits on " + ", ".join(f"#{d}" for d in unmet) + " (not closed)"
+  1683	            elif lane_full(lane):
+  1684	                held_by = sorted(lane_holders.get(lane["id"], ())) if parallel else [c["identifier"] for c in lane_open_builds(lane)]
+  1685	                reason = (f"lane {lane['id']} at max_concurrent {lane.get('max_concurrent') or 1} "
+  1686	                          f"({len(held_by)} open card(s){': ' + ', '.join(held_by) if parallel and held_by else ''})")
+  1687	        if reason:
+  1688	            refused.append({"issue": number, "lane": lane["id"], "reason": reason})
+  1689	            continue
+  1690	        ready, detail = build_ready(number, item)
+  1691	        if ready is None:
+  1692	            continue
+  1693	        if frontier is None:
+  1694	            frontiers[key] = {"issue": number, "lane": lane["id"], "ready": bool(ready),
+  1695	                              "proposed_sequence": item.get("proposed_sequence"),
+  1696	                              "contract_due": item.get("contract_due"),
+  1697	                              "reason": detail["reason"] if ready else detail}
+  1698	            milestone = item.get("split_parent", number)
+  1699	            if ready:
+  1700	                candidates[key] = dict(detail, lane=lane["id"], milestone=milestone)
+  1701	            elif whole_issue_pullable(number):
+  1702	                candidates[key] = {"issue": number, "lane": lane["id"], "milestone": milestone, "whole_issue": True,
+  1703	                                   "reason": ("roadmap is the approval: pull the whole issue, requirements first, "
+  1704	                                              f"then build ({detail})")}
+  1705	            continue
+  1706	        if ready and next_ready is None:
+  1707	            next_ready = number
+  1708	        refused.append({"issue": number, "lane": lane["id"],
+  1709	                        "reason": f"behind the frontier #{frontier['issue']} in roadmap order"
+  1710	                                  + ("" if ready else f"; also {detail}")})
+  1711	
+  1712	    if req_ahead:
+  1713	        for cand in candidates.values():
+  1714	            if int(cand["issue"]) in spec_done:
+  1715	                cand["requirements_from"] = spec_done[int(cand["issue"])]
+  1716	    frontier = next(iter(frontiers.values()), None)   # the first in pod order, for the report
+  1717	    builds, lane_holds = [], []
+  1718	
+  1719	    def describe(c):
+  1720	        where = (f"escalated to {c.get('assignee_name') or c.get('assigneeAgentId')}"
+  1721	                 if c.get("scope") == "escalated" else (c.get("assignee_name") or "pod"))
+  1722	        refs = ", ".join(f"#{n}" for n in c.get("issue_refs") or [])
+  1723	        return f"{c['identifier']} ({c['status']}, {where}{', names ' + refs if refs else ''})"
+  1724	    if pod_holders:
+  1725	        build_reason = ("WAIT: pod has non-terminal card(s), no build starts until every one is done or "
+  1726	                        "cancelled (escalated cards are waited on, never skipped): "
+  1727	                        + "; ".join(describe(c) for c in pod_holders))
+  1728	    elif candidates:
+  1729	        builds = list(candidates.values())   # pod order: the dict filled in roadmap order
+  1730	        build_reason = None
+  1731	        # Calvin 2026-10-06: a pod with many lanes (the Internal Website Pod has 23) still runs at most
+  1732	        # max_parallel_builds build cards at once; lanes past the cap wait their turn in roadmap order.
+  1733	        if parallel:
+  1734	            # Calvin 2026-10-04 "One build per lane, up to 4": the cap counts busy LANES, plus no-lane work counted once
+  1735	            # per root card, so a card and its seat subtasks take one slot, not one each (2026-10-09: Penn's hosting
+  1736	            # card and its Developer subtask, and a retro card and its subtask, read as 4 of 4 with one lane busy).
+  1737	            by_id = {c.get("id"): c for c in active_cards if c.get("id")}
+  1738	
+  1739	            def root(c):
+  1740	                seen = set()
+  1741	                while c.get("parentId") in by_id and c.get("id") not in seen:
+  1742	                    seen.add(c.get("id"))
+  1743	                    c = by_id[c["parentId"]]
+  1744	                return c.get("identifier")
+  1745	            unlaned_roots = {root(c) for c in active_cards if c["identifier"] in unlaned}
+  1746	            busy = sum(1 for ids in lane_holders.values() if ids) + len(unlaned_roots)
+  1747	            room = max(0, max_parallel - busy)
+  1748	            for capped_out in builds[room:]:
+  1749	                refused.append({"issue": capped_out["issue"], "lane": capped_out.get("lane"),
+  1750	                                "reason": f"pod at max_parallel_builds {max_parallel} "
+  1751	                                          f"({busy} busy lane(s) or task(s)); starts when one finishes"})
+  1752	            builds = builds[:room]
+  1753	            if not builds:
+  1754	                build_reason = (f"WAIT: pod at max_parallel_builds {max_parallel} "
+  1755	                                f"({busy} busy lane(s) or task(s))")
+  1756	    elif parallel and lane_holders:
+  1757	        build_reason = ("WAIT: every lane with work is busy: " + "; ".join(
+  1758	            f"{lane_id} ({', '.join(sorted(ids))})" for lane_id, ids in lane_holders.items()))
+  1759	    elif frontier:
+  1760	        build_reason = f"frontier #{frontier['issue']} is not build-ready ({frontier['reason']}); nothing behind it jumps it"
+  1761	    else:
+  1762	        build_reason = "no BUILD item is open, unheld and has every dependency closed"
+  1763	    build = builds[0] if builds else None
+  1764	    pulled = {b["issue"] for b in builds if b.get("whole_issue")}
+  1765	    if pulled:
+  1766	        # a pulled frontier carries its own requirements; never list it as requirements-ahead too
+  1767	        eligible = [row for row in eligible if row["issue"] not in pulled]
+  1768	        send, over = eligible[:slots], eligible[slots:]
+  1769	
+  1770	    # ---------------- contract dates vs Calvin's holds: warn Calvin
+  1771	    calvin_warnings = []
+  1772	    for _, lane, item in ordered:
+  1773	        number = int(item["number"])
+  1774	        if not item.get("contract_due") or item_done(number):
+  1775	            continue
+  1835	        "outside_roadmap": outside,
+  1836	        "outside_roadmap_cards": sorted(outside_cards),
+  1837	        "contract_dates_present": any(i.get("contract_due") for i in items.values()),
+  1838	        "lane_holds": lane_holds,
+  1839	        "requirements_send": send,
+  1840	        "requirements_over_cap": over,
+  1841	        "requirements_waiting": waiting,
+  1842	        "decompose_routed": routes_requirements,
+  1843	        "decompose_unrouted": decompose_unrouted,
+  1844	        "held": held,
+  1845	        "refusals": refusals,
+  1846	        "envelope_focus": focus,
+  1847	        "premise_note": premise_note,
+  1848	    }
+  1849	
+  1850	
+  1851	def check_build_ready(number, item, identity_problem, hold_label, disagree, index, children_of, gh_closed):
+  1852	    """Return a dict for the chosen item, None if nothing left to build here, or a reason string."""
+  1853	    for check in (identity_problem(number), disagree.get(number), hold_label(number)):
+  1854	        if check:
+  1855	            return check
+  1856	    state, problem = prd_state(number, index)
+  1857	    if state != "PRD_APPROVED":
+  1858	        return problem or f"#{number} has no PRD yet (requirements first)"
+  1859	    children = children_of(number)
+  1860	    if not children:
+  1861	        return {"issue": number, "reason": f"PRD approved, every dependency done, open, no hold label"}
+  1862	    open_children = [c for c in children if not gh_closed(c)]
+  1863	    if not open_children:
+  1864	        return None
+  1865	    child = open_children[0]
+  1866	    for check in (identity_problem(child), hold_label(child)):
+  1867	        if check:
+  1868	            return f"current child of #{number}: {check}"
+  1869	    child_state, child_problem = prd_state(child, index)
+  1870	    if child_state != "PRD_APPROVED":
+  1871	        return (child_problem or
+  1872	                f"#{number}'s current child #{child} has no child receipt yet (needs its entry pass)")
+  1873	    return {"issue": child, "reason": f"current child of #{number}; child receipt approved"}
+  1874	
+  1875	
+  1950	        if row.get("system_card"):
+  1951	            out.append(f"  WAITING ON IT: {row['card']} " + ",".join(number_tag(n) for n in row["issues"])
+  1952	                       + f" waits on {row['system_card']} (a broken system check) since {et_time(row['since'])}; "
+  1953	                         "skipped, retries itself, not flagged to Calvin")
+  1954	        elif row.get("stale"):
+  1955	            out.append(f"  STALE: {row['card']} " + ",".join(number_tag(n) for n in row["issues"])
+  1956	                       + f" blocked with nothing pending and no live blocker since {et_time(row['since'])}; "
+  1957	                         "skipped, not waited on, flagged to Calvin")
+  1958	        else:
+  1959	            out.append(f"  PARKED: {row['card']} " + ",".join(number_tag(n) for n in row["issues"])
+  1960	                       + f" waiting on Calvin since {et_time(row['since'])}")
+  1961	    for row in result.get("proposals") or []:
+  1962	        out.append(f"  PROPOSAL: {row['card']} (backlog, names no roadmap issue) waits on Calvin to schedule it; "
+  1963	                   f"holds nothing: {row.get('title') or ''}")
+  1964	    for row in result.get("covered") or []:
+  1965	        out.append(f"  COVERED: {row['card']} " + ",".join(number_tag(n) for n in row["issues"])
+  1966	                   + f" ({row['status']}) holds nothing: its issue is already parked through "
+  1967	                   + ", ".join(row["through"]))
+  1968	    idle = result.get("idle") or {}
+  1969	    if idle.get("idle"):
+  1970	        out.append(f"  IDLE: no pod run for {idle['minutes']} minutes while the queue waits; flagged to "
+  1971	                   + ("Calvin" if idle_alert_to_calvin() else "the Delivery Manager"))
+  1972	    elif idle.get("error"):
+  1973	        out.append(f"  IDLE CHECK NOT RUN: {idle['error']}")
+  1974	    out += ["", f"BUILD REFUSED ({len(result.get('refused') or [])} open items not started, grouped by reason):"]
+  1975	    groups = {}
+  1976	    for row in result.get("refused") or []:
+  1977	        key = re.sub(r"^#\d+ ", "", row["reason"])
+  1978	        if row.get("repo"):   # agentos#1047: a multi_repo reason opens with owner/name#N
+  1979	            key = re.sub(r"^\S+#\d+:? ", "", key)
+  1980	        if key.startswith("waits on "):
+  1981	            key = "waits on an open dependency"
+  1982	        elif key.startswith("behind the frontier"):
+  1983	            key = key.split(";")[0] + ("; also not build-ready yet" if "; also" in key else "; build-ready")
+  1984	        groups.setdefault(key, []).append(issue_tag(row))
+  1985	    for key, numbers in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+  1986	        out.append(f"  [{len(numbers)}] {key}: " + " ".join(numbers))
+  1987	    out += ["", f"REQUIREMENTS QUEUE (parallel, cap {result['cap']} per pod, "
+  1988	            f"{len(result['open_spec_cards'])} already open):"]
+  1989	    if not result["requirements_send"]:
+  1990	        out.append("  none")
+  1991	    for row in result["requirements_send"]:
+  1992	        out.append(f"  {issue_tag(row)} [{row['kind']}] lane={row['lane']}: {row_reason(row)}")
+  1993	    out.append("  eligible but over the cap:")
+  1994	    if not result["requirements_over_cap"]:
+  1995	        out.append("    none")

@@ -1,0 +1,481 @@
+FILE=/home/calvin/roadmap-feeder/runs/live-registered-20261022T184521Z.txt
+-rw-r--r-- 1 calvin calvin 30821 Oct 22 14:45 /home/calvin/roadmap-feeder/runs/live-registered-20261022T184521Z.txt
+registered pods: agentos-internal, damon-martin, direct-outreach-v1, penn, rentlist919, sourcedox
+
+===== pod agentos-internal =====
+ROADMAP FEEDER LIVE: pod=agentos-internal repo=scaleupventures01/scaleup-marketing roadmap=docs/roadmap.json@90b760ce41ed captured=2026-10-22T18:20:51.896535+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  none: WAIT: pod at max_parallel_builds 4 (8 busy lane(s) or task(s))
+  NEXT IN ORDER (what it would start once the pod is clear): #370 lane=purchase-tracker proposed_sequence=31 build-ready=False: #370 not build-ready: needs its PRD
+  contract dates in roadmap: none (no contract_due field on any item)
+  STALE: SCAA-7212 #29 blocked with nothing pending and no live blocker since 2026-10-21 01:36 EDT; skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-8142 #29 waiting on Calvin since 2026-10-22 13:35 EDT
+  STALE: SCAA-8041 #197 blocked with nothing pending and no live blocker since 2026-10-22 10:34 EDT; skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7213 #193 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7264 #197 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7261 #196 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7273 #9 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7285 #7 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7279 #88 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7242 #194 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7272 #200 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7270 #199 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7257 #195 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-5722 #294 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-7214 #100 waiting on Calvin since 2026-10-22 13:26 EDT
+  STALE: SCAA-7281 #342 blocked with nothing pending and no live blocker since 2026-10-22 12:08 EDT; skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7266 #198 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-7243 #4 waiting on Calvin since 2026-10-21 21:15 EDT
+  PARKED: SCAA-7283 #118 waiting on Calvin since 2026-10-21 21:13 EDT
+  STALE: SCAA-5723 #296 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-8049 #197 waiting on Calvin since 2026-10-22 10:47 EDT
+  PARKED: SCAA-8037 #200 waiting on Calvin since 2026-10-22 10:22 EDT
+  PARKED: SCAA-8020 #194 waiting on Calvin since 2026-10-22 10:00 EDT
+  PARKED: SCAA-8001 #199 waiting on Calvin since 2026-10-22 09:50 EDT
+  PARKED: SCAA-8000 #195 waiting on Calvin since 2026-10-22 09:49 EDT
+  PARKED: SCAA-7998 #198 waiting on Calvin since 2026-10-22 09:46 EDT
+  PARKED: SCAA-7968 #196 waiting on Calvin since 2026-10-22 09:06 EDT
+  STALE: SCAA-5646 #330 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  PROPOSAL: SCAA-7600 (backlog, names no roadmap issue) waits on Calvin to schedule it; holds nothing: Learning: Add a search-demand topic validation step to the distribution and growth playbook before content production decisions
+  PROPOSAL: SCAA-2737 (backlog, names no roadmap issue) waits on Calvin to schedule it; holds nothing: Learning: Add target presentations and interviews as first-class event-trigger sources in COLD-ICP.
+  PROPOSAL: SCAA-7558 (backlog, names no roadmap issue) waits on Calvin to schedule it; holds nothing: Learning: Add USPS Every Door Direct Mail as the route-level direct-mail option in the outreach plan.
+  PROPOSAL: SCAA-7557 (backlog, names no roadmap issue) waits on Calvin to schedule it; holds nothing: Learning: Add a USPS-account and EDDM online-tool setup gate before any physical mail drop.
+  COVERED: SCAA-7280 #342 (blocked) holds nothing: its issue is already parked through SCAA-7281
+  COVERED: SCAA-7211 #29 (in_progress) holds nothing: its issue is already parked through SCAA-7212, SCAA-8142
+  IDLE: no pod run for 53 minutes while the queue waits; flagged to the Delivery Manager
+
+BUILD REFUSED (115 open items not started, grouped by reason):
+  [32] waits on an open dependency: #371 #299 #392 #393 #394 #297 #148 #151 #150 #152 #153 #161 #162 #163 #95 #96 #98 #97 #205 #207 #208 #168 #67 #68 #37 #91 #157 #172 #137 #165 #273 #269
+  [13] class EPIC never enters the build queue: #192 #120 #99 #146 #160 #3 #16 #94 #92 #93 #211 #190 #147
+  [13] pod at max_parallel_builds 4 (8 busy lane(s) or task(s)); starts when one finishes: #370 #298 #353 #74 #66 #82 #131 #140 #30 #138 #252 #230 #324
+  [12] PARKED: its card waits on Calvin; never a second card for it: #194 #195 #196 #197 #198 #199 #200 #100 #4 #29 #145 #118
+  [6] PARKED: its card is held outside the pod; never a second card for it: #342 #296 #193 #9 #88 #7
+  [5] class INPUT never enters the build queue: #33 #38 #291 #154 #354
+  [4] depends on #100, which is PARKED waiting on Calvin; not started until he answers: #101 #103 #102 #104
+  [3] depends on #296, which is PARKED on a stale blocked card; not started until it is closed: #300 #301 #302
+  [3] carries hold label(s) ['awaiting-sign-off']: #248 #204 #232
+  [3] closed on GitHub; skipped: #144 #330 #228
+  [3] depends on #145, which is PARKED waiting on Calvin; not started until he answers: #113 #89 #167
+  [3] class RECONCILE never enters the build queue: #34 #35 #36
+  [2] depends on #342, which is PARKED on a stale blocked card; not started until it is closed: #343 #344
+  [2] behind the frontier #298 in roadmap order; also not build-ready yet: #391 #357
+  [2] depends on #193, which is PARKED on a stale blocked card; not started until it is closed: #201 #127
+  [2] depends on #88, which is PARKED on a stale blocked card; not started until it is closed: #106 #142
+  [2] depends on #118, which is PARKED waiting on Calvin; not started until he answers: #112 #114
+  [1] lane scaleup-marketing-async-close at max_concurrent 1 (1 open card(s): SCAA-7217): #149
+  [1] depends on #9, which is PARKED on a stale blocked card; not started until it is closed: #8
+  [1] lane scaleup-marketing-client-intake-upload at max_concurrent 1 (1 open card(s): SCAA-7294): #1
+  [1] lane scaleup-marketing-measurement at max_concurrent 1 (1 open card(s): SCAA-7301): #59
+  [1] behind the frontier #252 in roadmap order; also not build-ready yet: #251
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 2 already open):
+  #193 [NEEDS_PRD] lane=scaleup-marketing-v4-site-launch: no dependencies
+  eligible but over the cap:
+    #100 [NEEDS_PRD]: no dependencies
+    #9 [NEEDS_PRD]: no dependencies
+    #88 [NEEDS_PRD]: no dependencies
+    #145 [NEEDS_PRD]: no dependencies
+    #118 [NEEDS_PRD]: no dependencies
+    #7 [NEEDS_PRD]: no dependencies
+    #74 [NEEDS_PRD]: no dependencies
+    #66 [NEEDS_PRD]: no dependencies
+    #82 [NEEDS_PRD]: no dependencies
+    #131 [NEEDS_PRD]: no dependencies
+    #140 [NEEDS_PRD]: no dependencies
+    #30 [NEEDS_PRD]: no dependencies
+    #138 [NEEDS_PRD]: no dependencies
+    #252 [NEEDS_PRD]: no dependencies
+    #251 [NEEDS_PRD]: no dependencies
+    #230 [NEEDS_PRD]: no dependencies
+    #324 [NEEDS_PRD]: no dependencies
+    #370 [NEEDS_PRD]: no dependencies
+    #298 [NEEDS_PRD]: no dependencies
+    #391 [NEEDS_PRD]: no dependencies
+    #357 [NEEDS_PRD]: no dependencies
+    #353 [NEEDS_PRD]: no dependencies
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 8
+  #404 #406 #407 #408 #410 #411 #412 #413
+
+HELD (out of both queues):
+  #34 lane=scaleup-marketing-strategy-grooming: RECONCILE: premise decision required before requirements or build (E5)
+  #35 lane=scaleup-marketing-strategy-grooming: RECONCILE: premise decision required before requirements or build (E5)
+  #36 lane=scaleup-marketing-strategy-grooming: RECONCILE: premise decision required before requirements or build (E5)
+
+WAITING (not yet eligible for requirements): 54 items
+  #201: waits on open dependency #193, #194, #195, #196, #197, #198, #199, #200
+  #127: waits on open dependency #201
+  #101: waits on open dependency #100
+  #103: waits on open dependency #101
+  #102: waits on open dependency #100, #101, #103
+  #104: waits on open dependency #100, #101, #102
+  #148: waits on open dependency #149
+  #151: waits on open dependency #148
+  #150: waits on open dependency #151
+  #152: waits on open dependency #150
+  #153: waits on open dependency #152
+  #161: waits on open dependency #153
+  #162: waits on open dependency #161
+  #163: waits on open dependency #162
+  #8: waits on open dependency #9
+  #106: waits on open dependency #88
+  #142: waits on open dependency #106
+  #113: waits on open dependency #145
+  #89: waits on open dependency #113
+  #167: waits on open dependency #89
+  #112: waits on open dependency #118
+  #114: waits on open dependency #112
+  #95: waits on open dependency #94, #205
+  #96: waits on open dependency #95
+  #98: waits on open dependency #96
+  #97: waits on open dependency #96, #98
+  #205: waits on open dependency #204
+  #207: waits on open dependency #204
+  #208: waits on open dependency #204
+  #168: waits on open dependency #74
+  #67: waits on open dependency #66
+  #68: waits on open dependency #67
+  #37: waits on open dependency #66, #67, #68
+  #91: waits on open dependency #37
+  #157: waits on open dependency #131
+  #172: waits on open dependency #157
+  #137: waits on open dependency #30
+  #165: waits on open dependency #137
+  #273: waits on open dependency #230
+  #269: waits on open dependency #232
+  #371: waits on open dependency #370
+  #343: waits on open dependency #342
+  #344: waits on open dependency #343
+  #299: waits on open dependency #298
+  #392: waits on open dependency #391
+  #393: waits on open dependency #392
+  #394: waits on open dependency #393
+  #297: waits on open dependency #394
+  #300: waits on open dependency #296, #297, #299
+  #301: waits on open dependency #300
+  #302: waits on open dependency #301
+  #99: its decompose card SCAA-3955 is done but no child issue says Part of #99 yet
+  #93: its decompose card SCAA-3977 is done but no child issue says Part of #93 yet
+  #147: its decompose card SCAA-3987 is done but no child issue says Part of #147 yet
+
+REFUSALS:
+  - #144 is open in the roadmap but closed on GitHub; skipped, never started
+  - #330 is open in the roadmap but closed on GitHub; skipped, never started
+  - #228 is open in the roadmap but closed on GitHub; skipped, never started
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): #193
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+ALERT: escalated 'agentos-internal: idle alert SCAA-7448 still open after 1568 minutes' to Calvin
+LIVE REFUSED: requirements for #193: open card(s) already name scaleupventures01/scaleup-marketing#193: SCAA-7213 (blocked); nothing created
+LIVE: no card created: WAIT: pod at max_parallel_builds 4 (8 busy lane(s) or task(s))
+
+external calls: 229 (1 write)
+
+===== pod damon-martin =====
+ROADMAP FEEDER LIVE: pod=damon-martin repo=scaleupventures01/damon-martin-sites roadmap=docs/roadmap.json@0b26a651cd15 captured=2026-10-22T18:32:14.937408+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  none: no BUILD item is open, unheld and has every dependency closed
+  contract dates in roadmap: none (no contract_due field on any item)
+  PARKED: SCAA-7204 #1,#2,#3,#4,#6 waiting on Calvin since 2026-10-21 01:30 EDT
+  STALE: SCAA-7220 #1,#2,#3,#4,#5,#6,#7 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  IDLE: no pod run for 2221 minutes while the queue waits; flagged to the Delivery Manager
+
+BUILD REFUSED (0 open items not started, grouped by reason):
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 0 already open):
+  none
+  eligible but over the cap:
+    none
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 7
+  #1 #2 #3 #4 #5 #6 #7
+
+HELD (out of both queues):
+  none
+
+WAITING (not yet eligible for requirements): 0 items
+
+REFUSALS:
+  - none
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): None
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+LIVE: no card created: no BUILD item is open, unheld and has every dependency closed
+
+external calls: 266 (1 write)
+
+===== pod direct-outreach-v1 =====
+ROADMAP FEEDER LIVE: pod=direct-outreach-v1 repo=scaleupventures01/scaleup-marketing roadmap=docs/roadmaps/direct-outreach-v1.json@baf570b13c57 captured=2026-10-22T18:35:45.642972+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  none: frontier #391 is not build-ready (#391 has no PRD yet (requirements first)); nothing behind it jumps it
+  NEXT IN ORDER (what it would start once the pod is clear): #391 lane=direct-outreach-v1 proposed_sequence=None build-ready=False: #391 has no PRD yet (requirements first)
+  contract dates in roadmap: none (no contract_due field on any item)
+  SPLIT: #391 placed before parent #297 lane=direct-outreach-v1
+  SPLIT: #392 placed before parent #297 lane=direct-outreach-v1
+  SPLIT: #393 placed before parent #297 lane=direct-outreach-v1
+  SPLIT: #394 placed before parent #297 lane=direct-outreach-v1
+  STALE: SCAA-5722 #294 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  STALE: SCAA-5723 #296 blocked with nothing pending and no live blocker since None (unparsed); skipped, not waited on, flagged to Calvin
+  IDLE: no pod run for 43 minutes while the queue waits; flagged to the Delivery Manager
+
+BUILD REFUSED (11 open items not started, grouped by reason):
+  [5] waits on an open dependency: #392 #393 #394 #297 #299
+  [3] depends on #296, which is PARKED on a stale blocked card; not started until it is closed: #300 #301 #302
+  [1] PARKED: its card is held outside the pod; never a second card for it: #296
+  [1] behind the frontier #391 in roadmap order; also not build-ready yet: #298
+  [1] class EPIC never enters the build queue: #294
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 1 already open):
+  #294 [DECOMPOSE] lane=direct-outreach-v1: open feature with no build issues (no child issue found); write its MVP issue(s) first
+  eligible but over the cap:
+    none
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 0
+
+PARTIAL ROADMAP: 108 open repo issue(s) belong to other pods, not counted; 76 card(s) about them ignored
+
+HELD (out of both queues):
+  none
+
+WAITING (not yet eligible for requirements): 8 items
+  #392: waits on open dependency #391
+  #393: waits on open dependency #392
+  #394: waits on open dependency #393
+  #297: waits on its split child issue(s) #391, #392, #393, #394 (not closed)
+  #299: waits on open dependency #298
+  #300: waits on open dependency #296, #297, #299
+  #301: waits on open dependency #300
+  #302: waits on open dependency #301
+
+REFUSALS:
+  - none
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): #296
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+ALERT: sent 'direct-outreach-v1: pod idle 43 minutes' to the Delivery Manager
+LIVE REFUSED: requirements for #294: open card(s) already name scaleupventures01/scaleup-marketing#294: SCAA-5722 (blocked); nothing created
+LIVE: no card created: frontier #391 is not build-ready (#391 has no PRD yet (requirements first)); nothing behind it jumps it
+
+external calls: 458 (2 write)
+
+===== pod penn =====
+ROADMAP FEEDER LIVE: pod=penn repo=scaleupventures01/project-management-tool roadmap=docs/roadmap.json@b705f53ece84 captured=2026-10-22T18:39:18.680966+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  none: no BUILD item is open, unheld and has every dependency closed
+  contract dates in roadmap: none (no contract_due field on any item)
+  PARKED: SCAA-7189 #24 waiting on Calvin since 2026-10-21 20:50 EDT
+  IDLE: no pod run for 868 minutes while the queue waits; flagged to the Delivery Manager
+
+BUILD REFUSED (14 open items not started, grouped by reason):
+  [9] depends on #3, which is PARKED waiting on Calvin; not started until he answers: #4 #9 #5 #7 #6 #10 #8 #11 #12
+  [2] closed on GitHub; skipped: #23 #22
+  [2] PARKED: its card waits on Calvin; never a second card for it: #24 #3
+  [1] class EPIC never enters the build queue: #1
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 0 already open):
+  none
+  eligible but over the cap:
+    none
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 1
+  #43
+
+HELD (out of both queues):
+  none
+
+WAITING (not yet eligible for requirements): 10 items
+  #3: waits on open dependency #24
+  #4: waits on open dependency #3
+  #9: waits on open dependency #3, #4
+  #5: waits on open dependency #3, #4
+  #7: waits on open dependency #3
+  #6: waits on open dependency #3, #4
+  #10: waits on open dependency #3, #4, #6, #8
+  #8: waits on open dependency #3, #4
+  #11: waits on open dependency #3, #4, #6, #8
+  #12: waits on open dependency #3, #4, #5, #6, #7, #8, #9, #10, #11
+
+REFUSALS:
+  - #23 is open in the roadmap but closed on GitHub; skipped, never started
+  - #22 is open in the roadmap but closed on GitHub; skipped, never started
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): None
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+LIVE: no card created: no BUILD item is open, unheld and has every dependency closed
+
+external calls: 487 (2 write)
+
+===== pod rentlist919 =====
+ROADMAP FEEDER LIVE: pod=rentlist919 repo=scaleupventures01/scaleup-client-rentlist919 roadmap=docs/roadmap.json@17e5e5654b93 captured=2026-10-22T18:40:21.727542+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  none: WAIT: every lane with work is busy: rentlist919-outreach-operations (SCAA-7228)
+  contract dates in roadmap: none (no contract_due field on any item)
+  STALE: SCAA-7227 #40 blocked with nothing pending and no live blocker since 2026-10-21 01:38 EDT; skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7235 #31 blocked with nothing pending and no live blocker since 2026-10-21 01:49 EDT; skipped, not waited on, flagged to Calvin
+  STALE: SCAA-7223 #34 blocked with nothing pending and no live blocker since 2026-10-21 01:43 EDT; skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-8070 #34 waiting on Calvin since 2026-10-22 11:22 EDT
+  PARKED: SCAA-8068 #31 waiting on Calvin since 2026-10-22 11:21 EDT
+  PARKED: SCAA-8067 #40 waiting on Calvin since 2026-10-22 11:21 EDT
+  COVERED: SCAA-7224 #40 (in_progress) holds nothing: its issue is already parked through SCAA-7227, SCAA-8067
+  IDLE: no pod run for 1773 minutes while the queue waits; flagged to the Delivery Manager
+
+BUILD REFUSED (9 open items not started, grouped by reason):
+  [3] closed on GitHub; skipped: #55 #56 #53
+  [2] PARKED: its card waits on Calvin; never a second card for it: #40 #31
+  [2] class EPIC never enters the build queue: #34 #52
+  [1] requirements in flight on SCAA-7226; it builds once they are written: #35
+  [1] class INPUT never enters the build queue: #59
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 3 already open):
+  none
+  eligible but over the cap:
+    none
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 5
+  #67 #68 #69 #70 #71
+
+HELD (out of both queues):
+  none
+
+WAITING (not yet eligible for requirements): 0 items
+
+REFUSALS:
+  - #55 is open in the roadmap but closed on GitHub; skipped, never started
+  - #56 is open in the roadmap but closed on GitHub; skipped, never started
+  - #53 is open in the roadmap but closed on GitHub; skipped, never started
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): #40
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+ALERT: sent 'rentlist919: pod idle 1773 minutes' to the Delivery Manager
+LIVE: no card created: WAIT: every lane with work is busy: rentlist919-outreach-operations (SCAA-7228)
+
+external calls: 536 (3 write)
+
+===== pod sourcedox =====
+ROADMAP FEEDER LIVE: pod=sourcedox repo=scaleupventures01/sourcedox-phase0 roadmap=docs/roadmap.json@3489a71b2c5d captured=2026-10-22T18:43:34.690600+00:00
+LIVE: at most one Build card may be created this run (see LIVE lines below), plus alert cards to Calvin; nothing else is written.
+
+BUILD QUEUE (one at a time, roadmap order):
+  #200 lane=sourcedox-phase0-parse-hardening: roadmap is the approval: pull the whole issue, requirements first, then build (#200 not build-ready: requirements state is spec-in-issue; needs an approved PRD (or build blocks) first)
+    whole issue: the pod PM routes it to the Requirements Agent first, then the Developer
+    would add 'approve build for #200' to the batch approval card (NOT BUILT)
+    card marker would be: agentos.roadmap-feed/v1 pod=sourcedox repo=scaleupventures01/sourcedox-phase0 issue=200 stage=build roadmap_rev=3489a71b2c5ddcfff471336a00955ed753f3f473 approval=<pending>
+  NEXT IN ORDER (what it would start once the pod is clear): #200 lane=sourcedox-phase0-parse-hardening proposed_sequence=51 build-ready=False: #200 not build-ready: requirements state is spec-in-issue; needs an approved PRD (or build blocks) first
+  contract dates in roadmap: none (no contract_due field on any item)
+  SPLIT: #396 placed before parent #166 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #397 placed before parent #166 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #398 placed before parent #166 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #399 placed before parent #166 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #400 placed before parent #166 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #401 placed before parent #39 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #402 placed before parent #39 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #403 placed before parent #39 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #404 placed before parent #39 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #405 placed before parent #39 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #437 placed before parent #4 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #438 placed before parent #4 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #439 placed before parent #4 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #441 placed before parent #5 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #442 placed before parent #5 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #443 placed before parent #5 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #445 placed before parent #7 lane=sourcedox-phase0-contract-delivery
+  SPLIT: #446 placed before parent #7 lane=sourcedox-phase0-contract-delivery
+  STALE: SCAA-8109 #127 blocked with nothing pending and no live blocker since 2026-10-22 12:23 EDT; skipped, not waited on, flagged to Calvin
+  PARKED: SCAA-8160 #190 waiting on Calvin since 2026-10-22 14:29 EDT
+  PARKED: SCAA-8124 #127 waiting on Calvin since 2026-10-22 12:51 EDT
+  PARKED: SCAA-7985 #255 waiting on Calvin since 2026-10-22 09:30 EDT
+  COVERED: SCAA-8016 #190 (in_progress) holds nothing: its issue is already parked through SCAA-8160
+  COVERED: SCAA-8131 #190 (backlog) holds nothing: its issue is already parked through SCAA-8160
+  COVERED: SCAA-8014 #127 (blocked) holds nothing: its issue is already parked through SCAA-8109, SCAA-8124
+  COVERED: SCAA-5340 #255 (in_progress) holds nothing: its issue is already parked through SCAA-7985
+
+BUILD REFUSED (97 open items not started, grouped by reason):
+  [22] lane sourcedox-phase0-contract-delivery at max_concurrent 1 (2 open card(s): SCAA-8125, SCAA-8158): #469 #135 #253 #256 #257 #280 #281 #282 #285 #265 #396 #397 #398 #37 #41 #401 #402 #403 #404 #437 #441 #445
+  [16] waits on an open dependency: #295 #266 #267 #268 #292 #269 #399 #400 #166 #405 #39 #438 #439 #442 #443 #446
+  [14] class RECONCILE never enters the build queue: #184 #185 #186 #133 #146 #150 #110 #72 #29 #38 #63 #122 #131 #52
+  [12] depends on #127, which is PARKED waiting on Calvin; not started until he answers: #128 #121 #141 #233 #151 #145 #147 #152 #138 #140 #148 #21
+  [9] class EPIC never enters the build queue: #2 #3 #144 #171 #4 #5 #6 #7 #134
+  [7] closed on GitHub; skipped: #137 #129 #112 #83 #126 #178 #74
+  [7] behind the frontier #200 in roadmap order; also not build-ready yet: #201 #202 #203 #209 #211 #212 #213
+  [7] class INPUT never enters the build queue: #96 #123 #9 #283 #284 #42 #271
+  [3] PARKED: its card waits on Calvin; never a second card for it: #127 #255 #190
+
+REQUIREMENTS QUEUE (parallel, cap 3 per pod, 0 already open):
+  none
+  eligible but over the cap:
+    none
+  each would be one yes/no question on the ONE batch approval card (NOT BUILT)
+
+UNMAPPED (open issues on no lane and not another pod's; nothing will ever start them): 1
+  #464
+
+HELD (out of both queues):
+  #184 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #185 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #186 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #133 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #146 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #150 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #110 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #72 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #29 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #38 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #63 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #122 lane=sourcedox-phase0-contract-delivery: RECONCILE: premise decision required before requirements or build (E5)
+  #131 lane=sourcedox-engineering-health: RECONCILE: premise decision required before requirements or build (E5)
+  #52 lane=sourcedox-non-contract-decisions: RECONCILE: premise decision required before requirements or build (E5)
+
+WAITING (not yet eligible for requirements): 23 items
+  #128: waits on open dependency #127, #255
+  #121: waits on open dependency #128
+  #233: waits on open dependency #128
+  #151: waits on open dependency #233, #255
+  #145: waits on open dependency #121, #127, #151, #233
+  #147: waits on open dependency #151, #233, #253, #256, #257
+  #152: waits on open dependency #145, #151, #233
+  #138: waits on open dependency #128
+  #148: waits on open dependency #121, #128, #138, #145, #146, #147, #166
+  #21: waits on open dependency #9, #150, #37, #39, #41
+  #141: waits on open dependency #128
+  #295: waits on open dependency #265
+  #292: waits on open dependency #268
+  #399: waits on open dependency #397
+  #400: waits on open dependency #396, #397, #398, #399
+  #166: waits on its split child issue(s) #396, #397, #398, #399, #400 (not closed)
+  #405: waits on open dependency #402
+  #39: waits on its split child issue(s) #401, #402, #403, #404, #405 (not closed)
+  #438: waits on open dependency #437
+  #439: waits on open dependency #438
+  #442: waits on open dependency #441
+  #443: waits on open dependency #442
+  #446: waits on open dependency #445
+
+REFUSALS:
+  - #126 is open in the roadmap but closed on GitHub; skipped, never started
+  - #137 is open in the roadmap but closed on GitHub; skipped, never started
+  - #129 is open in the roadmap but closed on GitHub; skipped, never started
+  - #112 is open in the roadmap but closed on GitHub; skipped, never started
+  - #83 is open in the roadmap but closed on GitHub; skipped, never started
+  - #178 is open in the roadmap but closed on GitHub; skipped, never started
+  - #74 is open in the roadmap but closed on GitHub; skipped, never started
+
+REUSED ORDERING CODE (roadmap_envelope.derive_current_focus): #469
+PREMISE: premise check NOT RUN: no receipt carries upstream_premises yet (decided default: a PRD whose premise changed cannot be built until re-confirmed)
+LIVE: CREATED SCAA-8169 for scaleupventures01/sourcedox-phase0#200, assigned to the pod Project Manager, read back OK. ROADMAP-FEEDER: pod=sourcedox issue=scaleupventures01/sourcedox-phase0#200 run=20261022T184153Z
+
+external calls: 638 (4 write)

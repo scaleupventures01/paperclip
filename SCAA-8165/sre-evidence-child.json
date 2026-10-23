@@ -1,0 +1,6 @@
+[{
+  "title": "Collect roadmap feeder evidence for direct-outreach-v1",
+  "description": "Read-only evidence request on scaleup-svr for parent SCAA-8165. Do not restart or modify anything. Capture and post:\n1. systemctl is-active roadmap-feeder-live.service roadmap-feeder-live.timer\n2. systemctl show roadmap-feeder-live.service -p ActiveState,SubState,ExecMainStatus,ExecMainStartTimestamp and the timer's LastTriggerUSec/NextElapseUSecRealtime\n3. journalctl -u roadmap-feeder-live.service -n 200 --no-pager\n4. The complete latest live-last-run.txt and the matching latest file under ~/roadmap-feeder/runs/\n5. The direct-outreach-v1 entry from /var/lib/agentos-pods/registry.json\n6. grep -nE 'decomposition_gap|requirements first|not build-ready|idle' ~/roadmap-feeder/feeder.py\nPost raw outputs or a combined receipt. Do not redact operational evidence unless it contains a secret.",
+  "status": "todo",
+  "assigneeAgentId": "54510fd1-506f-478f-bbe9-6ff41130db40"
+}]

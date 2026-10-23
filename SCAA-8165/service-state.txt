@@ -1,0 +1,18 @@
+scaleup-svr
+paperclip
+inactive
+inactive
+active
+active
+ExecMainStartTimestamp=
+ExecMainStatus=0
+ActiveState=inactive
+SubState=dead
+NextElapseUSecRealtime=
+LastTriggerUSec=
+ActiveState=inactive
+SubState=dead
+NextElapseUSecRealtime=
+LastTriggerUSec=Thu 2026-10-22 14:45:21 EDT
+ActiveState=active
+SubState=running
