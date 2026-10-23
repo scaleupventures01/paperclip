@@ -2707,14 +2707,32 @@ async function listIssueDependencyReadinessMap(
       companyId,
       doneBlockerWorkspacePairs,
     );
+  const cancelledBlockerIds = blockerRows
+    .filter((row) => row.blockerStatus === "cancelled")
+    .map((row) => row.blockerIssueId);
+  const reconcilableCancelledBlockerIds =
+    await listReconcilableCancelledBlockerIds(
+      dbOrTx,
+      companyId,
+      cancelledBlockerIds,
+    );
 
   for (const row of blockerRows) {
     const current =
       readinessMap.get(row.issueId) ??
       createIssueDependencyReadiness(row.issueId);
     current.blockerIssueIds.push(row.blockerIssueId);
-    // Only done blockers resolve dependents; cancelled blockers stay unresolved
-    // until an operator removes or replaces the blocker relationship explicitly.
+    // A cancelled blocker can reconcile only when its actionable confirmation
+    // is already withdrawn and no pending confirmation remains. The edge is
+    // preserved as the durable dependency history.
+    if (
+      row.blockerStatus === "cancelled" &&
+      reconcilableCancelledBlockerIds.has(row.blockerIssueId)
+    ) {
+      continue;
+    }
+    // Only done blockers resolve dependents; other cancelled blockers stay
+    // unresolved until an operator removes or replaces the relationship.
     if (row.blockerStatus !== "done") {
       current.unresolvedBlockerIssueIds.push(row.blockerIssueId);
       current.unresolvedBlockerCount += 1;
@@ -2740,6 +2758,47 @@ async function listIssueDependencyReadinessMap(
   }
 
   return readinessMap;
+}
+
+async function listReconcilableCancelledBlockerIds(
+  dbOrTx: Pick<Db, "select">,
+  companyId: string,
+  blockerIssueIds: string[],
+) {
+  const uniqueBlockerIssueIds = [...new Set(blockerIssueIds)];
+  if (uniqueBlockerIssueIds.length === 0) return new Set<string>();
+
+  const interactions = await dbOrTx
+    .select({
+      issueId: issueThreadInteractions.issueId,
+      kind: issueThreadInteractions.kind,
+      status: issueThreadInteractions.status,
+      result: issueThreadInteractions.result,
+    })
+    .from(issueThreadInteractions)
+    .where(
+      and(
+        eq(issueThreadInteractions.companyId, companyId),
+        inArray(issueThreadInteractions.issueId, uniqueBlockerIssueIds),
+      ),
+    );
+
+  const withdrawnIds = new Set<string>();
+  const pendingIds = new Set<string>();
+  for (const interaction of interactions) {
+    if (interaction.status === "pending") pendingIds.add(interaction.issueId);
+    if (
+      interaction.kind === "request_confirmation" &&
+      interaction.status === "cancelled" &&
+      interaction.result?.outcome === "withdrawn"
+    ) {
+      withdrawnIds.add(interaction.issueId);
+    }
+  }
+  for (const issueId of withdrawnIds) {
+    if (pendingIds.has(issueId)) withdrawnIds.delete(issueId);
+  }
+  return withdrawnIds;
 }
 
 async function listUnresolvedBlockerDetails(
@@ -11067,6 +11126,66 @@ export function issueService(db: Db) {
             }
           }
           if (updated.status === "done" || updated.status === "cancelled") {
+            if (updated.status === "cancelled") {
+              const dependentEdges = await tx
+                .select({ relatedIssueId: issueRelations.relatedIssueId })
+                .from(issueRelations)
+                .where(
+                  and(
+                    eq(issueRelations.companyId, updated.companyId),
+                    eq(issueRelations.issueId, updated.id),
+                    eq(issueRelations.type, "blocks"),
+                  ),
+                );
+              const confirmationCounts: Array<{
+                status: string;
+                result: { outcome?: string } | null;
+              }> = await tx
+                .select({
+                  status: issueThreadInteractions.status,
+                  result: issueThreadInteractions.result,
+                })
+                .from(issueThreadInteractions)
+                .where(
+                  and(
+                    eq(issueThreadInteractions.companyId, updated.companyId),
+                    eq(issueThreadInteractions.issueId, updated.id),
+                    eq(issueThreadInteractions.kind, "request_confirmation"),
+                  ),
+                );
+              const withdrawnInteractionCount = confirmationCounts.filter(
+                (row) =>
+                  row.status === "cancelled" &&
+                  row.result?.outcome === "withdrawn",
+              ).length;
+              const pendingConfirmationCount = confirmationCounts.filter(
+                (row) => row.status === "pending",
+              ).length;
+              const recoveryEligible =
+                withdrawnInteractionCount > 0 && pendingConfirmationCount === 0;
+              for (const edge of dependentEdges) {
+                await logActivity(tx as unknown as Db, {
+                  companyId: updated.companyId,
+                  actorType: actorAgentId
+                    ? "agent"
+                    : actorUserId
+                      ? "user"
+                      : "system",
+                  actorId: actorAgentId ?? actorUserId ?? "issue_service",
+                  agentId: actorAgentId ?? null,
+                  action: "issue.dependency_blocker_cancelled",
+                  entityType: "issue",
+                  entityId: updated.id,
+                  details: {
+                    dependentIssueId: edge.relatedIssueId,
+                    previousIssueStatus: existing.status,
+                    withdrawnInteractionCount,
+                    pendingConfirmationCount,
+                    recoveryEligible,
+                  },
+                });
+              }
+            }
             await finalizeSummarySlotsForTerminalIssue(tx, updated);
             await queueTerminalQueuedRunCancellation(
               tx as unknown as Db,
