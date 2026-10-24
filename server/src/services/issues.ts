@@ -10793,6 +10793,10 @@ export function issueService(db: Db) {
         patch.blockedTransitionAt = null;
         patch.blockedOwnerNotifiedAt = null;
       }
+      const resultingStatus = issueData.status ?? existing.status;
+      if (resultingStatus !== "blocked" && existing.unblockDescriptor) {
+        patch.unblockDescriptor = null;
+      }
       if (issueData.requestDepth !== undefined) {
         patch.requestDepth = clampIssueRequestDepth(issueData.requestDepth);
       }

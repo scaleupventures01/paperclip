@@ -20177,7 +20177,11 @@ export function heartbeatService(
   }
 
   async function reconcileCancelledPendingInteractionAddresseeWakes() {
-    return recovery.reconcileCancelledPendingInteractionAddresseeWakes();
+    const [interactionWakes, resolvedDescriptorCleanup] = await Promise.all([
+      recovery.reconcileCancelledPendingInteractionAddresseeWakes(),
+      recovery.reconcileResolvedInteractionUnblockDescriptors(),
+    ]);
+    return { ...interactionWakes, resolvedDescriptorCleanup };
   }
 
   async function sweepStaleIssueLocks() {

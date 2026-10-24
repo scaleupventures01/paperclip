@@ -1542,7 +1542,11 @@ async function startServerWithDatabaseTeardown(
             "startup heartbeat recovery changed assigned issue state",
           );
         }
-        if (interactionWakes.recovered > 0 || interactionWakes.descriptorsRestored > 0) {
+        if (
+          interactionWakes.recovered > 0 ||
+          interactionWakes.descriptorsRestored > 0 ||
+          interactionWakes.resolvedDescriptorCleanup.cleared > 0
+        ) {
           logger.warn(
             interactionWakes,
             "startup interaction-addressee recovery restored pending decision paths",
@@ -1790,7 +1794,11 @@ async function startServerWithDatabaseTeardown(
                   "periodic heartbeat recovery changed assigned issue state",
                 );
               }
-              if (interactionWakes.recovered > 0 || interactionWakes.descriptorsRestored > 0) {
+              if (
+                interactionWakes.recovered > 0 ||
+                interactionWakes.descriptorsRestored > 0 ||
+                interactionWakes.resolvedDescriptorCleanup.cleared > 0
+              ) {
                 logger.warn(
                   interactionWakes,
                   "periodic interaction-addressee recovery restored pending decision paths",
