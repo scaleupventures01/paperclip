@@ -1000,6 +1000,97 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
       expect(enqueueWakeup).not.toHaveBeenCalled();
     });
 
+    it("clears a resolved interaction descriptor, resumes the issue, and wakes its owner once", async () => {
+      const { companyId, agentId } = await seedCompanyAndAgent();
+      const issueId = randomUUID();
+      const interactionId = randomUUID();
+      await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId: agentId });
+      await db.insert(issueThreadInteractions).values({
+        id: interactionId,
+        companyId,
+        issueId,
+        kind: "request_confirmation",
+        status: "accepted",
+        requestedResolverPolicy: "human_only",
+        effectiveResolverPolicy: "human_only",
+        payload: { version: 1, prompt: "Approve the bounded repair" },
+        result: { version: 1, outcome: "accepted" },
+        resolvedAt: new Date(),
+      });
+      await db.update(issues).set({
+        unblockDescriptor: {
+          owner: { agentId },
+          action: "Resolve the bounded repair confirmation",
+          clearingCheck: { kind: "interaction_resolved", interactionId },
+        },
+      }).where(eq(issues.id, issueId));
+      const enqueueWakeup = vi.fn(async () => ({ id: randomUUID() }) as never);
+      const service = recoveryService(db, { enqueueWakeup });
+
+      const result = await service.reconcileResolvedInteractionUnblockDescriptors();
+
+      expect(result).toMatchObject({ scanned: 1, cleared: 1, resumed: 1, wakeQueued: 1 });
+      await expect(db.select({
+        status: issues.status,
+        descriptor: issues.unblockDescriptor,
+      }).from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0]))
+        .resolves.toEqual({ status: "todo", descriptor: null });
+      expect(enqueueWakeup).toHaveBeenCalledTimes(1);
+      expect(enqueueWakeup).toHaveBeenCalledWith(
+        agentId,
+        expect.objectContaining({
+          reason: "issue_unblock_requested",
+          idempotencyKey: `resolved-interaction-cleanup:${issueId}:${interactionId}`,
+        }),
+      );
+
+      const repeated = await service.reconcileResolvedInteractionUnblockDescriptors();
+      expect(repeated).toMatchObject({ scanned: 0, cleared: 0, resumed: 0, wakeQueued: 0 });
+      expect(enqueueWakeup).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a genuine pending human confirmation blocked", async () => {
+      const { companyId, agentId } = await seedCompanyAndAgent();
+      const issueId = randomUUID();
+      const interactionId = randomUUID();
+      const descriptor = {
+        owner: "board" as const,
+        action: "Approve publication",
+        clearingCheck: { kind: "interaction_resolved" as const, interactionId },
+      };
+      await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId: agentId });
+      await db.insert(issueThreadInteractions).values({
+        id: interactionId,
+        companyId,
+        issueId,
+        kind: "request_confirmation",
+        status: "pending",
+        requestedResolverPolicy: "human_only",
+        effectiveResolverPolicy: "human_only",
+        payload: { version: 1, prompt: "Approve publication to the client" },
+      });
+      await db.update(issues).set({ unblockDescriptor: descriptor })
+        .where(eq(issues.id, issueId));
+      const enqueueWakeup = vi.fn();
+
+      const result = await recoveryService(db, { enqueueWakeup })
+        .reconcileResolvedInteractionUnblockDescriptors();
+
+      expect(result).toMatchObject({
+        scanned: 1,
+        cleared: 0,
+        resumed: 0,
+        wakeQueued: 0,
+        pendingInteractionSkipped: 1,
+      });
+      await expect(db.select({
+        status: issues.status,
+        descriptor: issues.unblockDescriptor,
+      }).from(issues).where(eq(issues.id, issueId)).then((rows) => rows[0]))
+        .resolves.toEqual({ status: "blocked", descriptor });
+      expect(enqueueWakeup).not.toHaveBeenCalled();
+    });
+
     it(
       "reads the locked issue state and cancels in the same semantic transaction",
       async () => {

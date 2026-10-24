@@ -1035,6 +1035,7 @@ export function recoveryService(
   const treeControlSvc = issueTreeControlService(db);
   const budgets = budgetService(db);
   let resolvedDependencyWakeBackstopCandidateCursor: string | null = null;
+  let resolvedInteractionDescriptorCandidateCursor: string | null = null;
 
   async function getAgent(agentId: string) {
     return db
@@ -5585,6 +5586,199 @@ export function recoveryService(
     return result;
   }
 
+  async function reconcileResolvedInteractionUnblockDescriptors() {
+    const candidates = await db
+      .select({
+        id: issues.id,
+        companyId: issues.companyId,
+        status: issues.status,
+        assigneeAgentId: issues.assigneeAgentId,
+        unblockDescriptor: issues.unblockDescriptor,
+      })
+      .from(issues)
+      .where(
+        and(
+          sql`${issues.unblockDescriptor} is not null`,
+          resolvedInteractionDescriptorCandidateCursor
+            ? gt(issues.id, resolvedInteractionDescriptorCandidateCursor)
+            : undefined,
+        ),
+      )
+      .orderBy(asc(issues.id))
+      .limit(200);
+    resolvedInteractionDescriptorCandidateCursor =
+      candidates.length === 200 ? candidates.at(-1)!.id : null;
+
+    const result = {
+      scanned: candidates.length,
+      cleared: 0,
+      resumed: 0,
+      wakeQueued: 0,
+      pendingInteractionSkipped: 0,
+      otherWaitRetained: 0,
+      issueIds: [] as string[],
+    };
+
+    for (const candidate of candidates) {
+      const descriptor = parseObject(candidate.unblockDescriptor);
+      const clearingCheck = parseObject(descriptor.clearingCheck);
+      const interactionId =
+        clearingCheck.kind === "interaction_resolved"
+          ? readNonEmptyString(clearingCheck.interactionId)
+          : null;
+      const nonBlockedDescriptor = candidate.status !== "blocked";
+
+      let interactionStatus: string | null = null;
+      if (interactionId) {
+        interactionStatus = await db
+          .select({ status: issueThreadInteractions.status })
+          .from(issueThreadInteractions)
+          .where(
+            and(
+              eq(issueThreadInteractions.companyId, candidate.companyId),
+              eq(issueThreadInteractions.id, interactionId),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0]?.status ?? null);
+      }
+
+      // A descriptor is blocker metadata, never durable task history. Once an
+      // issue is no longer blocked it is stale regardless of the interaction.
+      // A blocked issue is changed only after the exact clearing interaction
+      // reaches a terminal state; missing or pending human decisions fail closed.
+      if (!nonBlockedDescriptor && interactionStatus === "pending") {
+        result.pendingInteractionSkipped += 1;
+        continue;
+      }
+      if (!nonBlockedDescriptor && (!interactionId || !interactionStatus)) {
+        continue;
+      }
+
+      let nextStatus = candidate.status;
+      let hasOtherDurableWait = false;
+      if (candidate.status === "blocked") {
+        const [dependencyReadiness, pendingInteraction, pendingApproval] =
+          await Promise.all([
+            issuesSvc.getDependencyReadiness(candidate.id),
+            db
+              .select({ id: issueThreadInteractions.id })
+              .from(issueThreadInteractions)
+              .where(
+                and(
+                  eq(issueThreadInteractions.companyId, candidate.companyId),
+                  eq(issueThreadInteractions.issueId, candidate.id),
+                  eq(issueThreadInteractions.status, "pending"),
+                  interactionId
+                    ? not(eq(issueThreadInteractions.id, interactionId))
+                    : undefined,
+                ),
+              )
+              .limit(1)
+              .then((rows) => rows[0] ?? null),
+            db
+              .select({ id: approvals.id })
+              .from(issueApprovals)
+              .innerJoin(approvals, eq(issueApprovals.approvalId, approvals.id))
+              .where(
+                and(
+                  eq(issueApprovals.companyId, candidate.companyId),
+                  eq(issueApprovals.issueId, candidate.id),
+                  eq(approvals.status, "pending"),
+                ),
+              )
+              .limit(1)
+              .then((rows) => rows[0] ?? null),
+          ]);
+        hasOtherDurableWait =
+          dependencyReadiness.unresolvedBlockerCount > 0 ||
+          Boolean(pendingInteraction) ||
+          Boolean(pendingApproval);
+        if (!hasOtherDurableWait) nextStatus = "todo";
+      }
+
+      const now = new Date();
+      const [updated] = await db
+        .update(issues)
+        .set({
+          status: nextStatus,
+          unblockDescriptor: null,
+          ...(candidate.status === "blocked" && nextStatus !== "blocked"
+            ? {
+                blockedTransitionAt: null,
+                blockedOwnerNotifiedAt: null,
+              }
+            : {}),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(issues.id, candidate.id),
+            eq(issues.companyId, candidate.companyId),
+            eq(issues.status, candidate.status),
+            sql`${issues.unblockDescriptor} = ${JSON.stringify(candidate.unblockDescriptor)}::jsonb`,
+          ),
+        )
+        .returning({ id: issues.id });
+      if (!updated) continue;
+
+      result.cleared += 1;
+      result.issueIds.push(candidate.id);
+      if (candidate.status === "blocked" && nextStatus === "todo") {
+        result.resumed += 1;
+      } else if (candidate.status === "blocked" && hasOtherDurableWait) {
+        result.otherWaitRetained += 1;
+      }
+
+      await logActivity(db, {
+        companyId: candidate.companyId,
+        actorType: "system",
+        actorId: "system:resolved-interaction-cleanup",
+        agentId: null,
+        runId: null,
+        action: "issue.unblock_descriptor_reconciled",
+        entityType: "issue",
+        entityId: candidate.id,
+        details: {
+          interactionId,
+          interactionStatus,
+          previousStatus: candidate.status,
+          nextStatus,
+          hasOtherDurableWait,
+          source: "recovery.resolved_interaction_cleanup",
+        },
+      });
+
+      if (nextStatus !== "todo" || !candidate.assigneeAgentId) continue;
+      const assignee = await getAgent(candidate.assigneeAgentId);
+      if (!(await isAgentInvokable(assignee))) continue;
+      const run = await deps.enqueueWakeup(candidate.assigneeAgentId, {
+        source: "automation",
+        triggerDetail: "system",
+        reason: "issue_unblock_requested",
+        payload: {
+          issueId: candidate.id,
+          interactionId,
+          mutation: "resolved_interaction_cleanup",
+        },
+        idempotencyKey: `resolved-interaction-cleanup:${candidate.id}:${interactionId}`,
+        requestedByActorType: "system",
+        requestedByActorId: "system:resolved-interaction-cleanup",
+        contextSnapshot: {
+          issueId: candidate.id,
+          taskId: candidate.id,
+          interactionId,
+          wakeReason: "issue_unblock_requested",
+          source: "recovery.resolved_interaction_cleanup",
+        },
+      });
+      if (run) result.wakeQueued += 1;
+    }
+
+    result.issueIds = [...new Set(result.issueIds)];
+    return result;
+  }
+
   async function reconcileResolvedDependencyWakeBackstop(
     opts?: ResolvedDependencyWakeBackstopOptions,
   ) {
@@ -6313,6 +6507,7 @@ export function recoveryService(
     scanSilentActiveRuns,
     reconcileStrandedAssignedIssues,
     reconcileCancelledPendingInteractionAddresseeWakes,
+    reconcileResolvedInteractionUnblockDescriptors,
     sweepStaleIssueLocks,
     reconcileResolvedDependencyWakeBackstop,
     readRecoveryTimerIntervalMs,
