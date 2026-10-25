@@ -1548,6 +1548,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         sessionId: resolvedSessionId,
         sessionParams: resolvedSessionParams,
         sessionDisplayId: resolvedSessionId,
+        sessionReused: Boolean(sessionId) && !isRetry,
         provider: "openai",
         biller: resolveCodexBiller(effectiveEnv, billingType),
         model,

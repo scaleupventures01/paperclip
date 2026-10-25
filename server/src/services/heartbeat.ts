@@ -25516,12 +25516,14 @@ export function heartbeatService(
                     }
                   : {}),
                 sessionReused:
-                  runtimeForAdapter.sessionId != null ||
-                  runtimeForAdapter.sessionDisplayId != null,
+                  adapterResult.sessionReused ??
+                  (runtimeForAdapter.sessionId != null ||
+                    runtimeForAdapter.sessionDisplayId != null),
                 taskSessionReused: taskSessionForRun != null,
                 freshSession:
-                  runtimeForAdapter.sessionId == null &&
-                  runtimeForAdapter.sessionDisplayId == null,
+                  !(adapterResult.sessionReused ??
+                    (runtimeForAdapter.sessionId != null ||
+                      runtimeForAdapter.sessionDisplayId != null)),
                 sessionRotated: sessionCompaction.rotate,
                 sessionRotationReason: sessionCompaction.reason,
                 configFreshness: configFreshnessResultMetadata,

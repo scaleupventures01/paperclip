@@ -59,6 +59,7 @@ const AGENT: InvokableAgentSnapshot = {
 function wakeCandidate(overrides: Partial<DeferredWakeCandidate> = {}): DeferredWakeCandidate {
   return {
     id: overrides.id ?? "wake-1",
+    requestedAt: new Date("2026-10-24T12:00:00.000Z"),
     companyId: "company-1",
     agentId: "deferred-agent",
     reason: "issue_commented",
@@ -146,6 +147,59 @@ function createFakeRecovery(): RecoveryEscalationPort {
 }
 
 describe("releaseIssueExecution", () => {
+  it("cancels a queued wake older than the issue's current blocked generation", async () => {
+    const transaction = createFakeTransaction({
+      findNextDeferredWake: vi.fn()
+        .mockResolvedValueOnce(wakeCandidate({
+          requestedAt: new Date("2026-10-24T11:59:00.000Z"),
+          reason: "issue_execution_promoted",
+        }))
+        .mockResolvedValueOnce(null),
+    });
+    const release = createReleaseIssueExecution({
+      issueLock: createFakeIssueLock(createFakeHost(), transaction, {
+        ...ISSUE,
+        status: "blocked",
+        blockedTransitionAt: new Date("2026-10-24T12:00:00.000Z"),
+      }),
+      recovery: createFakeRecovery(),
+    });
+
+    await release({ companyId: RUN.companyId, runId: RUN.id, now: new Date("2026-10-24T12:01:00.000Z") });
+
+    expect(transaction.cancelDeferredWake).toHaveBeenCalledWith(expect.objectContaining({
+      wakeId: "wake-1",
+      reason: "Deferred execution wake predates the current blocked generation",
+    }));
+    expect(transaction.claimDeferredWakeForPromotion).not.toHaveBeenCalled();
+    expect(transaction.finalizePromotedWake).not.toHaveBeenCalled();
+  });
+
+  it("allows a fresh wake created after the current blocked transition", async () => {
+    const transaction = createFakeTransaction({
+      findNextDeferredWake: vi.fn()
+        .mockResolvedValueOnce(wakeCandidate({
+          requestedAt: new Date("2026-10-24T12:00:01.000Z"),
+          reason: "issue_interaction_answered",
+        }))
+        .mockResolvedValueOnce(null),
+    });
+    const release = createReleaseIssueExecution({
+      issueLock: createFakeIssueLock(createFakeHost(), transaction, {
+        ...ISSUE,
+        status: "blocked",
+        blockedTransitionAt: new Date("2026-10-24T12:00:00.000Z"),
+      }),
+      recovery: createFakeRecovery(),
+    });
+
+    const result = await release({ companyId: RUN.companyId, runId: RUN.id, now: new Date("2026-10-24T12:01:00.000Z") });
+
+    expect(transaction.cancelDeferredWake).not.toHaveBeenCalled();
+    expect(transaction.claimDeferredWakeForPromotion).toHaveBeenCalledOnce();
+    expect(result.outcome.kind).toBe("promoted");
+  });
+
   it.each(["closing", "mixed_comments", "explicit_resume", "interaction", "other_source_task", "parent_open"])(
     "checks late completed-delegation mentions without dropping independent input (%s)", async (scenario) => {
       const originalCommentIds = ["closing-comment", "second-comment"];

@@ -248,6 +248,30 @@ describe("adapter session codecs", () => {
   });
 });
 
+describe("codex remote session identity", () => {
+  it("preserves remote execution identity across persistence", () => {
+    const original = {
+      sessionId: "codex-session-1",
+      cwd: "/srv/task",
+      remoteExecution: {
+        transport: "ssh",
+        host: "worker.internal",
+        remoteCwd: "/srv/task",
+      },
+    };
+
+    const persisted = codexSessionCodec.serialize(original);
+    expect(persisted).toMatchObject({ remoteExecution: original.remoteExecution });
+    expect(codexSessionCodec.deserialize(persisted)).toEqual(persisted);
+
+    const wrongHost = codexSessionCodec.deserialize({
+      ...persisted,
+      remoteExecution: { ...original.remoteExecution, host: "other.internal" },
+    });
+    expect(wrongHost?.remoteExecution).not.toEqual(original.remoteExecution);
+  });
+});
+
 describe("codex resume recovery detection", () => {
   it("detects unknown session errors from codex output", () => {
     expect(

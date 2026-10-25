@@ -33,6 +33,8 @@ export type IssueSnapshot = {
   companyId: string;
   identifier: string;
   status: string;
+  /** Timestamp for the current blocked generation; null outside a durable blocked cycle. */
+  blockedTransitionAt?: Date | null;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
   hiddenAt: Date | null;

@@ -64,6 +64,7 @@ export interface WakeQueueHost {
 
 export type DeferredWakeCandidate = {
   id: string;
+  requestedAt: Date;
   companyId: string;
   agentId: string;
   reason: string | null;

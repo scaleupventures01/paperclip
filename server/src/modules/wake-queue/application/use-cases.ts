@@ -329,6 +329,25 @@ async function promoteDeferredWake(
 ): Promise<ReleaseTransactionResult | null> {
   let currentIssue = issue;
   let shouldReopen = false;
+
+  // A deferred wake belongs to the issue generation in which it was created.
+  // If the issue entered a durable blocked cycle afterwards, promoting that
+  // older wake would erase the blocker and spend another provider run on the
+  // same known condition. A genuinely clearing comment/resume is requested in
+  // the new generation and therefore remains eligible.
+  if (
+    currentIssue.status === "blocked" &&
+    currentIssue.blockedTransitionAt instanceof Date &&
+    workingCandidate.requestedAt.getTime() < currentIssue.blockedTransitionAt.getTime()
+  ) {
+    await ports.transaction.cancelDeferredWake({
+      companyId: run.companyId,
+      wakeId: workingCandidate.id,
+      reason: "Deferred execution wake predates the current blocked generation",
+      now: input.now,
+    });
+    return null;
+  }
   if (
     !workingCandidate.authorizedFailedChatRetry &&
     workingCandidate.deferredCommentIds.length > 0 &&
