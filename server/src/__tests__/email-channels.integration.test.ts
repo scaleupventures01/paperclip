@@ -26,7 +26,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   createDb,
   companies,
@@ -63,6 +63,8 @@ import { emailConnectionService } from "../services/email-connections.js";
 import { toolAccessService } from "../services/tool-access.js";
 import { emailSendSchema } from "@paperclipai/shared";
 import { chatChannelService } from "../services/chat-channels.js";
+import { conflict } from "../errors.js";
+import { agentWakeupRequests } from "@paperclipai/db";
 
 describe("AgentMail durable email pipeline", () => {
   let database: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -196,7 +198,7 @@ describe("AgentMail durable email pipeline", () => {
     expect(await db.select().from(authUsers).where(eq(authUsers.id, "email-board"))).toHaveLength(1);
   });
 
-  async function fixture(mode: "websocket" | "webhook" = "webhook", storage?: StorageService) {
+  async function fixture(mode: "websocket" | "webhook" = "webhook", storage?: StorageService, processingIntervalMs = 0) {
     const companyId = randomUUID(),
       agentId = randomUUID(),
       endpointId = randomUUID();
@@ -293,7 +295,14 @@ describe("AgentMail durable email pipeline", () => {
       if (init.method === "DELETE") return new Response(null, { status: 204 });
       throw new Error(`Unexpected test request: ${pathname}`);
     }) as unknown as typeof fetch;
-    const wakeup = vi.fn().mockResolvedValue(null);
+    const wakeup = vi.fn(async (target: string, opts: any) => {
+      await db.insert(agentWakeupRequests).values({
+        companyId, agentId: target, source: opts.source, reason: opts.reason,
+        requestedByActorId: opts.requestedByActorId, idempotencyKey: opts.idempotencyKey,
+        payload: opts.payload, status: "completed",
+      });
+      return null;
+    });
     const socket = new EventTarget() as EventTarget & {
       close: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
@@ -307,6 +316,7 @@ describe("AgentMail durable email pipeline", () => {
       publicBaseUrl: "https://paperclip.example.test",
       createSocket,
       storage,
+      processingIntervalMs,
     });
     services.push(service);
     await service.setup(
@@ -777,6 +787,126 @@ describe("AgentMail durable email pipeline", () => {
     expect(thread?.publications[0].outcome).toBe("sent");
     expect(f.wakeup).toHaveBeenCalledTimes(1);
   });
+  it("retains mail while paused and resumes one oldest thread per 30-minute window across restart", async () => {
+    const f = await fixture("webhook", undefined, 1_800_000);
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
+    await f.receive(f.message("first", "first-thread"));
+    await f.receive(f.message("second", "first-thread"));
+    await f.receive(f.message("third", "second-thread"));
+    await f.service.tick();
+    expect(f.wakeup).not.toHaveBeenCalled();
+    expect(await db.select().from(emailMessages).where(eq(emailMessages.endpointId, f.endpointId))).toHaveLength(3);
+    expect(await db.select().from(issueComments).where(eq(issueComments.companyId, f.companyId))).toHaveLength(3);
+    const fetchCount = vi.mocked(f.fetcher).mock.calls.length;
+    await f.service.shutdown();
+    const restarted = emailChannelService(db, { heartbeat: { wakeup: f.wakeup }, fetch: f.fetcher });
+    services.push(restarted);
+    await restarted.tick();
+    expect(vi.mocked(f.fetcher).mock.calls).toHaveLength(fetchCount);
+    await db.update(agents).set({ status: "idle" }).where(eq(agents.id, f.agentId));
+    await restarted.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    expect(f.wakeup.mock.calls[0][1].payload.emailDeliveryIds).toHaveLength(2);
+    expect(f.wakeup.mock.calls[0][1].contextSnapshot.queuedCommentIds).toHaveLength(2);
+    await restarted.shutdown();
+    const afterAdmission = emailChannelService(db, { heartbeat: { wakeup: f.wakeup }, fetch: f.fetcher });
+    services.push(afterAdmission);
+    await afterAdmission.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(f.fetcher).mock.calls).toHaveLength(fetchCount);
+    await db.update(agentWakeupRequests).set({ requestedAt: new Date(Date.now() - 900_000) })
+      .where(eq(agentWakeupRequests.agentId, f.agentId));
+    await afterAdmission.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    await db.update(agentWakeupRequests).set({ requestedAt: new Date(Date.now() - 1_800_001) })
+      .where(eq(agentWakeupRequests.agentId, f.agentId));
+    await afterAdmission.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(2);
+    expect(f.wakeup.mock.calls[1][1].payload.issueId).not.toBe(f.wakeup.mock.calls[0][1].payload.issueId);
+    expect((await db.select().from(chatDeliveries).where(eq(chatDeliveries.endpointId, f.endpointId))).every((d) => d.state === "processed")).toBe(true);
+  });
+
+  it("parks a structured pause race without retry errors and retains ordinary error-state recovery", async () => {
+    const f = await fixture();
+    f.wakeup.mockImplementationOnce(async () => {
+      await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
+      throw conflict("Agent is not invokable", { reason: "paused", status: "paused" });
+    });
+    await f.receive(f.message());
+    const [pending] = await db.select().from(chatDeliveries).where(eq(chatDeliveries.endpointId, f.endpointId));
+    expect(pending).toMatchObject({ state: "processing", attempts: 0, redactedError: null });
+    await f.service.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    await db.update(agents).set({ status: "error" }).where(eq(agents.id, f.agentId));
+    await f.service.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wake cancelled or backlog email tasks and does not throttle another agent", async () => {
+    const f = await fixture("webhook", undefined, 1_800_000);
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
+    await f.receive(f.message("cancelled", "cancelled-thread"));
+    await f.receive(f.message("backlog", "backlog-thread"));
+    const tasks = await db.select().from(issues).where(eq(issues.companyId, f.companyId)).orderBy(asc(issues.createdAt));
+    await db.update(issues).set({ status: "cancelled" }).where(eq(issues.id, tasks[0].id));
+    await db.update(issues).set({ status: "backlog" }).where(eq(issues.id, tasks[1].id));
+    await db.update(agents).set({ status: "idle" }).where(eq(agents.id, f.agentId));
+    await f.service.tick();
+    expect(f.wakeup).not.toHaveBeenCalled();
+    const other = await fixture("webhook", undefined, 1_800_000);
+    await other.receive(other.message());
+    expect(other.wakeup).toHaveBeenCalledTimes(1);
+    await db.update(issues).set({ status: "todo" }).where(eq(issues.id, tasks[1].id));
+    await f.service.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    expect(f.wakeup.mock.calls[0][1].payload.issueId).toBe(tasks[1].id);
+  });
+
+  it("preserves a null admission pause race and reconciles a committed batch after interrupted acknowledgement", async () => {
+    const f = await fixture();
+    f.wakeup.mockImplementationOnce(async (target, opts) => {
+      await db.update(agents).set({ status: "paused" }).where(eq(agents.id, target));
+      await db.insert(agentWakeupRequests).values({ companyId: f.companyId, agentId: target,
+        source: "automation", requestedByActorId: "agentmail", reason: "agent.not_invokable",
+        status: "skipped", idempotencyKey: opts.idempotencyKey, payload: opts.payload });
+      return null;
+    });
+    await f.receive(f.message());
+    const [pending] = await db.select().from(chatDeliveries).where(eq(chatDeliveries.endpointId, f.endpointId));
+    expect(pending).toMatchObject({ state: "processing", attempts: 0 });
+    await db.update(agents).set({ status: "idle" }).where(eq(agents.id, f.agentId));
+    await f.service.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(2);
+    // Simulate loss of only the delivery acknowledgement after durable admission.
+    await db.update(chatDeliveries).set({ state: "processing", processedAt: null,
+      normalizedEvent: { ...pending.normalizedEvent, wakePending: true } }).where(eq(chatDeliveries.id, pending.id));
+    await f.service.tick();
+    expect(f.wakeup).toHaveBeenCalledTimes(2);
+    expect((await db.select().from(chatDeliveries).where(eq(chatDeliveries.id, pending.id)))[0].state).toBe("processed");
+  });
+
+  it("serializes two workers and honors a newly stored retry deadline without re-fetching retained mail", async () => {
+    const f = await fixture("webhook", undefined, 1_800_000);
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agentId));
+    await f.receive(f.message());
+    const second = emailChannelService(db, { heartbeat: { wakeup: f.wakeup }, fetch: f.fetcher });
+    services.push(second);
+    await db.update(agents).set({ status: "idle" }).where(eq(agents.id, f.agentId));
+    const fetchCount = vi.mocked(f.fetcher).mock.calls.length;
+    f.wakeup.mockRejectedValueOnce(new Error("Wake service temporarily unavailable"));
+    await Promise.all([f.service.tick(), second.tick()]);
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    const [pending] = await db.select().from(chatDeliveries).where(eq(chatDeliveries.endpointId, f.endpointId));
+    expect(pending).toMatchObject({ state: "retry", attempts: 1 });
+    expect(pending.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now());
+    await Promise.all([f.service.tick(), second.tick()]);
+    expect(f.wakeup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(f.fetcher).mock.calls).toHaveLength(fetchCount);
+    await db.update(chatDeliveries).set({ nextAttemptAt: null }).where(eq(chatDeliveries.id, pending.id));
+    await Promise.all([f.service.tick(), second.tick()]);
+    expect(f.wakeup).toHaveBeenCalledTimes(2);
+  });
+
   it("retries the durable inbound wake after a failure and worker restart without duplicating mail", async () => {
     const f = await fixture();
     f.wakeup.mockRejectedValueOnce(new Error("Wake service temporarily unavailable"));
