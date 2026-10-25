@@ -5,16 +5,18 @@ import { heartbeatRuns, issueComments, issues, issueRecoveryActions, type Db } f
 import { EXECUTION_RECONCILIATION_CAUSES, type ExecutionBlocker } from "@paperclipai/shared";
 
 /** Resolved recovery bookkeeping can still carry an effective no-replay hold. */
-export function executionBlockerPredicate() {
+export function executionBlockerPredicate(includeResolvedNoReplay = true) {
   return and(
     not(conversationRecoveryActionPredicate()!),
     inArray(issueRecoveryActions.cause, [...EXECUTION_RECONCILIATION_CAUSES]),
     or(inArray(issueRecoveryActions.status, ["active", "escalated"]),
-      sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked'`),
+      includeResolvedNoReplay
+        ? sql`${issueRecoveryActions.evidence}->'automaticRecovery'->>'replay' = 'blocked'`
+        : undefined),
   );
 }
 
-export async function getExecutionBlocker(db: Db, companyId: string, issueId: string, options?: { conversationResetCommentId?: string | null }): Promise<ExecutionBlocker | null> {
+export async function getExecutionBlocker(db: Db, companyId: string, issueId: string, options?: { conversationResetCommentId?: string | null; normalAdmission?: boolean }): Promise<ExecutionBlocker | null> {
   const [conversation] = await db.select({ agentId: issues.conversationAgentId,
     boundaryId: issues.conversationBoundaryCommentId }).from(issues).where(and(
     eq(issues.companyId, companyId), eq(issues.id, issueId),
@@ -33,13 +35,14 @@ export async function getExecutionBlocker(db: Db, companyId: string, issueId: st
       eq(issueComments.companyId, companyId), eq(issueComments.issueId, issueId),
       eq(issueComments.id, conversation.boundaryId),
     )).limit(1) : [];
+  const includeResolvedNoReplay = options?.normalAdmission ? Boolean(boundary) : true;
 
   const ownership = await getConversationOwnershipBlocker(db, companyId, issueId);
   if (ownership) return { ...ownership, recoveryActionId: null };
   const [action] = await db.select().from(issueRecoveryActions).where(and(
     eq(issueRecoveryActions.companyId, companyId),
     eq(issueRecoveryActions.sourceIssueId, issueId),
-    executionBlockerPredicate(),
+    executionBlockerPredicate(includeResolvedNoReplay),
     boundary ? gt(issueRecoveryActions.createdAt, boundary.createdAt) : undefined,
   )).orderBy(desc(issueRecoveryActions.updatedAt), desc(issueRecoveryActions.id)).limit(1);
   if (!action) return null;

@@ -27924,9 +27924,14 @@ export function heartbeatService(
             return { kind: "deferred" as const };
           };
           const explicitContinuationRunId = randomUUID();
+          const ordinaryAdmission = !durableRequest && !failedChatRetry && !opts.failedRunId &&
+            ["issue_assigned", "issue_comment_mentioned"].includes(readNonEmptyString(reason) ?? "");
           const executionBlocker = await getExecutionBlocker(
             tx as unknown as Db, issue.companyId, issue.id,
-            { conversationResetCommentId: opts.requestedByActorType === "user" ? wakeCommentId : null },
+            {
+              conversationResetCommentId: opts.requestedByActorType === "user" ? wakeCommentId : null,
+              normalAdmission: ordinaryAdmission,
+            },
           );
           // Prove eligibility without retiring the hold. Later gates can still
           // decline this wake; hold retirement and successor creation stay atomic.
