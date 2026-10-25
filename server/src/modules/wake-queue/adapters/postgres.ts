@@ -111,6 +111,7 @@ function toIssueSnapshot(row: IssueRow): IssueSnapshot {
     companyId: row.companyId,
     identifier: row.identifier ?? "",
     status: row.status,
+    blockedTransitionAt: row.blockedTransitionAt,
     assigneeAgentId: row.assigneeAgentId,
     assigneeUserId: row.assigneeUserId,
     hiddenAt: row.hiddenAt,
@@ -154,6 +155,7 @@ function toDeferredWakeCandidate(row: typeof agentWakeupRequests.$inferSelect): 
 
   return {
     id: row.id,
+    requestedAt: row.requestedAt,
     companyId: row.companyId,
     agentId: row.agentId,
     reason: row.reason,

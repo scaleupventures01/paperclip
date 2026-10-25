@@ -104,6 +104,8 @@ export interface AdapterExecutionResult {
   sessionId?: string | null;
   sessionParams?: Record<string, unknown> | null;
   sessionDisplayId?: string | null;
+  /** Actual adapter outcome: true only when this execution resumed the supplied provider session. */
+  sessionReused?: boolean;
   provider?: string | null;
   biller?: string | null;
   model?: string | null;

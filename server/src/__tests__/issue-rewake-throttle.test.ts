@@ -37,6 +37,8 @@ describe("isThrottleCandidateIssueRewake", () => {
     expect(isThrottleCandidateIssueRewake({ ...base, reason: "issue_continuation_needed" })).toBe(true);
     expect(isThrottleCandidateIssueRewake({ ...base, reason: "issue_assignment_recovery" })).toBe(true);
     expect(isThrottleCandidateIssueRewake({ ...base, reason: "issue_graph_liveness_backstop" })).toBe(true);
+    expect(isThrottleCandidateIssueRewake({ ...base, reason: "run_liveness_continuation" })).toBe(true);
+    expect(isThrottleCandidateIssueRewake({ ...base, reason: "issue_execution_promoted" })).toBe(true);
   });
 
   it("keeps agent comments throttle-eligible without granting human comment privileges", () => {
@@ -77,7 +79,7 @@ describe("isThrottleCandidateIssueRewake", () => {
       "issue_children_completed",
       "issue_monitor_due",
       "process_lost_retry",
-      "run_liveness_continuation",
+      "issue_interaction_answered",
     ]) {
       expect(isThrottleCandidateIssueRewake({ ...base, reason })).toBe(false);
     }

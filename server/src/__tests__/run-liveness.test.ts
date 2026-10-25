@@ -133,6 +133,28 @@ describe("run liveness classifier", () => {
     expect(classification.actionability).toBe("blocked_external");
   });
 
+  it("classifies a deterministic release HOLD as a durable operational wait", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      resultJson: {
+        summary: "Release backpressure decision: HOLD; failing=6 max=3. Next action: rerun the gate after releases clear.",
+      },
+    });
+
+    expect(classification.livenessState).toBe("blocked");
+    expect(classification.actionability).toBe("operational_wait");
+  });
+
+  it("does not mistake ordinary prose containing hold for an operational blocker", () => {
+    const classification = classifyRunLiveness({
+      ...baseInput,
+      resultJson: { summary: "Next action: hold this variable constant and run pnpm test." },
+    });
+
+    expect(classification.livenessState).toBe("plan_only");
+    expect(classification.actionability).toBe("runnable");
+  });
+
   it("treats PAP-2000-style validation output as runnable follow-up, not an external blocker", () => {
     const classification = classifyRunLiveness({
       ...baseInput,

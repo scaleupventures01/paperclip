@@ -5,6 +5,7 @@ export type RunLivenessActionability =
   | "manager_review"
   | "blocked_external"
   | "approval_required"
+  | "operational_wait"
   | "unknown";
 
 export interface RunLivenessIssueInput {
@@ -70,6 +71,8 @@ const EXTERNAL_BLOCKER_RE =
   /\b(?:can't proceed|cannot proceed|unable to proceed|waiting on|blocked by|blocked on|need(?:s|ed)?|requires?) .{0,120}\b(?:access|credential|credentials|secret|secrets|api key|token|password|login|account|permission|permissions|input|clarification)\b/i;
 const MANAGER_REVIEW_RE =
   /\b(?:manager review|human review|manual review|security review|escalate|production deploy|deploy(?:ing)? to production|deploy(?:ing)? to prod|prod deploy|production access|rotate .{0,40}\b(?:secret|key|token)|delete .{0,40}\bproduction|security-sensitive|credentialed operation|budget-sensitive|cost approval|spend approval)\b/i;
+const OPERATIONAL_WAIT_RE =
+  /\b(?:release backpressure|backpressure gate|failing_release_cards\s*=\s*\d+|failing\s*=\s*\d+\s+max\s*=\s*\d+|decision\s*[:=]\s*hold|\bhold\b.{0,80}\b(?:release|backpressure|gate))\b/i;
 const RUNNABLE_RE =
   /\b(?:(?:run|rerun|execute)\s+(?:pnpm|npm|yarn|bun|vitest|jest|pytest|cargo|go test|curl|tests?|typecheck|build|lint|package|verification)|(?:inspect|check|review|look|investigate|analy[sz]e|open|read|start|begin|continue|implement|fix|test|update|create|add|write|verify|validate|report)\b)/i;
 const PLAN_TASK_TITLE_RE = /\b(?:plan|planning|analysis|investigation|research|report|proposal|design doc|write-?up)\b/i;
@@ -167,7 +170,7 @@ export function hasUsefulOutput(input: RunLivenessClassificationInput) {
 export function declaredBlocker(input: RunLivenessClassificationInput) {
   if (input.issue?.status === "blocked") return true;
   const actionability = classifyRunActionability(input);
-  return actionability === "blocked_external" || actionability === "approval_required";
+  return actionability === "blocked_external" || actionability === "approval_required" || actionability === "operational_wait";
 }
 
 export function looksLikePlanningOnly(input: RunLivenessClassificationInput) {
@@ -294,6 +297,7 @@ export function classifyRunActionability(input: RunLivenessClassificationInput):
     return RUNNABLE_RE.test(text) ? "runnable" : "unknown";
   }
   if (APPROVAL_REQUIRED_RE.test(text)) return "approval_required";
+  if (OPERATIONAL_WAIT_RE.test(text)) return "operational_wait";
   if (EXTERNAL_BLOCKER_RE.test(text) || BLOCKER_RE.test(text) && /\b(?:credential|secret|api key|token|access|input|clarification)\b/i.test(text)) {
     return "blocked_external";
   }

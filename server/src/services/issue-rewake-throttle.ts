@@ -50,6 +50,8 @@ export const THROTTLED_ISSUE_REWAKE_REASONS: ReadonlySet<string> = new Set([
   "issue_continuation_needed",
   "issue_assignment_recovery",
   "issue_graph_liveness_backstop",
+  "run_liveness_continuation",
+  "issue_execution_promoted",
 ]);
 
 /**
