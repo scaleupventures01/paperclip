@@ -65,8 +65,41 @@ repeated scans safe. Earlier messages in a newly active thread are imported as
 context without separate historical wakeups. There is no automatic historical
 mailbox import and no assumption of WebSocket replay.
 
-Incoming mail wakes the selected agent through its normal task execution path,
-including its configured permissions and budget controls. The external sender
+Incoming mail is retained continuously, independently of agent execution. A
+paused, terminated, pending-approval, or invalid-org-chain agent receives no
+processing wake attempts; the active inbox continues receiving and storing mail.
+Resuming the agent automatically makes pending mail eligible again without
+reconnecting the inbox. Pausing the inbox itself remains a separate operation
+that stops intake and sending.
+
+The processor admits at most one task/thread wake per agent every 30 minutes,
+across all that agent's inboxes and server workers. It chooses the oldest pending
+eligible thread and includes its retained pending comments in one wake. Other
+threads stay queued: a backlog of 17 independent threads can take eight hours to
+drain after the first immediate wake. This deliberately preserves the rule that
+an email reply must belong to the current task/run; it does not grant one run
+authority over every inbox thread. Each pass considers at most 50 pending
+deliveries. The first eligible check can run immediately; subsequent checks,
+including after resume or server restart, honor the last durable admission time.
+Idle checks do not wake a model. Genuine transient failures retain bounded
+backoff; paused state is a wait, not a transport error or a per-message retry.
+Retained wake-only deliveries and already-retained catch-up messages are not
+fetched again from the provider.
+
+Server owners may set `PAPERCLIP_EMAIL_PROCESSING_INTERVAL_MS` to change the
+interval (minimum 30,000 milliseconds, maximum 86,400,000; invalid values use
+the 1,800,000-millisecond default). Both control-plane processes must use the
+same setting. The interval is unrelated to heartbeat timers and to continuous
+WebSocket/webhook reception.
+The processor holds a database advisory transaction lock while heartbeat
+admission uses the normal pool, so `DATABASE_POOL_MAX` must be at least two
+(the normal default is ten). This serializes both control planes without
+holding an agent/task row lock across admission. Admission and delivery
+acknowledgement remain separate commits; the persisted admission receipt
+prevents a restart between them from replaying the email wake.
+
+The selected thread wakes its agent through the normal task execution path,
+including configured permissions and budget controls. The external sender
 is recorded in the email envelope; an email address never grants Paperclip
 membership or board authority.
 
