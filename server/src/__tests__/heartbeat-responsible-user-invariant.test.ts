@@ -13,6 +13,7 @@ import {
   heartbeatRunEvents,
   heartbeatRuns,
   issueComments,
+  issueThreadInteractions,
   issues,
 } from "@paperclipai/db";
 import {
@@ -105,6 +106,7 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
     await deleteHeartbeatRunsAfterEvents(db);
     await db.delete(agentWakeupRequests);
     await db.delete(agentRuntimeState);
+    await db.delete(issueThreadInteractions);
     await db.delete(issues);
     await db.delete(agents);
     await db.delete(companySkills);
@@ -336,6 +338,72 @@ describeEmbeddedPostgres("heartbeat responsible-user invariant", () => {
       expect(handoff.status).toBe("succeeded");
     }
     expect(mockAdapterExecute).toHaveBeenCalledTimes(runs.length);
+  });
+
+  it("replays one validated interaction wake per 30-minute idempotency bucket", async () => {
+    const { companyId, agentId, ownerUserId } = await seedCompany();
+    const issueId = randomUUID();
+    const interactionId = randomUUID();
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Pending interaction",
+      status: "todo",
+      assigneeAgentId: agentId,
+      responsibleUserId: ownerUserId,
+    });
+    await db.insert(issueThreadInteractions).values({
+      id: interactionId,
+      companyId,
+      issueId,
+      kind: "request_confirmation",
+      status: "pending",
+      addresseeAgentId: agentId,
+      requestedResolverPolicy: "board_or_agents",
+      effectiveResolverPolicy: "board_or_agents",
+      continuationPolicy: "wake_assignee",
+      payload: { version: 1, prompt: "Approve?" },
+    });
+    const idempotencyKey = `interaction-pending:${interactionId}:12345`;
+    const options = {
+      source: "automation" as const,
+      triggerDetail: "system" as const,
+      reason: "interaction_pending",
+      payload: { issueId, interactionId, interactionKind: "request_confirmation", mutation: "interaction" },
+      idempotencyKey,
+      requestedByActorType: "system" as const,
+      requestedByActorId: "interaction-watchdog",
+      contextSnapshot: {
+        issueId,
+        taskId: issueId,
+        interactionId,
+        interactionKind: "request_confirmation",
+        wakeReason: "interaction_pending",
+        source: "issue.interaction.pending",
+      },
+    };
+
+    const first = await heartbeat.wakeup(agentId, options);
+    expect(first).not.toBeNull();
+    await waitForRun(db, first!.id);
+    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    const callsAfterFirst = mockAdapterExecute.mock.calls.length;
+
+    const replay = await heartbeat.wakeup(agentId, options);
+    expect(replay?.id).toBe(first!.id);
+    await drainHeartbeatRunsToQuiescence(db, heartbeat);
+    expect(mockAdapterExecute.mock.calls.length).toBe(callsAfterFirst);
+    const receipts = (await db.select().from(agentWakeupRequests)).filter(
+      (row) => row.idempotencyKey === idempotencyKey,
+    );
+    expect(receipts).toHaveLength(1);
+
+    // Known-negative control: the next cadence bucket is fresh authority.
+    const next = await heartbeat.wakeup(agentId, {
+      ...options,
+      idempotencyKey: `interaction-pending:${interactionId}:12346`,
+    });
+    expect(next?.id).not.toBe(first!.id);
   });
 
   it.each(["issue_commented", "issue_comment_mentioned"])(

@@ -27725,6 +27725,53 @@ export function heartbeatService(
             return { kind: "skipped" as const };
           }
 
+          const interactionIdempotencyKey = opts.idempotencyKey ?? "";
+          const interactionId = readNonEmptyString(
+            enrichedContextSnapshot.interactionId,
+          );
+          const isValidatedInteractionWake =
+            source === "automation" &&
+            triggerDetail === "system" &&
+            reason === "interaction_pending" &&
+            opts.requestedByActorType === "system" &&
+            opts.requestedByActorId === "interaction-watchdog" &&
+            interactionId !== null &&
+            payload?.interactionId === interactionId &&
+            interactionIdempotencyKey.startsWith(
+              `interaction-pending:${interactionId}:`,
+            );
+          if (isValidatedInteractionWake) {
+            // The issue row lock makes a concurrent or repeated watchdog call
+            // adopt the first receipt. Terminal runs remain authoritative for
+            // their 30-minute bucket, so deterministic failures cannot storm.
+            const [existingInteractionWake] = await tx
+              .select({
+                runId: agentWakeupRequests.runId,
+              })
+              .from(agentWakeupRequests)
+              .where(
+                and(
+                  eq(agentWakeupRequests.companyId, issue.companyId),
+                  eq(agentWakeupRequests.agentId, agentId),
+                  eq(
+                    agentWakeupRequests.idempotencyKey,
+                    interactionIdempotencyKey,
+                  ),
+                  ne(agentWakeupRequests.status, "skipped"),
+                ),
+              )
+              .orderBy(asc(agentWakeupRequests.requestedAt))
+              .limit(1);
+            if (existingInteractionWake) {
+              return existingInteractionWake.runId
+                ? {
+                    kind: "replayed" as const,
+                    run: await getRun(existingInteractionWake.runId),
+                  }
+                : { kind: "skipped" as const };
+            }
+          }
+
           if (opts.failedRunId) {
             // The issue lock makes double-clicks and network retries adopt the
             // same successor, including after it has already finished.

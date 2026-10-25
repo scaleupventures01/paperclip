@@ -16331,6 +16331,104 @@ export function issueRoutes(
   );
 
   router.post(
+    "/issues/:id/interactions/:interactionId/wakeup",
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const interactionId = req.params.interactionId as string;
+      const issue = await getAccessibleResource(
+        req,
+        res,
+        svc.getById(id),
+        "Issue not found",
+      );
+      if (!issue) return;
+
+      const interaction = await issueThreadInteractionService(db).getForIssue(
+        issue,
+        interactionId,
+      );
+      if (!interaction) throw notFound("Interaction not found");
+      if (interaction.status !== "pending") {
+        throw conflict("Only a pending interaction can be woken.", {
+          code: "interaction_not_pending",
+        });
+      }
+      if (!interaction.addresseeAgentId) {
+        throw conflict("This interaction is not addressed to an agent.", {
+          code: "interaction_agent_addressee_required",
+        });
+      }
+      if (
+        !issueThreadInteractionAttentionAgentAllowed({
+          agentId: interaction.addresseeAgentId,
+          interaction,
+          governedAction:
+            interaction.kind === "request_confirmation" &&
+            typeof interaction.payload === "object" &&
+            interaction.payload !== null &&
+            "toolAction" in interaction.payload &&
+            interaction.payload.toolAction !== undefined,
+        })
+      ) {
+        throw conflict("This interaction cannot be resolved by an agent.", {
+          code: "interaction_agent_resolution_not_allowed",
+        });
+      }
+
+      // The server owns every executable context field. Callers name only the
+      // interaction in the URL, so a watchdog cannot forge issue ownership or
+      // route an arbitrary task through an interaction wake.
+      const cadenceBucket = Math.floor(Date.now() / (30 * 60 * 1000));
+      const run = await heartbeat.wakeup(interaction.addresseeAgentId, {
+        source: "automation",
+        triggerDetail: "system",
+        reason: "interaction_pending",
+        payload: {
+          issueId: issue.id,
+          interactionId: interaction.id,
+          interactionKind: interaction.kind,
+          sourceCommentId: interaction.sourceCommentId ?? null,
+          sourceRunId: interaction.sourceRunId ?? null,
+          mutation: "interaction",
+        },
+        idempotencyKey: `interaction-pending:${interaction.id}:${cadenceBucket}`,
+        requestedByActorType: "system",
+        requestedByActorId: "interaction-watchdog",
+        contextSnapshot: {
+          issueId: issue.id,
+          taskId: issue.id,
+          interactionId: interaction.id,
+          interactionKind: interaction.kind,
+          sourceCommentId: interaction.sourceCommentId ?? null,
+          sourceRunId: interaction.sourceRunId ?? null,
+          wakeReason: "interaction_pending",
+          source: "issue.interaction.pending",
+        },
+      });
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: issue.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "issue.thread_interaction_wakeup_requested",
+        entityType: "issue",
+        entityId: issue.id,
+        details: {
+          interactionId: interaction.id,
+          addresseeAgentId: interaction.addresseeAgentId,
+          runId: run?.id ?? null,
+          idempotencyBucket: cadenceBucket,
+        },
+      });
+
+      res.status(202).json(run ?? { status: "skipped" });
+    },
+  );
+
+  router.post(
     "/issues/:id/interactions/:interactionId/accept",
     validate(acceptIssueThreadInteractionSchema),
     async (req, res) => {
