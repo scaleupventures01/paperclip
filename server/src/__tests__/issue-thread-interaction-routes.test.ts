@@ -679,6 +679,104 @@ describe.sequential("issue thread interaction routes", () => {
     );
   });
 
+  it("re-wakes a pending agent interaction with server-owned task context", async () => {
+    mockInteractionService.getForIssue.mockResolvedValueOnce({
+      id: "interaction-watchdog",
+      companyId: "company-1",
+      issueId: ISSUE_ID,
+      kind: "request_confirmation",
+      status: "pending",
+      continuationPolicy: "wake_assignee",
+      addresseeAgentId: UNRELATED_AGENT_ID,
+      requestedResolverPolicy: "board_or_agents",
+      effectiveResolverPolicy: "board_or_agents",
+      sourceCommentId: "comment-source",
+      sourceRunId: RUN_1,
+      payload: { version: 1, prompt: "Approve?" },
+    });
+    mockHeartbeatService.wakeup.mockResolvedValueOnce({ id: RUN_WATCHDOG });
+
+    const res = await request(await createApp())
+      .post(`/api/issues/${ISSUE_ID}/interactions/interaction-watchdog/wakeup`)
+      .send({
+        issueId: OTHER_ISSUE_ID,
+        interactionId: "forged-interaction",
+      });
+
+    expect(res.status).toBe(202);
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(
+      UNRELATED_AGENT_ID,
+      expect.objectContaining({
+        source: "automation",
+        triggerDetail: "system",
+        reason: "interaction_pending",
+        requestedByActorType: "system",
+        requestedByActorId: "interaction-watchdog",
+        idempotencyKey: expect.stringMatching(
+          /^interaction-pending:interaction-watchdog:\d+$/,
+        ),
+        payload: expect.objectContaining({
+          issueId: ISSUE_ID,
+          interactionId: "interaction-watchdog",
+        }),
+        contextSnapshot: expect.objectContaining({
+          issueId: ISSUE_ID,
+          taskId: ISSUE_ID,
+          interactionId: "interaction-watchdog",
+          wakeReason: "interaction_pending",
+        }),
+      }),
+    );
+  });
+
+  it("rejects a re-wake when the interaction is no longer pending", async () => {
+    mockInteractionService.getForIssue.mockResolvedValueOnce({
+      id: "interaction-resolved",
+      companyId: "company-1",
+      issueId: ISSUE_ID,
+      kind: "request_confirmation",
+      status: "accepted",
+      addresseeAgentId: UNRELATED_AGENT_ID,
+      requestedResolverPolicy: "board_or_agents",
+      effectiveResolverPolicy: "board_or_agents",
+      payload: { version: 1, prompt: "Approve?" },
+    });
+
+    const res = await request(await createApp())
+      .post(`/api/issues/${ISSUE_ID}/interactions/interaction-resolved/wakeup`)
+      .send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.details?.code).toBe("interaction_not_pending");
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("rejects a re-wake for an agent-addressed human-only interaction", async () => {
+    mockInteractionService.getForIssue.mockResolvedValueOnce({
+      id: "interaction-human-only",
+      companyId: "company-1",
+      issueId: ISSUE_ID,
+      kind: "request_confirmation",
+      status: "pending",
+      addresseeAgentId: UNRELATED_AGENT_ID,
+      requestedResolverPolicy: "human_only",
+      effectiveResolverPolicy: "human_only",
+      resolverPolicyProvenance: "explicit",
+      effectiveResolverPolicySource: "requested",
+      payload: { version: 1, prompt: "Approve?" },
+    });
+
+    const res = await request(await createApp())
+      .post(`/api/issues/${ISSUE_ID}/interactions/interaction-human-only/wakeup`)
+      .send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.details?.code).toBe(
+      "interaction_agent_resolution_not_allowed",
+    );
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
   it("does not route agent attention for a human-only interaction", async () => {
     mockInteractionService.create.mockResolvedValueOnce({
       id: "interaction-human-attention",
