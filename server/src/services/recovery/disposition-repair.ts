@@ -84,8 +84,16 @@ export async function collectDispositionRepairSourceState(
   },
 ): Promise<DispositionRepairSourceState> {
   const issue = input.issue;
-  const [blockers, children, interactions, linkedApprovals, workProducts, activeRuns, queuedWakes] =
-    await Promise.all([
+  const [
+    blockers,
+    children,
+    descendants,
+    interactions,
+    linkedApprovals,
+    workProducts,
+    activeRuns,
+    queuedWakes,
+  ] = await Promise.all([
       db
         .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId, originKind: issues.originKind })
         .from(issueRelations)
@@ -111,6 +119,34 @@ export async function collectDispositionRepairSourceState(
             eq(issues.parentId, issue.id),
             notInArray(issues.status, ["done", "cancelled"]),
             sql`${issues.hiddenAt} is null`,
+          ),
+        ),
+      db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(
+          and(
+            eq(issues.companyId, issue.companyId),
+            notInArray(issues.status, ["done", "cancelled"]),
+            sql`${issues.hiddenAt} is null`,
+            sql<boolean>`
+              ${issues.id} IN (
+                WITH RECURSIVE descendants(id) AS (
+                  SELECT ${issues.id}
+                  FROM ${issues}
+                  WHERE ${issues.companyId} = ${issue.companyId}
+                    AND ${issues.parentId} = ${issue.id}
+                    AND ${issues.hiddenAt} is null
+                  UNION
+                  SELECT ${issues.id}
+                  FROM ${issues}
+                  JOIN descendants ON ${issues.parentId} = descendants.id
+                  WHERE ${issues.companyId} = ${issue.companyId}
+                    AND ${issues.hiddenAt} is null
+                )
+                SELECT id FROM descendants
+              )
+            `,
           ),
         ),
       db
@@ -202,15 +238,17 @@ export async function collectDispositionRepairSourceState(
       ? "blocker"
       : continuationChildren.length > 0
         ? "child"
-        : issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > Date.now()
-          ? "monitor"
-          : pendingExecutionState?.status === "pending"
-            ? "execution_stage"
-            : pendingInteraction
-              ? "interaction"
-              : pendingApproval
-                ? "approval"
-                : null;
+        : descendants.length > 0
+          ? "descendant"
+          : issue.monitorNextCheckAt && issue.monitorNextCheckAt.getTime() > Date.now()
+            ? "monitor"
+            : pendingExecutionState?.status === "pending"
+              ? "execution_stage"
+              : pendingInteraction
+                ? "interaction"
+                : pendingApproval
+                  ? "approval"
+                  : null;
 
   const durableState = {
     source: {
