@@ -6625,6 +6625,56 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     });
   });
 
+  it("treats an open descendant behind a completed repair child as a durable continuation", async () => {
+    const { companyId, issueId } = await seedStrandedIssueFixture({
+      status: "in_progress",
+      runStatus: "succeeded",
+    });
+    const completedRepairId = randomUUID();
+    const activeRetryId = randomUUID();
+    const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    await db.insert(issues).values([
+      {
+        id: completedRepairId,
+        companyId,
+        parentId: issueId,
+        title: "Completed routing repair",
+        status: "done",
+        priority: "medium",
+        issueNumber: 20,
+        identifier: `${issuePrefix}-20`,
+      },
+      {
+        id: activeRetryId,
+        companyId,
+        parentId: completedRepairId,
+        title: "Active delivery retry",
+        status: "in_progress",
+        priority: "medium",
+        issueNumber: 21,
+        identifier: `${issuePrefix}-21`,
+      },
+    ]);
+
+    const sourceIssue = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .then((rows) => rows[0]!);
+    const withActiveDescendant = await collectDispositionRepairSourceState(db, {
+      issue: sourceIssue,
+    });
+    expect(withActiveDescendant.hasDurableWaitingPath).toBe(true);
+    expect(withActiveDescendant.durablePathReason).toBe("descendant");
+
+    await db.update(issues).set({ status: "done" }).where(eq(issues.id, activeRetryId));
+    const afterDescendantFinished = await collectDispositionRepairSourceState(db, {
+      issue: sourceIssue,
+    });
+    expect(afterDescendantFinished.hasDurableWaitingPath).toBe(false);
+    expect(afterDescendantFinished.durablePathReason).toBeNull();
+  });
+
   it("reschedules an expired persisted disposition repair without duplicating the retry", async () => {
     const { companyId, agentId, issueId } = await seedStrandedIssueFixture({
       status: "in_progress",
