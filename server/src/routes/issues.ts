@@ -345,6 +345,7 @@ import {
   queuedCommentIdsFromWakePayload,
   withQueuedCommentIdsInWakePayload,
 } from "../services/issue-queued-comment-queue.js";
+import { developerCompletionReceiptError } from "../services/developer-stage-receipt.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const updateIssueRouteSchema = updateIssueSchema.extend({
@@ -13101,6 +13102,17 @@ export function issueRoutes(
         onBehalfOfUserId: _requestedOnBehalfOfUserId,
         ...updateFields
       } = req.body;
+      const developerReceiptError = developerCompletionReceiptError(
+        updateFields.status,
+        commentBody,
+      );
+      if (developerReceiptError) {
+        res.status(422).json({
+          error: developerReceiptError,
+          code: "developer_stage_not_built",
+        });
+        return;
+      }
       if (existing.conversationAgentId && req.actor.type === "board" && commentBody) {
         throw unprocessable("Send conversation messages through the comments endpoint with a clientRequestId");
       }
