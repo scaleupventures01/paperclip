@@ -3930,6 +3930,27 @@ export function recoveryService(
       input.latestRun,
       input.recoveryCause,
     );
+    if (recoveryCause === SUCCESSFUL_RUN_MISSING_STATE_REASON) {
+      // The monitor may be committed after the candidate scan but before this
+      // escalation. Re-read the authoritative row so a stale snapshot cannot
+      // replace that durable continuation with a board-owned blocker.
+      const [current] = await db
+        .select({
+          status: issues.status,
+          monitorNextCheckAt: issues.monitorNextCheckAt,
+        })
+        .from(issues)
+        .where(and(
+          eq(issues.companyId, input.issue.companyId),
+          eq(issues.id, input.issue.id),
+        ))
+        .limit(1);
+      if (
+        !current ||
+        current.status !== input.issue.status ||
+        current.monitorNextCheckAt
+      ) return null;
+    }
     const recoveryAction = await ensureSourceScopedStrandedRecoveryAction({
       issue: input.issue,
       previousStatus: input.previousStatus,

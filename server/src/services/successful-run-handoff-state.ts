@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { activityLog, agentWakeupRequests, heartbeatRuns } from "@paperclipai/db";
+import { activityLog, agentWakeupRequests, heartbeatRuns, issues } from "@paperclipai/db";
 import type { SuccessfulRunHandoffState } from "@paperclipai/shared";
 import { logActivity } from "./activity-log.js";
 
@@ -29,7 +29,7 @@ export async function hydrateSuccessfulRunHandoffLiveness(
     .map(([issueId]) => issueId);
   if (unresolvedIssueIds.length === 0) return states;
 
-  const [activeRuns, activeWakes] = await Promise.all([
+  const [activeRuns, activeWakes, monitoredIssues] = await Promise.all([
     dbOrTx
       .select({ id: heartbeatRuns.id, issueId: heartbeatRunIssueId })
       .from(heartbeatRuns)
@@ -46,6 +46,14 @@ export async function hydrateSuccessfulRunHandoffLiveness(
         inArray(agentWakeupRequests.status, [...SUCCESSFUL_RUN_HANDOFF_LIVE_WAKE_STATUSES]),
         inArray(wakeRequestIssueId, unresolvedIssueIds),
       )),
+    dbOrTx
+      .select({ issueId: issues.id })
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        inArray(issues.id, unresolvedIssueIds),
+        sql`${issues.monitorNextCheckAt} is not null`,
+      )),
   ]);
 
   const liveRunByIssueId = new Map<string, string>();
@@ -57,6 +65,9 @@ export async function hydrateSuccessfulRunHandoffLiveness(
       .map((row) => row.issueId)
       .filter((issueId): issueId is string => Boolean(issueId)),
   );
+  const monitoredIssueIds = new Set(
+    (monitoredIssues as Array<{ issueId: string }>).map((row) => row.issueId),
+  );
 
   for (const issueId of unresolvedIssueIds) {
     const state = states.get(issueId);
@@ -64,7 +75,9 @@ export async function hydrateSuccessfulRunHandoffLiveness(
     const liveRunId = liveRunByIssueId.get(issueId);
     states.set(issueId, {
       ...state,
-      hasLiveContinuation: Boolean(liveRunId || liveWakeIssueIds.has(issueId)),
+      hasLiveContinuation: Boolean(
+        liveRunId || liveWakeIssueIds.has(issueId) || monitoredIssueIds.has(issueId),
+      ),
       ...(liveRunId ? { liveRunId } : {}),
     });
   }

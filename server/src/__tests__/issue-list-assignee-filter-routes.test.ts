@@ -321,6 +321,63 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
     });
   });
 
+  it("marks a required successful-run handoff live while a monitor is scheduled", async () => {
+    const companyId = randomUUID();
+    const agentId = randomUUID();
+    const issueId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: uniqueIssuePrefix(),
+      requireBoardApprovalForNewAgents: false,
+    });
+    await seedCloudTenantMember(companyId);
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Assignee",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(issues).values({
+      id: issueId,
+      companyId,
+      title: "Monitored handoff issue",
+      status: "in_progress",
+      priority: "medium",
+      assigneeAgentId: agentId,
+      monitorNextCheckAt: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    await db.insert(activityLog).values({
+      companyId,
+      actorType: "system",
+      actorId: "system",
+      action: "issue.successful_run_handoff_required",
+      entityType: "issue",
+      entityId: issueId,
+      agentId,
+      details: { sourceRunId: randomUUID() },
+    });
+
+    const app = createApp(companyId);
+    const res = await request(app)
+      .get(`/api/companies/${companyId}/issues`)
+      .query({ view: "compact", limit: "20" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body[0]?.successfulRunHandoff).toMatchObject({
+      state: "required",
+      required: true,
+      hasLiveContinuation: true,
+    });
+    expect(res.body[0]?.successfulRunHandoff).not.toHaveProperty("liveRunId");
+  });
+
   it("marks an escalated successful-run handoff live while a run targets the issue", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();
