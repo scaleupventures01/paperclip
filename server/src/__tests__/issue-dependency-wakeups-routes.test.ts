@@ -183,6 +183,42 @@ describe("issue dependency wakeups in issue routes", () => {
     mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue(null);
   });
 
+  it("rejects built:false as a completed Developer stage", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-1",
+      identifier: "PAP-100",
+      title: "Developer attempt",
+      description: null,
+      status: "in_progress",
+      priority: "medium",
+      parentId: null,
+      assigneeAgentId: "agent-1",
+      assigneeUserId: null,
+      createdByAgentId: null,
+      createdByUserId: null,
+      executionWorkspaceId: null,
+      labels: [],
+      labelIds: [],
+    });
+
+    const res = await request(await createApp())
+      .patch("/api/issues/issue-1")
+      .send({
+        status: "done",
+        comment: JSON.stringify({
+          schema: "agentos.build-candidate-receipt/v2",
+          built: false,
+          blocked_by: "tests",
+          reason: "baseline failed",
+        }),
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: "developer_stage_not_built" });
+    expect(mockIssueService.update).not.toHaveBeenCalled();
+  });
+
   it("wakes dependents when the final blocker transitions to done", async () => {
     mockIssueService.getById.mockResolvedValue({
       id: "issue-1",
