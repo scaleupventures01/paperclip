@@ -1084,6 +1084,22 @@ describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () =
     });
     expect(readyRun?.status).toBe("succeeded");
     expect(mockAdapterExecute.mock.calls.length).toBeGreaterThanOrEqual(1);
+
+    const retryOutcome = await heartbeat.scheduleBoundedRetry(blockedRunId, {
+      now: new Date(),
+      random: () => 0,
+    });
+    expect(retryOutcome).toMatchObject({
+      outcome: "not_scheduled",
+      errorCode: "non_retryable_issue_dependencies_blocked",
+      issueId: blockedIssueId,
+    });
+    expect(
+      await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.retryOfRunId, blockedRunId)),
+    ).toHaveLength(0);
   });
 
   it("suppresses normal wakeups while allowing comment interaction wakes under a pause hold", async () => {

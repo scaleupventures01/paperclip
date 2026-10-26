@@ -1221,6 +1221,22 @@ function isApiRefusalRun(
   });
 }
 
+// Dependency admission is an intentional wait, not an execution failure. A
+// generic transient retry cannot make the blocker disappear and only creates a
+// second run that the admission policy immediately cancels. The dependency
+// resolver owns the useful wake once the blockers actually clear.
+const ISSUE_DEPENDENCIES_BLOCKED_ERROR_CODE = "issue_dependencies_blocked";
+
+function isIssueDependenciesBlockedRun(
+  run: Pick<typeof heartbeatRuns.$inferSelect, "errorCode" | "resultJson">,
+) {
+  const resultJson = parseObject(run.resultJson);
+  return (
+    run.errorCode === ISSUE_DEPENDENCIES_BLOCKED_ERROR_CODE ||
+    resultJson.stopReason === ISSUE_DEPENDENCIES_BLOCKED_ERROR_CODE
+  );
+}
+
 // A provider answering HTTP 500, 502, 503 or 504 (codex prints "unexpected
 // status 502 Bad Gateway: <html>...</html>, url: ...") is an upstream outage,
 // not a fault in the agent or its configuration. Live 2026-10-16 08:03 to
@@ -15581,6 +15597,30 @@ export function heartbeatService(
         outcome: "not_scheduled" as const,
         reason,
         errorCode: "non_retryable_api_refusal" as const,
+        issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
+      };
+    }
+    if (
+      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON &&
+      isIssueDependenciesBlockedRun(run)
+    ) {
+      const reason =
+        "Transient retry refused: issue dependencies are still blocked; dependency resolution owns the next useful wake";
+      await appendRunEvent(run, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "info",
+        message: reason,
+        payload: {
+          retryReason,
+          errorCode: ISSUE_DEPENDENCIES_BLOCKED_ERROR_CODE,
+          retryable: false,
+        },
+      });
+      return {
+        outcome: "not_scheduled" as const,
+        reason,
+        errorCode: "non_retryable_issue_dependencies_blocked" as const,
         issueId: readNonEmptyString(parseObject(run.contextSnapshot).issueId),
       };
     }
