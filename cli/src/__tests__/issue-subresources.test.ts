@@ -89,6 +89,7 @@ describe("issue subresource commands", () => {
     await run(["issue", "comments", ISSUE_ID, "--limit", "10"]);
     await run(["issue", "comment:get", ISSUE_ID, COMMENT_ID]);
     await run(["issue", "comment:delete", ISSUE_ID, COMMENT_ID]);
+    await run(["issue", "comment:delete", ISSUE_ID, COMMENT_ID, "--cancel"]);
     await run(["issue", "approvals", ISSUE_ID]);
     await run(["issue", "approval:link", ISSUE_ID, APPROVAL_ID]);
     await run(["issue", "approval:unlink", ISSUE_ID, APPROVAL_ID]);
@@ -108,6 +109,7 @@ describe("issue subresource commands", () => {
       ["GET", `http://localhost:3100/api/issues/${ISSUE_ID}/comments?limit=10`],
       ["GET", `http://localhost:3100/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}`],
       ["DELETE", `http://localhost:3100/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}`],
+      ["DELETE", `http://localhost:3100/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}?mode=cancel`],
       ["GET", `http://localhost:3100/api/issues/${ISSUE_ID}/approvals`],
       ["POST", `http://localhost:3100/api/issues/${ISSUE_ID}/approvals`],
       ["DELETE", `http://localhost:3100/api/issues/${ISSUE_ID}/approvals/${APPROVAL_ID}`],
