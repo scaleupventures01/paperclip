@@ -91,6 +91,10 @@ interface IssueCommentListOptions extends BaseClientOptions {
   limit?: string;
 }
 
+interface IssueCommentDeleteOptions extends BaseClientOptions {
+  cancel?: boolean;
+}
+
 interface IssueCheckoutOptions extends BaseClientOptions {
   agentId: string;
   expectedStatuses?: string;
@@ -434,10 +438,14 @@ export function registerIssueCommands(program: Command): void {
       .description("Delete or cancel one issue comment")
       .argument("<issueId>", "Issue ID")
       .argument("<commentId>", "Comment ID")
-      .action(async (issueId: string, commentId: string, opts: BaseClientOptions) => {
+      .option("--cancel", "Cancel the comment's queued wake and run instead of deleting a delivered comment")
+      .action(async (issueId: string, commentId: string, opts: IssueCommentDeleteOptions) => {
         try {
           const ctx = resolveCommandContext(opts);
-          const deleted = await ctx.api.delete<IssueComment>(apiPath`/api/issues/${issueId}/comments/${commentId}`);
+          const query = opts.cancel ? "?mode=cancel" : "";
+          const deleted = await ctx.api.delete<IssueComment>(
+            `${apiPath`/api/issues/${issueId}/comments/${commentId}`}${query}`,
+          );
           printOutput(deleted, { json: ctx.json });
         } catch (err) {
           handleCommandError(err);
