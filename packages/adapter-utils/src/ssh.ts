@@ -843,6 +843,37 @@ async function importGitWorkspaceToSsh(input: {
   }
 }
 
+const RETRYABLE_SSH_GIT_BUNDLE_ERRORS = [
+  "early eof",
+  "index-pack died",
+  "unexpected end of file",
+  "does not look like a v2 or v3 bundle file",
+] as const;
+
+export function isRetryableSshGitBundleError(error: unknown): boolean {
+  const fields = error && typeof error === "object"
+    ? [
+      (error as { message?: unknown }).message,
+      (error as { stderr?: unknown }).stderr,
+      (error as { stdout?: unknown }).stdout,
+    ]
+    : [error];
+  const detail = fields
+    .filter((value): value is string => typeof value === "string")
+    .join("\n")
+    .toLowerCase();
+  return RETRYABLE_SSH_GIT_BUNDLE_ERRORS.some((marker) => detail.includes(marker));
+}
+
+export async function retrySshGitBundleImport<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isRetryableSshGitBundleError(error)) throw error;
+    return await operation();
+  }
+}
+
 async function exportGitWorkspaceFromSsh(input: {
   spec: SshRemoteExecutionSpec;
   remoteDir: string;
@@ -867,34 +898,36 @@ async function exportGitWorkspaceFromSsh(input: {
       'cat "$tmp_bundle"',
     ].join("\n");
 
-    // The remote bundle size isn't known before streaming, so report bytes
-    // received (MB mode) with a terminal completion line.
-    const progress = input.onProgress
-      ? createTransferProgress({
-        onProgress: input.onProgress,
-        phase: "Exporting git history",
-        direction: "from",
-        totalBytes: null,
-        estimated: false,
-      })
-      : null;
+    await retrySshGitBundleImport(async () => {
+      // The remote bundle size isn't known before streaming, so report bytes
+      // received (MB mode) with a terminal completion line. Each retry gets a
+      // fresh stream, remote bundle, local file, and progress reporter.
+      const progress = input.onProgress
+        ? createTransferProgress({
+          onProgress: input.onProgress,
+          phase: "Exporting git history",
+          direction: "from",
+          totalBytes: null,
+          estimated: false,
+        })
+        : null;
 
-    try {
-      await streamSshToLocalFile({
-        spec: input.spec,
-        remoteScript: exportScript,
-        localFile: bundlePath,
-        progress: progress ?? undefined,
-      });
-      await progress?.finish();
-    } catch (error) {
-      await progress?.fail();
-      throw error;
-    }
-
-    await runLocalGit(input.localDir, ["fetch", "--force", bundlePath, `refs/paperclip/ssh-sync/export:${importedRef}`], {
-      timeout: 60_000,
-      maxBuffer: 1024 * 1024,
+      try {
+        await streamSshToLocalFile({
+          spec: input.spec,
+          remoteScript: exportScript,
+          localFile: bundlePath,
+          progress: progress ?? undefined,
+        });
+        await runLocalGit(input.localDir, ["fetch", "--force", bundlePath, `refs/paperclip/ssh-sync/export:${importedRef}`], {
+          timeout: 60_000,
+          maxBuffer: 1024 * 1024,
+        });
+        await progress?.finish();
+      } catch (error) {
+        await progress?.fail();
+        throw error;
+      }
     });
     if (input.resetLocalWorkspace !== false) {
       await runLocalGit(input.localDir, ["reset", "--hard", importedRef], {
