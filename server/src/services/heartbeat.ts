@@ -542,7 +542,7 @@ import {
 } from "./recovery/review-path-recovery.js";
 import { resolveRequiredSuccessfulRunHandoffOnValidPath } from "./successful-run-handoff-state.js";
 import { taskWatchdogService } from "./task-watchdogs.js";
-import { withAgentStartLock } from "./agent-start-lock.js";
+import { hasAgentStartCapacity } from "./agent-start-lock.js";
 import {
   evaluateAgentInvokability,
   evaluateAgentInvokabilityFromDb,
@@ -17849,6 +17849,15 @@ export function heartbeatService(
               ) {
                 return { kind: "stale" as const, run: null };
               }
+              if (
+                !(await hasAgentStartCapacity(
+                  tx as unknown as Db,
+                  run.agentId,
+                  parseHeartbeatPolicy(agent).maxConcurrentRuns,
+                ))
+              ) {
+                return { kind: "stale" as const, run: null };
+              }
 
               if (lockedRun.invocationSource === "automation") {
                 const admission = readChatControlRecoveryAdmission(lockedRun);
@@ -18109,27 +18118,39 @@ export function heartbeatService(
       void emitAgentTaskRun(db, queuedCommentClaim.run);
       return null;
     }
+    const claimWithCapacity = async (tx: Db) => {
+      if (
+        !(await hasAgentStartCapacity(
+          tx,
+          run.agentId,
+          parseHeartbeatPolicy(agent).maxConcurrentRuns,
+        ))
+      ) {
+        return null;
+      }
+      const claimValues = {
+        status: "running",
+        runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
+        ...legacyControllerClaim(run.runtimeMode),
+        responsibleUserId,
+        startedAt: run.startedAt ?? claimedAt,
+        updatedAt: claimedAt,
+      };
+      if (nativeReviewContext) {
+        return claimQueuedNativeReviewRun(tx, {
+          run, claimedAt, claimValues,
+          agentNameKey: normalizeAgentNameKey(agent.name),
+        });
+      }
+      return tx.update(heartbeatRuns).set(claimValues).where(and(
+        eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued"),
+      )).returning().then((rows) => rows[0] ?? null);
+    };
     const claimed = queuedCommentClaim
       ? queuedCommentClaim.run
-      : await withChatControlRecoveryGate(run, "claim", async (tx) => {
-          const claimValues = {
-            status: "running",
-            runnerProfileJson: sql`(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object' then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) || ${JSON.stringify({ adapterDispatch: { adapterType: agent.adapterType } })}::jsonb`,
-            ...legacyControllerClaim(run.runtimeMode),
-            responsibleUserId,
-            startedAt: run.startedAt ?? claimedAt,
-            updatedAt: claimedAt,
-          };
-          if (nativeReviewContext) {
-            return claimQueuedNativeReviewRun(tx, {
-              run, claimedAt, claimValues,
-              agentNameKey: normalizeAgentNameKey(agent.name),
-            });
-          }
-          return tx.update(heartbeatRuns).set(claimValues).where(and(
-            eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.status, "queued"),
-          )).returning().then((rows) => rows[0] ?? null);
-        });
+      : !issueId || run.invocationSource !== "automation"
+        ? await db.transaction((tx) => claimWithCapacity(tx as unknown as Db))
+        : await withChatControlRecoveryGate(run, "claim", claimWithCapacity);
     if (!claimed) return null;
 
     publishLiveEvent({
@@ -20366,7 +20387,7 @@ export function heartbeatService(
     if ((await getSchedulingSuppression()).suppressed) return [];
     const cutoff = await getWorktreeExecutionCutoff();
 
-    return withAgentStartLock(agentId, async () => {
+    {
       const agent = await getAgent(agentId);
       if (!agent) return [];
       // agentos#596: a queued run for an agent the fleet release gate excludes,
@@ -20588,7 +20609,7 @@ export function heartbeatService(
         });
       }
       return claimedRuns;
-    });
+    }
   }
 
   // Await every background heartbeat execution that is currently in flight. A
