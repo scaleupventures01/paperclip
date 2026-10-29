@@ -5977,22 +5977,6 @@ export function recoveryService(
           continue;
         }
 
-        // Run dispatch parks an issue_blockers_resolved continuation whenever a
-        // durable wait (open child, user owner, future monitor, pending stage,
-        // interaction or approval) owns the next action. Enqueueing here while
-        // that wait holds only produces a run that is cancelled before the
-        // provider, and the parked wake row is `skipped`, which the ready-state
-        // dedup does not count, so every pass re-enqueued it (Gate 3 P_child,
-        // 2026-10-14). Wait for the durable wait to clear; the next pass after
-        // that emits exactly one wake for the same ready state.
-        const durableWait = await collectDispositionRepairSourceState(db, {
-          issue: { ...candidate, companyId },
-        });
-        if (durableWait.hasDurableWaitingPath) {
-          result.durableWaitSkipped += 1;
-          continue;
-        }
-
         if (
           await isAutomaticRecoverySuppressedByPauseHold(
             db,

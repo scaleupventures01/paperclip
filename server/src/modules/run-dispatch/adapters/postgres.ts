@@ -110,7 +110,6 @@ const NO_REVIEW_PARTICIPANT: ReviewParticipantFacts = {
 const AUTOMATIC_ISSUE_CONTINUATION_WAKE_REASONS = new Set([
   "issue_continuation_needed",
   "issue_children_completed",
-  "issue_blockers_resolved",
 ]);
 
 async function readNativeReviewParticipantFacts(db: Db, input: {
