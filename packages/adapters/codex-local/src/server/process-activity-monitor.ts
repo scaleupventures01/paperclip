@@ -1,4 +1,6 @@
+import { execFile as execFileCallback } from "node:child_process";
 import fs from "node:fs/promises";
+import { promisify } from "node:util";
 
 export const CODEX_PROCESS_ACTIVITY_POLL_INTERVAL_MS = 15_000;
 
@@ -22,6 +24,8 @@ export interface CodexProcessActivityMonitorHandle {
   stop(): void;
 }
 
+const execFile = promisify(execFileCallback);
+
 function parseProcStat(stat: string): { processGroupId: number; cpuTicks: number } | null {
   const commandEnd = stat.lastIndexOf(")");
   if (commandEnd < 0) return null;
@@ -42,10 +46,51 @@ function parseProcIo(io: string): number {
   return bytes;
 }
 
+function parseCpuSeconds(value: string): number {
+  const [clock, fraction = "0"] = value.split(".");
+  const seconds = clock.split(":").reduce((total, part) => total * 60 + Number(part), 0);
+  return seconds + Number(`0.${fraction}`);
+}
+
+async function sampleDarwinProcessActivity(
+  pid: number,
+  processGroupId: number | null,
+): Promise<CodexProcessActivitySnapshot | null> {
+  const targetProcessGroupId = processGroupId && processGroupId > 0 ? processGroupId : null;
+  const { stdout } = await execFile("ps", ["-axo", "pid=,pgid=,time="], {
+    timeout: 2_000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  const processIds: number[] = [];
+  let cpuSeconds = 0;
+
+  for (const line of stdout.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+([0-9:.]+)\s*$/.exec(line);
+    if (!match) continue;
+    const rowPid = Number(match[1]);
+    const rowProcessGroupId = Number(match[2]);
+    if (targetProcessGroupId !== null && rowProcessGroupId !== targetProcessGroupId) continue;
+    if (targetProcessGroupId === null && rowPid !== pid) continue;
+    processIds.push(rowPid);
+    cpuSeconds += parseCpuSeconds(match[3]);
+  }
+
+  if (processIds.length === 0) return null;
+  processIds.sort((left, right) => left - right);
+  return {
+    cpuTicks: Math.round(cpuSeconds * 100),
+    ioBytes: 0,
+    processIds: processIds.join(","),
+  };
+}
+
 export async function sampleCodexProcessActivity(
   pid: number,
   processGroupId: number | null,
 ): Promise<CodexProcessActivitySnapshot | null> {
+  if (process.platform === "darwin") {
+    return sampleDarwinProcessActivity(pid, processGroupId);
+  }
   if (process.platform !== "linux") return null;
   const targetProcessGroupId = processGroupId && processGroupId > 0 ? processGroupId : null;
   const entries = targetProcessGroupId ? await fs.readdir("/proc") : [String(pid)];
