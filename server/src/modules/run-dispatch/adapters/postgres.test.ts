@@ -681,7 +681,7 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
       expect(resolved).toMatchObject({ outcome: "cancelled", errorCode: "issue_assignee_changed" });
     });
 
-    it.each(["issue_children_completed", "issue_blockers_resolved"])(
+    it.each(["issue_children_completed"])(
       "cancels an automatic %s wake when a human interaction became the durable next action",
       async (wakeReason) => {
         const { companyId, agentId } = await seedCompanyAndAgent();
@@ -741,6 +741,38 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
       },
     );
 
+    it("keeps an idempotent resolved-blocker wake runnable when a historical child remains open", async () => {
+      const { companyId, agentId } = await seedCompanyAndAgent();
+      const issueId = randomUUID();
+      await seedIssue({ companyId, issueId, status: "blocked", assigneeAgentId: agentId });
+      await db.insert(issues).values({
+        id: randomUUID(),
+        companyId,
+        parentId: issueId,
+        title: "Historical stage evidence",
+        status: "blocked",
+        priority: "medium",
+      });
+      const runId = await seedRun({
+        companyId,
+        agentId,
+        contextSnapshot: {
+          issueId,
+          wakeReason: "issue_blockers_resolved",
+          source: "issue.blockers_resolved",
+        },
+      });
+
+      await expect(
+        createPostgresRunDispatchAdapter(db).cancelStaleQueuedRun({
+          runId,
+          companyId,
+          expectedStatus: "queued",
+          now: new Date(),
+        }),
+      ).resolves.toEqual({ outcome: "not_stale" });
+    });
+
     // Gate 3 gap G3: every durable-wait kind the source-state reader names
     // must park every automatic continuation at claim time, and the cancel
     // must record which kind owned the next action.
@@ -755,7 +787,6 @@ describeEmbeddedPostgres("run-dispatch postgres adapter", () => {
     ] as const;
     const automaticContinuations = [
       { label: "issue_children_completed wake", wakeReason: "issue_children_completed", retryReason: null },
-      { label: "issue_blockers_resolved wake", wakeReason: "issue_blockers_resolved", retryReason: null },
       { label: "issue_continuation_needed retry", wakeReason: null, retryReason: "issue_continuation_needed" },
     ] as const;
 

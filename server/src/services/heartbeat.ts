@@ -27786,6 +27786,47 @@ export function heartbeatService(
             return { kind: "skipped" as const };
           }
 
+          const dependencyReadyStateKey = opts.idempotencyKey ?? "";
+          const isDependencyReadyStateWake =
+            reason === ISSUE_BLOCKERS_RESOLVED_WAKE_REASON &&
+            dependencyReadyStateKey.startsWith(
+              `${ISSUE_BLOCKERS_RESOLVED_WAKE_REASON}:state:${issue.id}:`,
+            );
+          if (isDependencyReadyStateWake) {
+            // Every issue-scoped admission holds the issue row lock above. Check
+            // the ready-state key under that lock so route, finalize, and
+            // backstop emitters cannot create concurrent provider turns.
+            const [existingDependencyWake] = await tx
+              .select({ runId: agentWakeupRequests.runId })
+              .from(agentWakeupRequests)
+              .where(
+                and(
+                  eq(agentWakeupRequests.companyId, issue.companyId),
+                  eq(agentWakeupRequests.agentId, agentId),
+                  eq(
+                    agentWakeupRequests.idempotencyKey,
+                    dependencyReadyStateKey,
+                  ),
+                  inArray(agentWakeupRequests.status, [
+                    "queued",
+                    "deferred_issue_execution",
+                    "claimed",
+                    "completed",
+                  ]),
+                ),
+              )
+              .orderBy(asc(agentWakeupRequests.requestedAt))
+              .limit(1);
+            if (existingDependencyWake) {
+              return existingDependencyWake.runId
+                ? {
+                    kind: "replayed" as const,
+                    run: await getRun(existingDependencyWake.runId),
+                  }
+                : { kind: "skipped" as const };
+            }
+          }
+
           const interactionIdempotencyKey = opts.idempotencyKey ?? "";
           const interactionId = readNonEmptyString(
             enrichedContextSnapshot.interactionId,
