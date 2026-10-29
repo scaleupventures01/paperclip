@@ -16,7 +16,7 @@ setInterval(() => {}, 60_000);
 `;
 
 describe("codex inactivity monitor (integration: real subprocess)", () => {
-  it.skipIf(process.platform !== "linux")(
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")(
     "allows a long silent build while the child process group is consuming CPU",
     async () => {
       const runId = `monitor-active-build-${Date.now()}`;
