@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import {
   createCodexProcessActivityMonitor,
+  sampleCodexProcessActivity,
   type CodexProcessActivitySnapshot,
 } from "./process-activity-monitor.js";
 
@@ -29,6 +31,50 @@ function snapshot(cpuTicks: number, ioBytes: number, processIds = "100"): CodexP
 }
 
 describe("createCodexProcessActivityMonitor", () => {
+  it.skipIf(process.platform === "win32")(
+    "samples POSIX process-group churn on every supported host",
+    async () => {
+      const shell = spawn("sh", ["-c", "sleep 30 & sleep 31 & wait"], {
+        detached: true,
+        stdio: "ignore",
+      });
+      const processGroupId = shell.pid!;
+
+      try {
+        const baseline = await vi.waitFor(
+          async () => {
+            const snapshot = await sampleCodexProcessActivity(processGroupId, processGroupId);
+            expect(snapshot).not.toBeNull();
+            expect(snapshot!.processIds.split(",").length).toBeGreaterThan(1);
+            return snapshot!;
+          },
+          { interval: 100, timeout: 3_000 },
+        );
+        const processIds = baseline.processIds.split(",").map(Number);
+        const childToExit = processIds.find((processId) => processId !== processGroupId);
+        expect(childToExit).toBeGreaterThan(0);
+
+        process.kill(childToExit!, "SIGKILL");
+        await vi.waitFor(
+          async () => {
+            const current = await sampleCodexProcessActivity(processGroupId, processGroupId);
+            expect(current).not.toBeNull();
+            expect(current!.processIds).not.toBe(baseline.processIds);
+          },
+          { interval: 100, timeout: 3_000 },
+        );
+      } finally {
+        try {
+          process.kill(-processGroupId, "SIGKILL");
+        } catch {
+          // The process group may already be gone.
+        }
+        shell.kill("SIGKILL");
+      }
+    },
+    10_000,
+  );
+
   it("requires a baseline and ignores sub-threshold CPU changes", async () => {
     const samples = [snapshot(100, 1_000), snapshot(114, 1_000)];
     const harness = new PollHarness();

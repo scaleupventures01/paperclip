@@ -1,4 +1,8 @@
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export const CODEX_PROCESS_ACTIVITY_POLL_INTERVAL_MS = 15_000;
 
@@ -42,10 +46,54 @@ function parseProcIo(io: string): number {
   return bytes;
 }
 
+function parseCpuTimeToTicks(value: string): number | null {
+  const match = /^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(value.trim());
+  if (!match) return null;
+  const [, hours = "0", minutes, seconds] = match;
+  const numericHours = Number(hours);
+  const numericMinutes = Number(minutes);
+  const numericSeconds = Number(seconds);
+  if (![numericHours, numericMinutes, numericSeconds].every(Number.isFinite)) return null;
+  return Math.round((numericHours * 3_600 + numericMinutes * 60 + numericSeconds) * 100);
+}
+
 export async function sampleCodexProcessActivity(
   pid: number,
   processGroupId: number | null,
 ): Promise<CodexProcessActivitySnapshot | null> {
+  if (process.platform === "darwin") {
+    const targetProcessGroupId = processGroupId && processGroupId > 0 ? processGroupId : null;
+    try {
+      const { stdout } = await execFileAsync("ps", ["-axo", "pid=,pgid=,cputime="], {
+        timeout: 5_000,
+        maxBuffer: 4 * 1_024 * 1_024,
+      });
+      const processIds: number[] = [];
+      let cpuTicks = 0;
+      for (const line of stdout.split("\n")) {
+        const fields = line.trim().split(/\s+/);
+        if (fields.length < 3) continue;
+        const processId = Number(fields[0]);
+        const parsedProcessGroupId = Number(fields[1]);
+        const parsedCpuTicks = parseCpuTimeToTicks(fields.slice(2).join(" "));
+        if (![processId, parsedProcessGroupId, parsedCpuTicks].every(Number.isFinite)) continue;
+        if (
+          targetProcessGroupId !== null
+            ? parsedProcessGroupId !== targetProcessGroupId
+            : processId !== pid
+        ) {
+          continue;
+        }
+        processIds.push(processId);
+        cpuTicks += parsedCpuTicks!;
+      }
+      if (processIds.length === 0) return null;
+      processIds.sort((left, right) => left - right);
+      return { cpuTicks, ioBytes: 0, processIds: processIds.join(",") };
+    } catch {
+      return null;
+    }
+  }
   if (process.platform !== "linux") return null;
   const targetProcessGroupId = processGroupId && processGroupId > 0 ? processGroupId : null;
   const entries = targetProcessGroupId ? await fs.readdir("/proc") : [String(pid)];
