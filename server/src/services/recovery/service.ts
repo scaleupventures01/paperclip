@@ -137,6 +137,7 @@ import {
 } from "./origins.js";
 import { withRecoveryContext } from "./status-only-context.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
+import { getExecutionBlocker } from "../execution-blocker.js";
 import {
   collectDispositionRepairSourceState,
   dispositionRepairDelayMs,
@@ -168,6 +169,7 @@ const STRANDED_ISSUE_RECOVERY_ORIGIN_KIND =
 const DEFERRED_WAKE_CONTEXT_KEY = "_paperclipWakeContext";
 const EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON =
   "execution_review_participant_recovery";
+const SKIPPED_REVIEW_WAKE_RECOVERY_KEY = "skippedReviewWakeRecovery";
 const STRANDED_BOARD_ESCALATION_POLICY = "board_escalation_no_takeover_v1";
 export { isIntentionallyPausedAgent };
 const DISPOSITION_REPAIR_IDEMPOTENCY_INDEX =
@@ -1843,6 +1845,43 @@ export function recoveryService(
       )
       .limit(1)
       .then((rows) => Boolean(rows[0]));
+  }
+
+  // A review-stage wake admitted while the handing-off author's cancelled run
+  // still held its environment lease is recorded as a terminal `skipped` row
+  // with reason `execution_reconciliation_required` and is never retried.
+  // Requeue the participant once that blocker is gone. A skipped wake that was
+  // itself this recovery is not requeued again, which bounds the retry to one.
+  async function shouldRequeueSkippedReviewWake(
+    companyId: string,
+    issueId: string,
+    agentId: string,
+  ) {
+    const [latestWake] = await db
+      .select({
+        status: agentWakeupRequests.status,
+        reason: agentWakeupRequests.reason,
+        payload: agentWakeupRequests.payload,
+      })
+      .from(agentWakeupRequests)
+      .where(
+        and(
+          eq(agentWakeupRequests.companyId, companyId),
+          eq(agentWakeupRequests.agentId, agentId),
+          sql`${agentWakeupRequests.payload} ->> 'issueId' = ${issueId}`,
+        ),
+      )
+      .orderBy(desc(agentWakeupRequests.createdAt), desc(agentWakeupRequests.id))
+      .limit(1);
+    if (
+      !latestWake ||
+      latestWake.status !== "skipped" ||
+      latestWake.reason !== "execution_reconciliation_required" ||
+      parseObject(latestWake.payload)[SKIPPED_REVIEW_WAKE_RECOVERY_KEY] === true
+    ) {
+      return false;
+    }
+    return (await getExecutionBlocker(db, companyId, issueId)) === null;
   }
 
   async function getLatestAcceptedContinuationInteraction(
@@ -4958,6 +4997,41 @@ export function recoveryService(
             });
             if (updated) {
               result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
+          } else if (
+            !participantLatestRun &&
+            (await shouldRequeueSkippedReviewWake(
+              issue.companyId,
+              issue.id,
+              participantAgentId,
+            )) &&
+            !(await hasQueuedIssueWake(
+              issue.companyId,
+              issue.id,
+              participantAgentId,
+            )) &&
+            !(await isInvocationBudgetBlocked(issue, participantAgentId))
+          ) {
+            const queued = await enqueueStrandedIssueRecovery({
+              issueId: issue.id,
+              agentId: participantAgentId,
+              reason: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON,
+              retryReason: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON,
+              source: "issue.execution_review_recovery",
+              retryOfRunId: null,
+              extraContext: {
+                currentStageId: pendingExecutionState.currentStageId ?? null,
+                currentStageType: pendingExecutionState.currentStageType ?? null,
+                [SKIPPED_REVIEW_WAKE_RECOVERY_KEY]: true,
+                reviewRecoveryInstruction:
+                  "Your review-stage wake was skipped while the previous execution on this issue was still releasing. Submit the review decision now, or mark the issue blocked with the exact unblock action.",
+              },
+            });
+            if (queued) {
+              result.reviewParticipantRequeued += 1;
               result.issueIds.push(issue.id);
             } else {
               result.skipped += 1;
