@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   agents,
@@ -271,6 +272,62 @@ describeEmbeddedPostgres("stranded sweep requeues a skipped review wake", () => 
     const result = await recovery.reconcileStrandedAssignedIssues();
 
     expect(reviewRecoveryCalls(enqueueWakeup, reviewerId)).toHaveLength(0);
-    expect(result).toMatchObject({ reviewParticipantRequeued: 0 });
+    expect(enqueueWakeup).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ reviewParticipantRequeued: 0, escalated: 1 });
+  });
+
+  async function expectSingleReviewEscalation(issueId: string) {
+    const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
+    expect(issue?.status).toBe("blocked");
+    const actions = await db
+      .select()
+      .from(issueRecoveryActions)
+      .where(eq(issueRecoveryActions.sourceIssueId, issueId));
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ cause: "execution_review_participant_recovery" });
+    const comments = await db
+      .select()
+      .from(issueComments)
+      .where(and(eq(issueComments.issueId, issueId), eq(issueComments.authorType, "system")));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]!.body).toContain("Paperclip retried the pending execution-review participant once");
+  }
+
+  it.each([
+    { label: "blocker now clear", leaseHeld: false },
+    { label: "blocker still present", leaseHeld: true },
+  ])(
+    "escalates once when the marked recovery wake was skipped again ($label)",
+    async ({ leaseHeld }) => {
+      const { reviewerId, issueId } = await seedReviewHandoff({
+        leaseHeld,
+        skippedWakePayloadExtra: { skippedReviewWakeRecovery: true },
+      });
+      const enqueueWakeup = vi.fn(async () => ({ id: randomUUID() } as never));
+      const recovery = recoveryService(db, { enqueueWakeup });
+
+      const result = await recovery.reconcileStrandedAssignedIssues();
+
+      expect(reviewRecoveryCalls(enqueueWakeup, reviewerId)).toHaveLength(0);
+      expect(enqueueWakeup).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ reviewParticipantRequeued: 0, escalated: 1 });
+      await expectSingleReviewEscalation(issueId);
+    },
+  );
+
+  it("does not escalate a second time on the next sweep", async () => {
+    const { issueId } = await seedReviewHandoff({
+      skippedWakePayloadExtra: { skippedReviewWakeRecovery: true },
+    });
+    const enqueueWakeup = vi.fn(async () => ({ id: randomUUID() } as never));
+    const recovery = recoveryService(db, { enqueueWakeup });
+
+    const first = await recovery.reconcileStrandedAssignedIssues();
+    const second = await recovery.reconcileStrandedAssignedIssues();
+
+    expect(first).toMatchObject({ escalated: 1 });
+    expect(second).toMatchObject({ escalated: 0, reviewParticipantRequeued: 0 });
+    expect(enqueueWakeup).not.toHaveBeenCalled();
+    await expectSingleReviewEscalation(issueId);
   });
 });
