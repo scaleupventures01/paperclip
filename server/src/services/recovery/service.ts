@@ -457,7 +457,8 @@ function summarizeRunFailureForIssueComment(run: LatestIssueRun) {
   return null;
 }
 
-function didAutomaticRecoveryFail(
+/** Exported for the agentos#1508 S2 test only. */
+export function didAutomaticRecoveryFail(
   latestRun: LatestIssueRun,
   expectedRetryReason:
     | "assignment_recovery"
