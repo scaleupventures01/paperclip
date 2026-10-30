@@ -138,6 +138,7 @@ import {
 import { withRecoveryContext } from "./status-only-context.js";
 import { isAutomaticRecoverySuppressedByPauseHold } from "./pause-hold-guard.js";
 import { getExecutionBlocker } from "../execution-blocker.js";
+import { ownershipWakeParkEnabled } from "../ownership-wake-park.js";
 import {
   collectDispositionRepairSourceState,
   dispositionRepairDelayMs,
@@ -464,6 +465,15 @@ function didAutomaticRecoveryFail(
     | typeof EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON,
 ) {
   if (!latestRun) return false;
+  // agentos#1508 S2: a run its own agent stopped by handing the card on (the
+  // reassignment route's confirmed stop) ended because it decided, not because
+  // recovery failed. Kill switch: PAPERCLIP_OWNERSHIP_WAKE_PARK=0.
+  if (
+    ownershipWakeParkEnabled() &&
+    latestRun.status === "cancelled" &&
+    latestRun.errorCode === "issue_reassigned" &&
+    parseObject(latestRun.resultJson).reassignmentStopConfirmed === true
+  ) return false;
 
   const latestContext = parseObject(latestRun.contextSnapshot);
   const latestRetryReason = readNonEmptyString(latestContext.retryReason);
