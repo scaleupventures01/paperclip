@@ -8,6 +8,7 @@ import { AGENT_CHAT_DIRECTIVE, conversationReplay, isConversation, isConversatio
 import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./native-local-process-stop.js";
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
 import { handoffWakeReleaseEnabled } from "./handoff-wake-release.js";
+import { ownershipWakeParkEnabled, ownershipWakeParkMaxMs } from "./ownership-wake-park.js";
 import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteExecutionHasStopped, remoteTerminationReceipt, stoppedRemoteCleanupScopes } from "./remote-execution-termination.js";
@@ -19922,6 +19923,36 @@ export function heartbeatService(
     }
   }
 
+  // agentos#1508 bound: a wake parked by the ownership branch never hides a
+  // card for longer than PAPERCLIP_OWNERSHIP_WAKE_PARK_MAX_MS. Once its owner
+  // no longer blocks the issue (same read admission uses) and the drain did
+  // not promote it, convert it in place to the skipped row admission would
+  // have written, so the existing recovery sweeps see the card again.
+  async function convertExpiredOwnershipPark(wake: typeof agentWakeupRequests.$inferSelect) {
+    if (Date.now() - wake.requestedAt.getTime() < ownershipWakeParkMaxMs()) return;
+    if (await getExecutionBlocker(db, wake.companyId, String(wake.payload?.issueId))) return;
+    const now = new Date();
+    await db.update(agentWakeupRequests).set({
+      status: "skipped",
+      reason: "execution_reconciliation_required",
+      error: "Parked wake was not released before the ownership park bound",
+      finishedAt: now,
+      updatedAt: now,
+    }).where(and(
+      eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
+    ));
+  }
+  // A parked ownership wake whose owner run is gone or not releasable still
+  // gets the bound.
+  async function convertExpiredOwnershipParkAfter(
+    wake: typeof agentWakeupRequests.$inferSelect,
+    latest: typeof heartbeatRuns.$inferSelect | null,
+  ) {
+    if (!latest || latest.runtimeMode !== "legacy" || !isHeartbeatRunTerminalStatus(latest.status)) {
+      await convertExpiredOwnershipPark(wake);
+    }
+  }
+
   async function resumeQueuedRuns() {
     const expiration = await g6Reservations.expireDue();
     for (const agentId of expiration.expiredAgentIds) {
@@ -19966,7 +19997,11 @@ export function heartbeatService(
         or(and(
           sql`jsonb_typeof(${agentWakeupRequests.payload} #> '{_paperclipWakeContext,wakeCommentIds}') = 'array'`,
           sql`${agentWakeupRequests.payload} #> '{_paperclipWakeContext,wakeCommentIds}' <> '[]'::jsonb`,
-        ), sql`${agentWakeupRequests.payload}->>'mutation' = 'interaction'`),
+        ), sql`${agentWakeupRequests.payload}->>'mutation' = 'interaction'`,
+        // agentos#1508: a wake parked by the ownership branch names its blocker.
+        ownershipWakeParkEnabled()
+          ? sql`${agentWakeupRequests.payload}->'executionWait'->>'ownerRunId' is not null`
+          : undefined),
         sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`,
         cutoff ? gte(agentWakeupRequests.requestedAt, cutoff) : undefined))
       .orderBy(asc(agentWakeupRequests.updatedAt)).limit(50);
@@ -20004,16 +20039,29 @@ export function heartbeatService(
       // P6: this skip used to run before the terminal settle above, so an
       // interaction wake with no readable response on a done or cancelled card
       // stayed parked for good.
-      if (!queuedCommentIdsFromWakePayload(wake.payload).length &&
+      const ownerRunId = ownershipWakeParkEnabled()
+        ? readNonEmptyString(parseObject(wake.payload?.executionWait).ownerRunId)
+        : null;
+      if (!ownerRunId && !queuedCommentIdsFromWakePayload(wake.payload).length &&
           !await readQueuedInteractionResponse(db, wake.companyId, String(wake.payload?.issueId), wake.payload)) continue;
       // A new owner that has never run on the card has no run of its own to
       // release. When another agent handed the card over from inside its own
       // run, that cancelled run is the one holding this wake: release it
       // instead. Admission still checks process ownership and leases first.
-      const latest = ownLatest ?? await findHandoffSourceRun(wake);
+      // agentos#1508: a wake parked by the ownership branch records the run
+      // that held it, so release that run instead of guessing between the
+      // new owner's own older run and a handoff source (the pt2b loop).
+      const [ownerRun] = ownerRunId && isUuidLike(ownerRunId)
+        ? await db.select().from(heartbeatRuns).where(and(
+          eq(heartbeatRuns.companyId, wake.companyId), eq(heartbeatRuns.id, ownerRunId),
+          sql`coalesce(${heartbeatRuns.nativeIssueId}::text, ${heartbeatRuns.contextSnapshot}->>'issueId') = ${String(wake.payload?.issueId)}`,
+        )).limit(1)
+        : [];
+      const latest = ownerRun ?? ownLatest ?? await findHandoffSourceRun(wake);
       await db.update(agentWakeupRequests).set({ updatedAt: new Date() }).where(and(
         eq(agentWakeupRequests.id, wake.id), eq(agentWakeupRequests.status, "deferred_issue_execution"),
       ));
+      if (ownerRunId) await convertExpiredOwnershipParkAfter(wake, latest ?? null);
       if (!latest || latest.runtimeMode !== "legacy" || !isHeartbeatRunTerminalStatus(latest.status)) continue;
       const cancelledAdmission = latest.status === "cancelled" && !latest.startedAt &&
         latest.errorCode === "execution_reconciliation_required";
@@ -20025,6 +20073,7 @@ export function heartbeatService(
       await releaseIssueExecutionAndPromote(latest, { suppressImmediateRecovery: true }).catch(err => {
         logger.warn({ err, queueId: wake.id }, "failed to promote stranded legacy comments");
       });
+      if (ownerRunId) await convertExpiredOwnershipPark(wake);
     }
 
     // The cancellation marker is durable intent. Retry while its exact queue
@@ -26833,11 +26882,21 @@ export function heartbeatService(
       // Terminalization precedes lease and adapter cleanup. Only now is the
       // owner gone; retry pending input for ordinary completions as well as Stop.
       if (latestRun?.runtimeMode === "legacy" && isHeartbeatRunTerminalStatus(latestRun.status)) {
+        // agentos#1508: the drain this triggers is already issue-wide, so the
+        // trigger is too. A wake another agent parked behind this run (review
+        // handoff, FAIL return, resubmit) drains now instead of never. The
+        // interrupt-queue branch stays self-scoped. Kill switch:
+        // PAPERCLIP_OWNERSHIP_WAKE_PARK=0 restores the agent-scoped trigger.
+        const issueWideTrigger = ownershipWakeParkEnabled();
         const [pending] = await db.select({ id: agentWakeupRequests.id, payload: agentWakeupRequests.payload }).from(agentWakeupRequests).where(and(
-          eq(agentWakeupRequests.companyId, run.companyId), eq(agentWakeupRequests.agentId, run.agentId),
+          eq(agentWakeupRequests.companyId, run.companyId),
+          issueWideTrigger
+            ? or(eq(agentWakeupRequests.agentId, run.agentId),
+              sql`${agentWakeupRequests.payload}->'queuedCommentInterrupt' is null`)
+            : eq(agentWakeupRequests.agentId, run.agentId),
           eq(agentWakeupRequests.status, "deferred_issue_execution"),
           sql`${agentWakeupRequests.payload}->>'issueId' = ${String(latestRun.contextSnapshot?.issueId)}`,
-        )).limit(1);
+        )).orderBy(sql`case when ${agentWakeupRequests.agentId} = ${run.agentId} then 0 else 1 end`).limit(1);
         if (pending) await (pending.payload?.queuedCommentInterrupt
           ? resumeQueuedCommentInterrupt(run.companyId, pending.id)
           : releaseIssueExecutionAndPromote(latestRun, { suppressImmediateRecovery: true })).catch(err => {
@@ -28027,7 +28086,19 @@ export function heartbeatService(
           const deferBlockedExecution = async (
             executionBlocker: NonNullable<Awaited<ReturnType<typeof getExecutionBlocker>>>,
           ) => {
-            const condition = { recoveryActionId: executionBlocker.recoveryActionId, ...continuationWait };
+            // agentos#1508 ownership park: a terminal owner still holding its
+            // lease or pid is a cleanup already in flight, not an open-ended
+            // execution. Park the wake with the blocking run so that run's own
+            // cleanup (or the stranded drain) releases it. Kill switch:
+            // PAPERCLIP_OWNERSHIP_WAKE_PARK=0 restores the skip below.
+            const ownershipPark = ownershipWakeParkEnabled() &&
+              executionBlocker.cause === "execution_owner_active" &&
+              executionBlocker.recoveryActionId === null &&
+              typeof executionBlocker.runId === "string";
+            const condition = ownershipPark
+              ? { recoveryActionId: executionBlocker.recoveryActionId, ...continuationWait,
+                  cause: "execution_owner_active", ownerRunId: executionBlocker.runId }
+              : { recoveryActionId: executionBlocker.recoveryActionId, ...continuationWait };
             if (executionWaitRequestId) {
               await tx.update(agentWakeupRequests).set({
                 payload: sql`jsonb_set(coalesce(${agentWakeupRequests.payload}, '{}'::jsonb), '{executionWait}', ${JSON.stringify(condition)}::jsonb)`,
@@ -28035,7 +28106,7 @@ export function heartbeatService(
               }).where(eq(agentWakeupRequests.id, executionWaitRequestId));
               return { kind: "deferred" as const };
             }
-            if (durableRequest || wakeCommentId ||
+            if (durableRequest || wakeCommentId || ownershipPark ||
                 hasInteractionContinuationWakeContext(enrichedContextSnapshot) ||
                 readNonEmptyString(enrichedContextSnapshot.nativeStatusWakeIntentId)) {
               await tx.insert(agentWakeupRequests).values({
