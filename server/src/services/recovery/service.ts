@@ -1851,8 +1851,9 @@ export function recoveryService(
   // still held its environment lease is recorded as a terminal `skipped` row
   // with reason `execution_reconciliation_required` and is never retried.
   // Requeue the participant once that blocker is gone. A skipped wake that was
-  // itself this recovery is not requeued again, which bounds the retry to one.
-  async function shouldRequeueSkippedReviewWake(
+  // itself this recovery is not requeued again, which bounds the retry to one;
+  // that case is escalated instead (see isSkippedReviewWakeRecoveryExhausted).
+  async function getLatestIssueWakeForAgent(
     companyId: string,
     issueId: string,
     agentId: string,
@@ -1873,15 +1874,47 @@ export function recoveryService(
       )
       .orderBy(desc(agentWakeupRequests.createdAt), desc(agentWakeupRequests.id))
       .limit(1);
+    return latestWake ?? null;
+  }
+
+  function isSkippedReconciliationWake(
+    wake: Awaited<ReturnType<typeof getLatestIssueWakeForAgent>>,
+  ): wake is NonNullable<typeof wake> {
+    return (
+      wake !== null &&
+      wake.status === "skipped" &&
+      wake.reason === "execution_reconciliation_required"
+    );
+  }
+
+  async function shouldRequeueSkippedReviewWake(
+    companyId: string,
+    issueId: string,
+    agentId: string,
+  ) {
+    const latestWake = await getLatestIssueWakeForAgent(companyId, issueId, agentId);
     if (
-      !latestWake ||
-      latestWake.status !== "skipped" ||
-      latestWake.reason !== "execution_reconciliation_required" ||
+      !isSkippedReconciliationWake(latestWake) ||
       parseObject(latestWake.payload)[SKIPPED_REVIEW_WAKE_RECOVERY_KEY] === true
     ) {
       return false;
     }
     return (await getExecutionBlocker(db, companyId, issueId)) === null;
+  }
+
+  // The one requeue above was itself skipped for the same reason, so no run and
+  // no further wake will ever reach the participant. Treat it as a failed
+  // automatic review recovery and escalate through the same path.
+  async function isSkippedReviewWakeRecoveryExhausted(
+    companyId: string,
+    issueId: string,
+    agentId: string,
+  ) {
+    const latestWake = await getLatestIssueWakeForAgent(companyId, issueId, agentId);
+    return (
+      isSkippedReconciliationWake(latestWake) &&
+      parseObject(latestWake.payload)[SKIPPED_REVIEW_WAKE_RECOVERY_KEY] === true
+    );
   }
 
   async function getLatestAcceptedContinuationInteraction(
@@ -4993,6 +5026,27 @@ export function recoveryService(
               previousStatus: "in_review",
               latestRun: participantLatestRun,
               notice: buildExecutionReviewParticipantUnavailableNoticeSeed(),
+              recoveryCause: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON,
+            });
+            if (updated) {
+              result.escalated += 1;
+              result.issueIds.push(issue.id);
+            } else {
+              result.skipped += 1;
+            }
+          } else if (
+            !participantLatestRun &&
+            (await isSkippedReviewWakeRecoveryExhausted(
+              issue.companyId,
+              issue.id,
+              participantAgentId,
+            ))
+          ) {
+            const updated = await escalateStrandedAssignedIssue({
+              issue,
+              previousStatus: "in_review",
+              latestRun: participantLatestRun,
+              notice: buildExecutionReviewParticipantRecoveryNoticeSeed(),
               recoveryCause: EXECUTION_REVIEW_PARTICIPANT_RECOVERY_REASON,
             });
             if (updated) {
