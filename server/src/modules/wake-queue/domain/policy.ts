@@ -156,11 +156,14 @@ export type DeferredWakePauseHoldFacts = {
 export type DeferredWakeOutcomeFacts = {
   agent: DeferredWakeAgentFacts;
   pauseHold: DeferredWakePauseHoldFacts;
+  /** False when an ownership-parked wake's stage or assignment no longer belongs to its agent (agentos#1508). Omitted means true. */
+  stageStillPending?: boolean;
 };
 
 export type DeferredWakeOutcomeDecision =
   | { kind: "fail_not_invokable" }
   | { kind: "cancel_pause_hold" }
+  | { kind: "cancel_stage_not_pending" }
   | { kind: "promote" };
 
 /** Decides what to do with a deferred wake's queued comment ids. On "normalize", the caller rewrites the ids and then calls `decideWakeOutcome` directly; the rewrite cannot change the agent or pause-hold facts. */
@@ -182,6 +185,43 @@ export function decideQueuedCommentAction(
   return { kind: "proceed" };
 }
 
+/**
+ * Stage guard for promoting a wake parked by "ownership park and release"
+ * (agentos#1508, architect Q3.2). Only wakes whose executionWait names the
+ * blocking terminal run (cause execution_owner_active, ownerRunId) are
+ * guarded. A reviewer or approver stage wake promotes only while this agent is
+ * still the pending participant of the same stage; an executor stage wake only
+ * while the card is assigned to this agent; a plain issue_assigned wake only
+ * while the card is still assigned to this agent. Every other wake: true.
+ */
+export function ownershipParkedStageStillPending(input: {
+  wakeAgentId: string;
+  wakeReason: string | null;
+  payload: Record<string, unknown>;
+  deferredContext: Record<string, unknown>;
+  issueAssigneeAgentId: string | null;
+  executionState: Record<string, unknown> | null;
+}): boolean {
+  const wait = input.payload.executionWait as Record<string, unknown> | undefined;
+  if (wait?.cause !== "execution_owner_active" || typeof wait.ownerRunId !== "string") return true;
+  const stage = (input.payload.executionStage ?? input.deferredContext.executionStage) as
+    | Record<string, unknown>
+    | undefined;
+  if (stage && typeof stage === "object") {
+    if (stage.wakeRole === "reviewer" || stage.wakeRole === "approver") {
+      const state = input.executionState ?? {};
+      const participant = state.currentParticipant as Record<string, unknown> | undefined;
+      return state.status === "pending" &&
+        state.currentStageId === stage.stageId &&
+        participant?.agentId === input.wakeAgentId;
+    }
+    if (stage.wakeRole === "executor") return input.issueAssigneeAgentId === input.wakeAgentId;
+    return true;
+  }
+  if (input.wakeReason === "issue_assigned") return input.issueAssigneeAgentId === input.wakeAgentId;
+  return true;
+}
+
 /** Decides the outcome for a deferred wake whose queued-comment action resolved to "proceed" (or finished its rewrite): fail, cancel, or promote. */
 export function decideWakeOutcome(facts: DeferredWakeOutcomeFacts): DeferredWakeOutcomeDecision {
   const { agent, pauseHold } = facts;
@@ -192,6 +232,10 @@ export function decideWakeOutcome(facts: DeferredWakeOutcomeFacts): DeferredWake
 
   if (pauseHold.activePauseHold && !pauseHold.treeHoldInteractionWake) {
     return { kind: "cancel_pause_hold" };
+  }
+
+  if (facts.stageStillPending === false) {
+    return { kind: "cancel_stage_not_pending" };
   }
 
   return { kind: "promote" };
