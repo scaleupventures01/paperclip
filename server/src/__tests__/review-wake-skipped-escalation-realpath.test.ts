@@ -62,6 +62,11 @@ describeEmbeddedPostgres("stranded sweep escalates a review participant whose re
   let db: ReturnType<typeof createDb>;
 
   beforeAll(async () => {
+    // agentos#1508: this covers the skipped-wake backstop (#70), which applies
+    // with PAPERCLIP_OWNERSHIP_WAKE_PARK off and to rows the park bound has
+    // converted. With the switch on, admission parks the wake instead
+    // (poc-ownership-park-loop.test.ts).
+    process.env.PAPERCLIP_OWNERSHIP_WAKE_PARK = "0";
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-review-wake-escalation-");
     db = createDb(tempDb.connectionString);
     const now = new Date();
@@ -76,6 +81,7 @@ describeEmbeddedPostgres("stranded sweep escalates a review participant whose re
   }, 30_000);
 
   afterAll(async () => {
+    delete process.env.PAPERCLIP_OWNERSHIP_WAKE_PARK;
     await tempDb?.cleanup();
   });
 
