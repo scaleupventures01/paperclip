@@ -5,6 +5,7 @@ import {
   decideWakeAdmission,
   decideWakeOutcome,
   deriveImmediateRecoveryContextLabels,
+  ownershipParkedStageStillPending,
 } from "../domain/policy.js";
 import {
   EXECUTION_REVIEW_PARTICIPANT_RECOVERY_RETRY_REASON,
@@ -284,10 +285,28 @@ async function runReleaseDrain(
     const wakeOutcome = decideWakeOutcome({
       agent: { agentFound: deferredAgent !== null, invokable: deferredAgent?.invokable ?? false },
       pauseHold: { activePauseHold: pauseHold.activePauseHold, treeHoldInteractionWake: pauseHold.treeHoldInteractionWake },
+      stageStillPending: ownershipParkedStageStillPending({
+        wakeAgentId: workingCandidate.agentId,
+        wakeReason: workingCandidate.reason,
+        payload: workingCandidate.payload,
+        deferredContext: workingCandidate.deferredContextSeed,
+        issueAssigneeAgentId: issue.assigneeAgentId,
+        executionState: issue.executionState,
+      }),
     });
 
     if (wakeOutcome.kind === "fail_not_invokable") {
       await ports.transaction.failDeferredWake({ companyId: run.companyId, wakeId: workingCandidate.id, now: input.now });
+      continue;
+    }
+
+    if (wakeOutcome.kind === "cancel_stage_not_pending") {
+      await ports.transaction.cancelDeferredWake({
+        companyId: run.companyId,
+        wakeId: workingCandidate.id,
+        reason: "Execution stage no longer pending for this agent",
+        now: input.now,
+      });
       continue;
     }
 
