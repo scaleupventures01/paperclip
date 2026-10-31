@@ -18000,11 +18000,14 @@ export function issueRoutes(
         // of finding a completed one. The return assignee (the worker) and the monitor
         // history are kept: without the return assignee the next handoff would treat the
         // card's current assignee (the reviewer who closed it) as the worker and skip
-        // that reviewer.
-        const closedExecutionState =
+        // that reviewer. Only a completed state is reset: any other state (a cancelled
+        // changes_requested card revived by resume, for example) keeps its review stage
+        // and round count, as before (fix round 1, verify-1567 X7r).
+        const parsedClosedState =
           isClosed && issue.executionState != null
             ? parseIssueExecutionState(issue.executionState)
             : null;
+        const closedExecutionState = parsedClosedState?.status === "completed" ? parsedClosedState : null;
         const reopenedExecutionState =
           closedExecutionState?.returnAssignee || closedExecutionState?.monitor
             ? {
@@ -18023,7 +18026,7 @@ export function issueRoutes(
             : null;
         const reopenedIssue = await svc.update(
           id,
-          isClosed && issue.executionState != null
+          closedExecutionState
             ? { status: "todo", executionState: reopenedExecutionState }
             : { status: "todo" },
         );
