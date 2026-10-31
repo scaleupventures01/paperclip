@@ -300,6 +300,12 @@ import {
   setIssueExecutionPolicyMonitorScheduledBy,
 } from "../services/issue-execution-policy.js";
 import { assertAgentMayCloseOrChangeReview } from "../services/agent-self-close-guard.js";
+import {
+  executionStateAfterCheckoutReopen,
+  executionStatePatchAfterPatchReopen,
+  isReopenedReviewState,
+  issueForBoardCloseOfReopenedCard,
+} from "../services/review-reopen-state.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import {
@@ -13457,8 +13463,16 @@ export function issueRoutes(
         nextPolicy: nextExecutionPolicy,
       });
 
+      // agentos#1613 case 2: the board closes a card reopened after an approved review in
+      // one request, as before agentos#1567, instead of starting a fresh review.
+      const boardClosesReopenedCard =
+        req.actor.type === "board" &&
+        updateFields.status === "done" &&
+        isReopenedReviewState(existing.executionState);
       const transition = applyIssueExecutionPolicyTransition({
-        issue: existing,
+        issue: boardClosesReopenedCard
+          ? issueForBoardCloseOfReopenedCard(existing)
+          : existing,
         policy: nextExecutionPolicy,
         previousPolicy: previousExecutionPolicy,
         requestedStatus:
@@ -13482,6 +13496,20 @@ export function issueRoutes(
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
       });
+      // agentos#1613 case 1: a PATCH reopen of an approved card keeps who did the work,
+      // so the next in_review handoff goes to the reviewer still assigned (QA) first.
+      if (transition.patch.executionState !== undefined) {
+        transition.patch.executionState = executionStatePatchAfterPatchReopen({
+          previousStatus: existing.status,
+          previousExecutionState: existing.executionState,
+          requestedStatus:
+            typeof updateFields.status === "string"
+              ? updateFields.status
+              : undefined,
+          hasPolicy: nextExecutionPolicy != null,
+          patchExecutionState: transition.patch.executionState,
+        });
+      }
       const decisionId = transition.decision ? randomUUID() : null;
       if (decisionId) {
         const nextExecutionState = transition.patch.executionState;
@@ -15502,6 +15530,21 @@ export function issueRoutes(
           return;
         }
         throw error;
+      }
+      // agentos#1612: a checkout of a closed card whose review completed resets that
+      // review the same way the comment reopen does (agentos#1567 R4), so the next done
+      // cannot close the new work unreviewed and the next in_review handoff starts a
+      // fresh review. The return assignee and the monitor history are kept.
+      if (updated && updated.status === "in_progress") {
+        const reopenedExecutionState = executionStateAfterCheckoutReopen({
+          previousStatus: issue.status,
+          executionState: issue.executionState,
+        });
+        if (reopenedExecutionState !== undefined) {
+          const executionState = reopenedExecutionState as Record<string, unknown> | null;
+          const reset = await svc.update(id, { executionState });
+          updated = { ...updated, executionState: reset ? reset.executionState : executionState };
+        }
       }
       const actor = getActorInfo(req);
       if (updated?.harnessKind === "skill_test") {
