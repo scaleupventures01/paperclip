@@ -338,6 +338,101 @@ d(`agent self-close guard through the issue route (${MODULE} policy module)`, ()
     expect(r.body.details?.code).toBe("self_close_refused");
   });
 
+  // ---- D: the cancel detour (fix round 1, verifier probes P13, P6, P11) ----------------------
+  const cancel = { status: "cancelled", comment: "cancel" };
+
+  it("D: after a QA FAIL, cancel then executionPolicy null then done never ends done (P13)", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await toPending(s, id);
+    await qaFails(s, id);
+    const r1 = await patch(s, s.builderId, id, cancel);
+    const r2 = await patch(s, s.builderId, id, { executionPolicy: null });
+    const r3 = await patch(s, s.builderId, id, selfClose);
+    const c = await card(id);
+    receipts.D_p13 = { cancel: r1.status, nullPolicy: [r2.status, r2.body.details?.code],
+      done: [r3.status, r3.body.details?.code], status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+    expect(r2.status).toBe(422);
+    expect(r2.body.details?.code).toBe("review_policy_change_refused");
+    expect(r3.status).toBe(422);
+    expect(r3.body.details?.code).toBe("self_close_refused");
+    expect(c.status).toBe("cancelled");
+    expect(c.executionPolicy).not.toBeNull();
+  });
+
+  it("D: before any handoff, cancel then null then reopen then done never ends done (P6)", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    const r1 = await patch(s, s.builderId, id, cancel);
+    const r2 = await patch(s, s.builderId, id, { executionPolicy: null });
+    const r3 = await patch(s, s.builderId, id, { status: "todo", comment: "reopen" });
+    const r4 = await patch(s, s.builderId, id, selfClose);
+    const c = await card(id);
+    receipts.D_p6 = { cancel: r1.status, nullPolicy: [r2.status, r2.body.details?.code], reopen: r3.status,
+      done: [r4.status, r4.body.details?.code], status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+    expect(r2.status).toBe(422);
+    expect(r2.body.details?.code).toBe("review_policy_change_refused");
+    expect(r4.status).toBe(422);
+    expect(r4.body.details?.code).toBe("self_close_refused");
+    expect(c.status).not.toBe("done");
+    expect(c.executionPolicy).not.toBeNull();
+  });
+
+  it("D: cancel then done directly is refused 422 self_close_refused, before handoff and after a FAIL", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    const before = snapshot(await card(id));
+    const r = await patch(s, s.builderId, id, selfClose);
+    receipts.D_cancel_done = { http: r.status, code: r.body.details?.code, status: (await card(id)).status };
+    expect(r.status).toBe(422);
+    expect(r.body.details?.code).toBe("self_close_refused");
+    expect(snapshot(await card(id))).toBe(before);
+
+    const id2 = await buildCard(s);
+    await toPending(s, id2);
+    await qaFails(s, id2);
+    expect((await patch(s, s.builderId, id2, cancel)).status).toBe(200);
+    const r2 = await patch(s, s.builderId, id2, selfClose);
+    expect(r2.status).toBe(422);
+    expect(r2.body.details?.code).toBe("self_close_refused");
+    expect((await card(id2)).status).toBe("cancelled");
+  });
+
+  it("D: an agent may still cancel in changes_requested (cancelled is not done); the board may close a cancelled card", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await toPending(s, id);
+    await qaFails(s, id);
+    const r1 = await patch(s, s.builderId, id, cancel);
+    const c = await card(id);
+    receipts.D_cancel_allowed = { cancel: r1.status, status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+    expect(c.status).toBe("cancelled");
+    expect(c.executionPolicy).not.toBeNull();
+
+    const id2 = await buildCard(s);
+    expect((await patch(s, s.builderId, id2, cancel)).status).toBe(200);
+    // The guard never checks the board; the transition's own handling of a board done applies.
+    const b = await boardPatch(s, id2, { status: "done", comment: "board closes it" });
+    receipts.D_board_on_cancelled = { http: b.status, status: (await card(id2)).status };
+    expect(b.status, JSON.stringify(b.body)).toBe(200);
+    expect(b.body.details?.code).toBeUndefined();
+  });
+
+  it("D: PAPERCLIP_AGENT_SELF_CLOSE_GUARD=0 leaves the cancel detour as before (switch still works)", async () => {
+    process.env[AGENT_SELF_CLOSE_GUARD_ENV] = "0";
+    const s = await seed();
+    const id = await buildCard(s);
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    expect((await patch(s, s.builderId, id, { executionPolicy: null })).status).toBe(200);
+    const r = await patch(s, s.builderId, id, selfClose);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect((await card(id)).status).toBe("done");
+  });
+
   // ---- unaffected paths ---------------------------------------------------------------------
   it("board: a board done on a pending review stage and a board policy null keep today's behaviour", async () => {
     const s = await seed();
