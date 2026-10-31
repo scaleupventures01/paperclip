@@ -36,6 +36,28 @@ vi.mock("../adapters/index.ts", async () => {
   };
 });
 
+// agentos#1612 P0-A: lets a test run a request between svc.checkout and the route's executionState
+// reset (routes/issues.ts, the second statement after svc.checkout). Test-only wrapper around the real
+// service: with no hook armed it is a pass-through. No product source is edited.
+vi.mock("../services/index.js", async () => {
+  const actual = await vi.importActual<typeof import("../services/index.js")>("../services/index.js");
+  return {
+    ...actual,
+    issueService: (...args: Parameters<typeof actual.issueService>) => {
+      const real = actual.issueService(...args);
+      return {
+        ...real,
+        checkout: async (...a: Parameters<typeof real.checkout>) => {
+          const out = await real.checkout(...a);
+          const hook = (globalThis as any).__rr1612AfterCheckout as undefined | ((issueId: string) => Promise<void>);
+          if (hook) await hook(a[0] as string);
+          return out;
+        },
+      };
+    },
+  };
+});
+
 import { errorHandler } from "../middleware/index.js";
 import { issueRoutes } from "../routes/issues.js";
 
@@ -318,7 +340,133 @@ d("review reopen follow-ups through the issue routes (agentos#1612, #1613, #1614
     expect((await card(id)).status).toBe("done");
   }, T);
 
+  // ---------------- agentos#1612 verify findings ----------------
+  // P0-B: the reviewer reopens the approved card and does the work itself. The reopen carries the
+  // original builder as returnAssignee, so QA's own in_review handoff excluded the builder, not QA,
+  // and QA became the reviewer of its own work. Required: QA's handoff is not reviewed by QA, and
+  // QA's done is refused or does not close the card.
+  async function qaSelfReview(s: Seed, id: string, reopen: "patch" | "checkout", explicit: boolean) {
+    await newRun(s, s.qaId, id);
+    const steps: Record<string, string> = {};
+    if (reopen === "patch") {
+      const r = await patch(s, s.qaId, id, { status: "in_progress", comment: "QA reopens to fix it" });
+      steps.reopen = body(r);
+    } else {
+      const r = await checkoutRoute(s, s.qaId, id, ["done"]);
+      expect(r.status, `QA checkout: ${body(r)}`).toBe(200);
+      steps.reopen = body(r);
+    }
+    const handoffBody = explicit ? handoff(s) : { status: "in_review", comment: fix };
+    const h = await patch(s, s.qaId, id, handoffBody);
+    steps.handoff = body(h);
+    const afterHandoff = await card(id);
+    const d = await patch(s, s.qaId, id, qaPass);
+    steps.done = body(d);
+    const fin = await card(id);
+    return { h, afterHandoff, d, fin, steps };
+  }
+  for (const reopen of ["patch", "checkout"] as const) {
+    for (const explicit of [false, true]) {
+      it(`1612-N11_${reopen}${explicit ? "_explicit" : ""} QA reopens its approved card and hands off to itself: not reviewed by QA, QA done does not close`, async () => {
+        const s = await seed(); const id = await approvedDoneCard(s);
+        const { h, afterHandoff, fin, steps } = await qaSelfReview(s, id, reopen, explicit);
+        const handoffRefused = h.status === 422;
+        expect(
+          handoffRefused || cur(afterHandoff) !== s.qaId,
+          `QA is the current reviewer of its own handoff (state ${JSON.stringify(st(afterHandoff))}) ${JSON.stringify(steps)}`,
+        ).toBe(true);
+        expect(fin.status, `QA closed its own reopened work: state ${JSON.stringify(st(fin))} ${JSON.stringify(steps)}`).not.toBe("done");
+      }, T);
+    }
+  }
+
+  // P0-A: the checkout reset is a second statement after svc.checkout. A done from the same run
+  // that reads the card in that gap sees in_progress with the old completed state and closes it.
+  // Approach A (deterministic): the vi.mock wrapper above runs the builder's PATCH done between the
+  // real svc.checkout write and the route's reset. Approach B (stress): real concurrent requests.
+  async function raceSetup(s: Seed) {
+    const id = await approvedDoneCard(s);
+    const a = await builderTakes(s, id);
+    return { id, runId: await runOf(s, s.builderId, id), a };
+  }
+  async function builderTakes(s: Seed, id: string) {
+    await newRun(s, s.builderId, id);
+    const a = await patch(s, s.builderId, id, { assigneeAgentId: s.builderId, comment: "taking it" });
+    expect(a.status, `self-assign: ${body(a)}`).toBe(200);
+    return a;
+  }
+
+  it("1612-N5c_forced checkout ['done'] with the builder's done landing between the checkout write and the reset does not close the card", async () => {
+    const s = await seed(); const { id, runId } = await raceSetup(s);
+    const ag = asAgent(s, s.builderId, runId);
+    let donePromise: Promise<request.Response> | null = null;
+    (globalThis as any).__rr1612AfterCheckout = async (issueId: string) => {
+      if (issueId !== id || donePromise) return;
+      donePromise = ag.patch(`/api/issues/${id}`).send({ status: "done", comment: "race" }).then((r) => r);
+      // A fix that serializes the two requests would hold this PATCH; do not deadlock on it.
+      await Promise.race([donePromise, new Promise((r) => setTimeout(r, 1500))]);
+    };
+    let co: request.Response;
+    try {
+      co = await ag.post(`/api/issues/${id}/checkout`).send({ agentId: s.builderId, expectedStatuses: ["done"] }).then((r) => r);
+    } finally {
+      delete (globalThis as any).__rr1612AfterCheckout;
+    }
+    expect(donePromise, "the interleaved done was never sent").not.toBeNull();
+    const dn = await donePromise!;
+    const c = await card(id);
+    expect(c.status, `closed unreviewed: checkout ${co.status}, interleaved done ${body(dn)}, state ${JSON.stringify(st(c))}`).not.toBe("done");
+  }, T);
+
+  it("1612-N5c_stress concurrent checkout ['done'] and done from the same run, either order, 0 to 50 ms apart: zero trials end done unreviewed", async () => {
+    const closed: string[] = [];
+    let trials = 0;
+    for (const order of ["checkout-first", "done-first"] as const) {
+      for (const delay of [0, 5, 20, 50]) {
+        for (let i = 0; i < 2; i++) {
+          const s = await seed(); const { id, runId } = await raceSetup(s);
+          const ag = asAgent(s, s.builderId, runId);
+          const doCo = () => ag.post(`/api/issues/${id}/checkout`).send({ agentId: s.builderId, expectedStatuses: ["done"] }).then((r) => r);
+          const doDone = () => ag.patch(`/api/issues/${id}`).send({ status: "done", comment: "race" }).then((r) => r);
+          const later = <X,>(f: () => Promise<X>) => new Promise<X>((res) => setTimeout(() => res(f()), delay));
+          const [co, dn] = order === "checkout-first"
+            ? await Promise.all([doCo(), later(doDone)])
+            : await Promise.all([later(doCo), doDone()]);
+          const c = await card(id);
+          trials += 1;
+          if (c.status === "done") closed.push(`${order}/${delay}ms co=${co.status} done=${dn.status} state=${st(c)?.status ?? null}`);
+        }
+      }
+    }
+    expect(closed, `${closed.length} of ${trials} trials ended done unreviewed: ${JSON.stringify(closed)}`).toEqual([]);
+  }, 5 * T);
+
   // ---------------- controls (expected to pass on the base) ----------------
+  it("control-1612 (c) builder PATCH-reopens an approved card and works: the handoff goes to QA and QA PASS closes it", async () => {
+    const s = await seed(); const id = await approvedDoneCard(s);
+    await newRun(s, s.builderId, id);
+    const r1 = await patch(s, s.builderId, id, { status: "todo", comment: "reopen" });
+    expect(r1.status, `reopen: ${body(r1)}`).toBe(200);
+    const h = await patch(s, s.builderId, id, handoff(s));
+    expect(h.status, `handoff: ${body(h)}`).toBe(200);
+    const mid = await card(id);
+    expect(mid.status).toBe("in_review");
+    expect(cur(mid)).toBe(s.qaId);
+    const q = await patch(s, s.qaId, id, qaPass);
+    expect(q.status, `QA PASS: ${body(q)}`).toBe(200);
+    const c = await card(id);
+    expect(c.status).toBe("done");
+    expect(st(c)?.status).toBe("completed");
+  }, T);
+
+  it("control-1612 (d) sequential: builder done sent after the checkout response returns is refused with 422", async () => {
+    const s = await seed(); const id = await approvedDoneCard(s);
+    await builderCheckoutReopen(s, id);
+    const r = await patch(s, s.builderId, id, { status: "done", comment: "follow-up shipped" });
+    expect(r.status, `done after checkout: ${body(r)}`).toBe(422);
+    expect((await card(id)).status).not.toBe("done");
+  }, T);
+
   it("control-1614 board reorders review stages while QA's stage is pending: allowed", async () => {
     const s = await seed(); const { id, swapped } = await pendingTwoStage(s);
     const r = await asBoard(s).patch(`/api/issues/${id}`).send({ executionPolicy: swapped });
