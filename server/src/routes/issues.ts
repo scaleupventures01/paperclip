@@ -299,6 +299,7 @@ import {
   redactIssueMonitorExternalRef,
   setIssueExecutionPolicyMonitorScheduledBy,
 } from "../services/issue-execution-policy.js";
+import { assertAgentMayCloseOrChangeReview } from "../services/agent-self-close-guard.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import {
@@ -13439,6 +13440,22 @@ export function issueRoutes(
         existing.assigneeAgentId,
         req.body.executionPolicy !== undefined && monitorChanged,
       );
+
+      // agentos#1508 AC4 / agentos#1567: an agent may not close a card whose review
+      // stage is open unless it is that stage's current participant, and may not
+      // drop or replace an open review stage. Board actors are not checked.
+      assertAgentMayCloseOrChangeReview({
+        issue: existing,
+        actorType: req.actor.type,
+        actorAgentId: actor.agentId ?? null,
+        requestedStatus:
+          typeof updateFields.status === "string"
+            ? updateFields.status
+            : undefined,
+        executionPolicyProvided: req.body.executionPolicy !== undefined,
+        previousPolicy: previousExecutionPolicy,
+        nextPolicy: nextExecutionPolicy,
+      });
 
       const transition = applyIssueExecutionPolicyTransition({
         issue: existing,
