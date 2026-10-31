@@ -94,6 +94,48 @@ export function executionStatePatchAfterPatchReopen(input: {
 }
 
 /**
+ * agentos#1612 POC (maker-checker): the issue the PATCH transition sees when an agent submits
+ * work for review, that is an agent status in_review, or an agent done that starts the review.
+ * The transition excludes the execution state's return assignee from the stage it opens, so the
+ * submitting agent becomes the return assignee for this round, whoever reopened the card or was
+ * assigned at reopen. A pending stage is left alone (that request is a review decision, not a
+ * submission). Returns the issue unchanged when nothing must change.
+ */
+export function issueForAgentHandoff<
+  T extends { executionState?: unknown; assigneeAgentId?: string | null; assigneeUserId?: string | null },
+>(issue: T, input: { actorAgentId: string | null | undefined; requestedStatus: string | undefined; hasPolicy: boolean }): T {
+  const agentId = input.actorAgentId;
+  if (!agentId || !input.hasPolicy) return issue;
+  if (input.requestedStatus !== "in_review" && input.requestedStatus !== "done") return issue;
+  const parsed = parseIssueExecutionState(issue.executionState ?? null);
+  if (parsed?.status === "pending") return issue;
+  const submitter = { type: "agent" as const, agentId, userId: null };
+  if (!parsed) {
+    if (issue.assigneeAgentId === agentId && !issue.assigneeUserId) return issue;
+    return { ...issue, executionState: idleState(submitter, null) };
+  }
+  if (parsed.returnAssignee?.type === "agent" && parsed.returnAssignee.agentId === agentId) return issue;
+  return { ...issue, executionState: { ...parsed, returnAssignee: submitter } };
+}
+
+/**
+ * agentos#1612 POC: an agent done that closed the card only because every open review stage
+ * had the submitting agent as its only reviewer (the transition's self-only auto-skip). That is
+ * a close with no other party's review.
+ */
+export function isAgentSelfOnlyAutoSkipClose(input: {
+  previousExecutionState: unknown;
+  patchExecutionState: unknown;
+  hadDecision: boolean;
+}): boolean {
+  if (input.hadDecision) return false;
+  const previous = parseIssueExecutionState(input.previousExecutionState ?? null);
+  if (previous?.status === "completed") return false;
+  const next = parseIssueExecutionState(input.patchExecutionState ?? null);
+  return next?.status === "completed";
+}
+
+/**
  * agentos#1613 case 2: a card reopened after an approved review carries an idle state
  * with a return assignee and no stage progress. Only the reopen paths write that shape.
  */
