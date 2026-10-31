@@ -35,6 +35,16 @@ function isClosedStatus(status: string | null | undefined) {
   return status === "done" || status === "cancelled";
 }
 
+// agentos#1612 P0-B: the agent that reopens and does the work is the return assignee, so the
+// next in_review handoff excludes that agent. Keeping the original builder let a reviewer that
+// reopened its own approved card become the reviewer of its own handoff.
+function workerOrPrevious(
+  workerAgentId: string | null | undefined,
+  previous: IssueExecutionState["returnAssignee"],
+): IssueExecutionState["returnAssignee"] {
+  return workerAgentId ? { type: "agent", agentId: workerAgentId, userId: null } : previous;
+}
+
 /**
  * agentos#1612: the execution state to store when a closed card with a completed
  * review is checked out again. Returns undefined when nothing must change (the card
@@ -44,12 +54,13 @@ function isClosedStatus(status: string | null | undefined) {
 export function executionStateAfterCheckoutReopen(input: {
   previousStatus: string;
   executionState: unknown;
+  workerAgentId?: string | null;
 }): IssueExecutionState | null | undefined {
   if (!isClosedStatus(input.previousStatus)) return undefined;
   const parsed = parseIssueExecutionState(input.executionState ?? null);
   if (parsed?.status !== "completed") return undefined;
   if (!parsed.returnAssignee && !parsed.monitor) return null;
-  return idleState(parsed.returnAssignee, parsed.monitor);
+  return idleState(workerOrPrevious(input.workerAgentId, parsed.returnAssignee), parsed.monitor);
 }
 
 /**
@@ -65,17 +76,19 @@ export function executionStatePatchAfterPatchReopen(input: {
   requestedStatus: string | undefined;
   hasPolicy: boolean;
   patchExecutionState: unknown;
+  workerAgentId?: string | null;
 }): unknown {
   if (!input.hasPolicy || !isClosedStatus(input.previousStatus)) return input.patchExecutionState;
   if (!input.requestedStatus || isClosedStatus(input.requestedStatus)) return input.patchExecutionState;
   const previous = parseIssueExecutionState(input.previousExecutionState ?? null);
   if (previous?.status !== "completed" || !previous.returnAssignee) return input.patchExecutionState;
+  const returnAssignee = workerOrPrevious(input.workerAgentId, previous.returnAssignee);
   if (input.patchExecutionState === null) {
-    return idleState(previous.returnAssignee, null);
+    return idleState(returnAssignee, null);
   }
   const next = parseIssueExecutionState(input.patchExecutionState);
   if (next && next.status === "idle" && !next.currentStageId && !next.returnAssignee) {
-    return { ...(input.patchExecutionState as Record<string, unknown>), returnAssignee: previous.returnAssignee };
+    return { ...(input.patchExecutionState as Record<string, unknown>), returnAssignee };
   }
   return input.patchExecutionState;
 }

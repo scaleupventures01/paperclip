@@ -13508,6 +13508,12 @@ export function issueRoutes(
               : undefined,
           hasPolicy: nextExecutionPolicy != null,
           patchExecutionState: transition.patch.executionState,
+          // agentos#1612 P0-B: on an agent reopen the agent given the work (or the actor) is
+          // the return assignee, so it cannot review its own handoff.
+          workerAgentId:
+            req.actor.type === "agent"
+              ? (normalizedAssigneeAgentId ?? actor.agentId ?? null)
+              : null,
         });
       }
       const decisionId = transition.decision ? randomUUID() : null;
@@ -15544,6 +15550,8 @@ export function issueRoutes(
         const reopenedExecutionState = executionStateAfterCheckoutReopen({
           previousStatus: issue.status,
           executionState: issue.executionState,
+          // agentos#1612 P0-B: the agent that checks the card out does the work.
+          workerAgentId: updated.assigneeAgentId ?? req.body.agentId ?? null,
         });
         if (reopenedExecutionState !== undefined) {
           const executionState = reopenedExecutionState as Record<string, unknown> | null;
