@@ -508,4 +508,190 @@ d(`agent self-close guard through the issue route (${MODULE} policy module)`, ()
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect((await card(id)).status).toBe("done");
   });
+
+  // ---- E: agentos#1567 residuals (verify72r2 R1, R3b, R4, R9) -------------------------------
+  // Every E card is approved first: build card, builder in_review handoff, QA PASS done.
+  async function approvedDoneCard(s: Seed) {
+    const id = await buildCard(s);
+    await toPending(s, id);
+    const q = await patch(s, s.qaId, id, qaPass);
+    expect(q.status, `QA PASS: ${JSON.stringify(q.body)}`).toBe(200);
+    const c = await card(id);
+    expect(c.status).toBe("done");
+    expect(state(c)?.status).toBe("completed");
+    expect(c.executionPolicy).not.toBeNull();
+    return id;
+  }
+  async function comment(s: Seed, agentId: string, id: string, body: Record<string, unknown>) {
+    const runId = await runOf(s, agentId, id);
+    return app({ type: "agent", source: "agent_key", companyId: s.companyId, agentId, runId })
+      .post(`/api/issues/${id}/comments`).send(body);
+  }
+  const reopenTodoNull = { status: "todo", executionPolicy: null, comment: "reopen for follow-up" };
+
+  it("E1 (R1): on an approved done card the builder's {todo, executionPolicy null} is refused 422 review_policy_change_refused; card stays done with its policy", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const before = snapshot(await card(id));
+    const r = await patch(s, s.builderId, id, reopenTodoNull);
+    const c = await card(id);
+    receipts.E1 = { http: r.status, code: r.body.details?.code ?? null, status: c.status, policyNull: c.executionPolicy === null };
+    expect(r.status, JSON.stringify(r.body)).toBe(422);
+    expect(r.body.details?.code).toBe("review_policy_change_refused");
+    expect(c.status).toBe("done");
+    expect(c.executionPolicy).not.toBeNull();
+    expect(snapshot(c)).toBe(before);
+  });
+
+  it("E2 (R3b): on an approved done card the builder's executionPolicy null alone is refused 422 review_policy_change_refused; policy kept", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const before = snapshot(await card(id));
+    const r = await patch(s, s.builderId, id, { executionPolicy: null });
+    const c = await card(id);
+    receipts.E2 = { http: r.status, code: r.body.details?.code ?? null, status: c.status, policyNull: c.executionPolicy === null };
+    expect(r.status, JSON.stringify(r.body)).toBe(422);
+    expect(r.body.details?.code).toBe("review_policy_change_refused");
+    expect(c.executionPolicy).not.toBeNull();
+    expect(snapshot(c)).toBe(before);
+  });
+
+  it("E3a (R4): the builder's comment reopen on an approved done card clears the completed state, and its next done is refused", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const r1 = await comment(s, s.builderId, id, { body: "reopening to fix a follow-up", reopen: true });
+    const mid = await card(id);
+    const r2 = await patch(s, s.builderId, id, selfClose);
+    const c = await card(id);
+    receipts.E3a = { reopen: r1.status, midStatus: mid.status, midState: state(mid)?.status ?? null,
+      done: [r2.status, r2.body.details?.code ?? null], status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(201);
+    expect(mid.status).toBe("todo");
+    expect(state(mid)?.status ?? null).not.toBe("completed");
+    expect(r2.status, JSON.stringify(r2.body)).toBe(422);
+    expect(r2.body.details?.code).toBe("self_close_refused");
+    expect(c.status).not.toBe("done");
+  });
+
+  // E3b is the post-fix requirement for a comment reopen: a fresh review runs and the reviewer
+  // closes it. It is not required to be RED at base; the report records its base result.
+  it("E3b (R4): after a comment reopen the builder's in_review handoff starts a fresh review and the reviewer's done closes it", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const r1 = await comment(s, s.builderId, id, { body: "reopening to fix a follow-up", reopen: true });
+    expect(r1.status, JSON.stringify(r1.body)).toBe(201);
+    const h = await patch(s, s.builderId, id, handoff(s));
+    const mid = await card(id);
+    receipts.E3b_handoff = { http: h.status, code: h.body.details?.code ?? null, status: mid.status,
+      state: state(mid)?.status ?? null, current: state(mid)?.currentParticipant?.agentId ?? null };
+    expect(h.status, JSON.stringify(h.body)).toBe(200);
+    expect(mid.status).toBe("in_review");
+    expect(state(mid)?.status).toBe("pending");
+    expect(state(mid)?.currentParticipant?.agentId).toBe(s.qaId);
+    const q = await patch(s, s.qaId, id, qaPass);
+    const c = await card(id);
+    receipts.E3b_pass = { http: q.status, status: c.status, state: state(c)?.status ?? null };
+    expect(q.status, JSON.stringify(q.body)).toBe(200);
+    expect(c.status).toBe("done");
+  });
+
+  it("E4 (R9): after a QA FAIL the builder's re-post of the same reviewers with new stage ids is refused 422; round count kept", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await toPending(s, id);
+    await qaFails(s, id);
+    const pre = await card(id);
+    expect(state(pre)?.status).toBe("changes_requested");
+    const rounds = state(pre)?.changesRequestedCount;
+    expect(rounds).toBe(1);
+    const before = snapshot(pre);
+    // reviewPolicy(s) carries no stage ids, so the server mints new ones.
+    const r = await patch(s, s.builderId, id, { executionPolicy: reviewPolicy(s) });
+    const c = await card(id);
+    receipts.E4 = { http: r.status, code: r.body.details?.code ?? null, state: state(c)?.status ?? null,
+      rounds: state(c)?.changesRequestedCount ?? null };
+    expect(r.status, JSON.stringify(r.body)).toBe(422);
+    expect(r.body.details?.code).toBe("review_policy_change_refused");
+    expect(state(c)?.status).toBe("changes_requested");
+    expect(state(c)?.changesRequestedCount).toBe(rounds);
+    expect(snapshot(c)).toBe(before);
+  });
+
+  // ---- E5: must stay green (base and after the fix) -----------------------------------------
+  it("E5: the board may still null the policy on an approved done card", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const r = await boardPatch(s, id, { executionPolicy: null });
+    const c = await card(id);
+    receipts.E5_board_null = { http: r.status, status: c.status, policyNull: c.executionPolicy === null };
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(c.executionPolicy).toBeNull();
+  });
+
+  it("E5: QA and the builder re-sending the identical policy (same stage ids) on an approved done card is 200", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const stored = (await card(id)).executionPolicy as Record<string, any>;
+    expect(stored.stages[0].id).toBeTruthy();
+    const rq = await patch(s, s.qaId, id, { executionPolicy: stored });
+    const rb = await patch(s, s.builderId, id, { executionPolicy: stored });
+    const c = await card(id);
+    receipts.E5_identical_on_done = { qa: rq.status, builder: rb.status, status: c.status };
+    expect(rq.status, JSON.stringify(rq.body)).toBe(200);
+    expect(rb.status, JSON.stringify(rb.body)).toBe(200);
+    expect(c.status).toBe("done");
+    expect((c.executionPolicy as Record<string, any>).stages[0].id).toBe(stored.stages[0].id);
+  });
+
+  it("E5: the builder re-sending the identical policy (same stage ids) after a QA FAIL is 200 and keeps the round count", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await toPending(s, id);
+    await qaFails(s, id);
+    const pre = await card(id);
+    const stored = pre.executionPolicy as Record<string, any>;
+    const r = await patch(s, s.builderId, id, { executionPolicy: stored });
+    const c = await card(id);
+    receipts.E5_identical_after_fail = { http: r.status, state: state(c)?.status ?? null, rounds: state(c)?.changesRequestedCount ?? null };
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(state(c)?.status).toBe("changes_requested");
+    expect(state(c)?.changesRequestedCount).toBe(state(pre)?.changesRequestedCount);
+  });
+
+  it("E5: PAPERCLIP_AGENT_SELF_CLOSE_GUARD=0 restores the old behaviour for E1, E2 and E4", async () => {
+    process.env[AGENT_SELF_CLOSE_GUARD_ENV] = "0";
+    const s = await seed();
+    const id1 = await approvedDoneCard(s);
+    const a1 = await patch(s, s.builderId, id1, reopenTodoNull);
+    const a2 = await patch(s, s.builderId, id1, selfClose);
+    const c1 = await card(id1);
+    const id2 = await approvedDoneCard(s);
+    const b1 = await patch(s, s.builderId, id2, { executionPolicy: null });
+    const c2 = await card(id2);
+    const id4 = await buildCard(s);
+    await toPending(s, id4);
+    await qaFails(s, id4);
+    const d1 = await patch(s, s.builderId, id4, { executionPolicy: reviewPolicy(s) });
+    receipts.E5_switch_off = { e1: [a1.status, a2.status, c1.status], e2: [b1.status, c2.executionPolicy === null], e4: d1.status };
+    expect(a1.status, JSON.stringify(a1.body)).toBe(200);
+    expect(a2.status, JSON.stringify(a2.body)).toBe(200);
+    expect(c1.status).toBe("done");
+    expect(b1.status, JSON.stringify(b1.body)).toBe(200);
+    expect(c2.executionPolicy).toBeNull();
+    expect(d1.status, JSON.stringify(d1.body)).toBe(200);
+  });
+
+  it("E5: a normal FAIL, resubmit in_review, PASS done chain is 200 throughout", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await toPending(s, id);
+    await qaFails(s, id);
+    const h = await patch(s, s.builderId, id, handoff(s));
+    expect(h.status, JSON.stringify(h.body)).toBe(200);
+    expect(state(await card(id))?.currentParticipant?.agentId).toBe(s.qaId);
+    const q = await patch(s, s.qaId, id, qaPass);
+    receipts.E5_fail_resubmit_pass = { handoff: h.status, pass: q.status, status: (await card(id)).status };
+    expect(q.status, JSON.stringify(q.body)).toBe(200);
+    expect((await card(id)).status).toBe("done");
+  });
 });
