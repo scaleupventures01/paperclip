@@ -10,7 +10,7 @@ import express from "express";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, authUsers, companies, createDb, heartbeatRuns, issues } from "@paperclipai/db";
+import { agents, authUsers, companies, companyMemberships, createDb, heartbeatRuns, issues } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -693,5 +693,124 @@ d(`agent self-close guard through the issue route (${MODULE} policy module)`, ()
     receipts.E5_fail_resubmit_pass = { handoff: h.status, pass: q.status, status: (await card(id)).status };
     expect(q.status, JSON.stringify(q.body)).toBe(200);
     expect((await card(id)).status).toBe("done");
+  });
+
+  // ---- F: agentos#1567 fix round 1 (verify-1567 X8, X8c, X1r, X7r_freshRun) -----------------
+  // A new heartbeat run for the actor, so the closing run's same-run exemptions do not apply.
+  async function freshRunFor(s: Seed, agentId: string, id: string) {
+    const fresh = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: fresh, companyId: s.companyId, agentId, invocationSource: "assignment", status: "running",
+      startedAt: new Date(), contextSnapshot: { issueId: id, taskId: id },
+    });
+    runs.set(`${agentId}:${id}`, fresh);
+    return fresh;
+  }
+  const doneWithoutReview = (c: Awaited<ReturnType<typeof card>>, approvedStageIds: string[]) =>
+    c.status === "done" && (c.executionPolicy === null ||
+      ((c.executionPolicy as Record<string, any>).stages ?? []).some((x: any) => x.type === "review" && !approvedStageIds.includes(x.id)));
+
+  for (const actorName of ["builder", "qa"] as const) {
+    it(`F1 (X8 ${actorName}): approved done card, cancel, then executionPolicy null is refused 422; the chain never ends done without review`, async () => {
+      const s = await seed();
+      const id = await approvedDoneCard(s);
+      const approved = ((await card(id)).executionPolicy as Record<string, any>).stages.map((x: any) => x.id);
+      const a = actorName === "builder" ? s.builderId : s.qaId;
+      await freshRunFor(s, a, id);
+      const r1 = await patch(s, a, id, cancel);
+      expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+      const r2 = await patch(s, a, id, { executionPolicy: null });
+      const r3 = await patch(s, a, id, selfClose);
+      const r4 = await patch(s, a, id, { status: "todo", comment: "reopen for new work" });
+      const r5 = await patch(s, a, id, { status: "done", comment: "new work shipped" });
+      const c = await card(id);
+      receipts[`F1_${actorName}`] = { cancel: r1.status, nul: [r2.status, r2.body.details?.code ?? null], done1: r3.status,
+        reopen: r4.status, done2: [r5.status, r5.body.details?.code ?? null], status: c.status, policyNull: c.executionPolicy === null };
+      expect(r2.status, JSON.stringify(r2.body)).toBe(422);
+      expect(r2.body.details?.code).toBe("review_policy_change_refused");
+      expect(c.executionPolicy).not.toBeNull();
+      expect(doneWithoutReview(c, approved)).toBe(false);
+      expect(r5.status).toBe(422);
+    });
+  }
+
+  it("F2 (X8c): approved done card, cancel, then replacing the reviewers with a manager-only stage is refused 422; never done with an unapproved stage", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const approved = ((await card(id)).executionPolicy as Record<string, any>).stages.map((x: any) => x.id);
+    await freshRunFor(s, s.builderId, id);
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    const r1 = await patch(s, s.builderId, id, { executionPolicy: { mode: "normal",
+      stages: [{ type: "review", participants: [{ type: "agent", agentId: s.managerId }] }] } });
+    const r2 = await patch(s, s.builderId, id, selfClose);
+    const c = await card(id);
+    receipts.F2 = { replace: [r1.status, r1.body.details?.code ?? null], done: r2.status, status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(422);
+    expect(r1.body.details?.code).toBe("review_policy_change_refused");
+    expect(doneWithoutReview(c, approved)).toBe(false);
+  });
+
+  it("F3 (X1r): approved done card, cancel, null refused, comment resume (fresh run), done refused", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const approved = ((await card(id)).executionPolicy as Record<string, any>).stages.map((x: any) => x.id);
+    await freshRunFor(s, s.builderId, id);
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    const r1 = await patch(s, s.builderId, id, { executionPolicy: null });
+    await freshRunFor(s, s.builderId, id);
+    const r2 = await comment(s, s.builderId, id, { body: "resume", resume: true });
+    const r3 = await patch(s, s.builderId, id, selfClose);
+    const c = await card(id);
+    receipts.F3 = { nul: [r1.status, r1.body.details?.code ?? null], resume: r2.status, done: [r3.status, r3.body.details?.code ?? null], status: c.status };
+    expect(r1.status, JSON.stringify(r1.body)).toBe(422);
+    expect(r1.body.details?.code).toBe("review_policy_change_refused");
+    expect(c.executionPolicy).not.toBeNull();
+    expect(doneWithoutReview(c, approved)).toBe(false);
+    expect(r3.status).toBe(422);
+  });
+
+  it("F4 (X7r_freshRun): after QA FAIL 1, cancel and comment resume (fresh run) keep the round count, so FAIL 2 escalates to the responsible user", async () => {
+    const s = await seed();
+    const id = await buildCard(s);
+    await db.update(issues).set({ responsibleUserId: "responsible-user" } as any).where(eq(issues.id, id));
+    await db.insert(companyMemberships).values({ companyId: s.companyId, principalType: "user",
+      principalId: "responsible-user", status: "active" }).onConflictDoNothing();
+    await toPending(s, id);
+    await qaFails(s, id);
+    expect(state(await card(id))?.changesRequestedCount).toBe(1);
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    await freshRunFor(s, s.builderId, id);
+    const r1 = await comment(s, s.builderId, id, { body: "resuming", resume: true });
+    expect(r1.status, JSON.stringify(r1.body)).toBe(201);
+    const mid = await card(id);
+    if (mid.status !== "cancelled") {
+      await db.update(issues).set({ status: "in_progress", assigneeAgentId: s.builderId }).where(eq(issues.id, id));
+      await checkout(s, s.builderId, id);
+    }
+    const h = await patch(s, s.builderId, id, handoff(s));
+    expect(h.status, JSON.stringify(h.body)).toBe(200);
+    const f2 = await patch(s, s.qaId, id, qaFail(s));
+    const c = await card(id);
+    receipts.F4 = { midState: state(mid)?.status ?? null, midCount: state(mid)?.changesRequestedCount ?? null, fail2: f2.status,
+      assigneeUser: c.assigneeUserId ?? null, count: state(c)?.changesRequestedCount ?? null };
+    expect(state(mid)?.changesRequestedCount).toBe(1);
+    expect(f2.status, JSON.stringify(f2.body)).toBe(200);
+    expect(state(c)?.changesRequestedCount).toBe(2);
+    expect(c.assigneeUserId).toBe("responsible-user");
+  });
+
+  it("F5 (control): on a cancelled approved card the identical policy re-send (same stage ids) is 200", async () => {
+    const s = await seed();
+    const id = await approvedDoneCard(s);
+    const stored = (await card(id)).executionPolicy as Record<string, any>;
+    for (const a of [s.builderId, s.qaId]) {
+      await freshRunFor(s, a, id);
+    }
+    expect((await patch(s, s.builderId, id, cancel)).status).toBe(200);
+    const rb = await patch(s, s.builderId, id, { executionPolicy: stored });
+    const rq = await patch(s, s.qaId, id, { executionPolicy: stored });
+    receipts.F5 = { builder: rb.status, qa: rq.status };
+    expect(rb.status, JSON.stringify(rb.body)).toBe(200);
+    expect(rq.status, JSON.stringify(rq.body)).toBe(200);
   });
 });
