@@ -24,6 +24,8 @@
 //     of the stored policy counts as one the agent may not remove; completed
 //     stage ids are ignored for this check. The self-close check (1) is skipped
 //     on a done card, and re-sending the identical policy is still accepted.
+//     The same rule applies to any card whose execution state is completed, so a
+//     done card PATCHed to cancelled is guarded too (verify-1567 X8, X8c, X1r).
 //   - While a review stage is open (state pending or changes_requested on that
 //     stage), an agent's new policy must keep a review stage with the same stage
 //     id and the same reviewers (verify72r2 R9). A re-post with new stage ids
@@ -147,20 +149,23 @@ export function assertAgentMayCloseOrChangeReview(input: GuardInput): void {
       if (!required.has(actorKey) && keys.has(actorKey)) return false;
       return true;
     };
-    const guardedCompleted = isDone ? new Set<string>() : completedStageIds;
+    // A completed workflow is guarded the same way whatever the card status: a done card
+    // PATCHed to cancelled keeps its approved state (fix round 1, verify-1567 X8, X8c, X1r).
+    const approved = isDone || state?.status === "completed";
+    const guardedCompleted = approved ? new Set<string>() : completedStageIds;
     for (const stage of openReviewStages(input.previousPolicy, guardedCompleted)) {
       const required = participantKeys(stage);
       const kept = nextReviewStages.some((candidate) => keepsReviewers(candidate, required));
       if (!kept) {
         throw unprocessable(
-          isDone
-            ? `review_policy_change_refused: an agent cannot remove or replace the review stage of a done card; ${stageLabel(input.previousPolicy, stage)} approved it. Reopen with a comment instead and hand the card back with status in_review.`
+          approved
+            ? `review_policy_change_refused: an agent cannot remove or replace the review stage of an approved card; ${stageLabel(input.previousPolicy, stage)} approved it. Reopen with a comment instead and hand the card back with status in_review.`
             : `review_policy_change_refused: an agent cannot remove or replace an open review stage; ${stageLabel(input.previousPolicy, stage)} must decide this card first.`,
           {
             code: REVIEW_POLICY_CHANGE_REFUSED_CODE,
             ...describeStage(input.previousPolicy, stage),
             nextPolicy: input.nextPolicy ? "replaced" : "null",
-            ...(isDone ? { issueStatus: "done" } : {}),
+            ...(approved ? { issueStatus: input.issue.status, executionStateStatus: state?.status ?? null } : {}),
           },
         );
       }
