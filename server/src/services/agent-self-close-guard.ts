@@ -195,6 +195,34 @@ export function assertAgentMayCloseOrChangeReview(input: GuardInput): void {
         );
       }
     }
+
+    // (2c) agentos#1614: while a review stage is open, an agent may not reorder the
+    // review stages or add one. The guard and the transition walk the stages in order,
+    // so either change can block the current reviewer's PASS. An identical re-send
+    // (same review stage ids in the same order) is still accepted.
+    if (openStage) {
+      const previousIds = input.previousPolicy.stages
+        .filter((stage) => stage.type === "review")
+        .map((stage) => stage.id);
+      const nextIds = nextReviewStages.map((stage) => stage.id);
+      const added = nextIds.some((stageId) => !previousIds.includes(stageId));
+      const keptInPreviousOrder = previousIds.filter((stageId) => nextIds.includes(stageId));
+      const keptInNextOrder = nextIds.filter((stageId) => previousIds.includes(stageId));
+      const reordered = keptInPreviousOrder.some((stageId, index) => keptInNextOrder[index] !== stageId);
+      if (added || reordered) {
+        throw unprocessable(
+          `review_policy_change_refused: an agent cannot ${added ? "add" : "reorder"} review stages while ${stageLabel(input.previousPolicy, openStage)} is deciding this card; send the review stages unchanged.`,
+          {
+            code: REVIEW_POLICY_CHANGE_REFUSED_CODE,
+            ...describeStage(input.previousPolicy, openStage),
+            executionStateStatus: state?.status ?? null,
+            change: added ? "added_review_stage" : "reordered_review_stages",
+            previousReviewStageIds: previousIds,
+            nextReviewStageIds: nextIds,
+          },
+        );
+      }
+    }
   }
 
   // The self-close check does not apply to a card that is already done.
