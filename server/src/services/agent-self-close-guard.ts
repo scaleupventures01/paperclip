@@ -116,7 +116,9 @@ function stageLabel(policy: IssueExecutionPolicy, stage: IssueExecutionStage) {
 export function assertAgentMayCloseOrChangeReview(input: GuardInput): void {
   if (input.actorType !== "agent" || !input.actorAgentId) return;
   if (!agentSelfCloseGuardEnabled(input.issue.companyId, input.env)) return;
-  if (input.issue.status === "done" || input.issue.status === "cancelled") return;
+  // A cancelled card is still checked: cancel, then drop the review stage, then done
+  // was a three-request self-close (fix round 1, verifier probes P13 and P6).
+  if (input.issue.status === "done") return;
 
   const actorKey = `agent:${input.actorAgentId}`;
   const state = parseIssueExecutionState(input.issue.executionState ?? null);
