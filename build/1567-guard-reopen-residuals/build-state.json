@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "issue": "scaleupventures01/agentos#1567",
+  "worktree": "/Users/niaopenclaw/.claude-scratch/agentos-1508/ac4/paperclip/.worktrees/wt-1567",
+  "branch": "feat/1567-guard-reopen-residuals",
+  "terminal": "IN-FLIGHT",
+  "current_wave": "Step 3",
+  "next_gate": "core-reproduce: RED tests for R1 R3b R4 R9 in agent-self-close-guard.test.ts",
+  "gates": [
+    {
+      "name": "core-baseline",
+      "verdict": "pass",
+      "rounds": 1,
+      "code_state": "891b1bd5a182d0fb",
+      "evidence": "7 files 310/310 on e5dd8e45; pre-existing failures: none",
+      "artifact": "/Users/niaopenclaw/.claude-scratch/agentos-1567/redtests/baseline.log",
+      "at": "2026-10-31T13:34:12Z",
+      "evidence_verified": true,
+      "verified_paths": [
+        "/Users/niaopenclaw/.claude-scratch/agentos-1567/redtests/baseline.log"
+      ]
+    },
+    {
+      "name": "core-reproduce",
+      "verdict": "pass",
+      "rounds": 1,
+      "code_state": "891b1bd5a182d0fb",
+      "evidence": "RED c9d04af2: 5 failed (E1 R1, E2 R3b, E3a+E3b R4, E4 R9) | 30 passed (35); controls E5 green",
+      "artifact": "/Users/niaopenclaw/.claude-scratch/agentos-1567/redtests/red-guard.log",
+      "at": "2026-10-31T13:34:12Z",
+      "evidence_verified": true,
+      "verified_paths": [
+        "/Users/niaopenclaw/.claude-scratch/agentos-1567/redtests/red-guard.log"
+      ]
+    },
+    {
+      "name": "core-verify",
+      "verdict": "pass",
+      "rounds": 2,
+      "code_state": "56c095a90ce9319d",
+      "evidence": "verify2-1567 at 5eda1296: R1 R3b R4 R9 + round-1 P0-1 P0-2 closed; guard 41/41, suite 326/326 (1 file rerun after load timeout), typecheck 0, md5 96d00526, patchers identical; Finding C checkout reopen pre-existing on base, classified P1 and filed",
+      "artifact": "/Users/niaopenclaw/.claude-scratch/agentos-1567/out-verify2.md",
+      "at": "2026-10-31T15:38:00Z",
+      "evidence_verified": true,
+      "verified_paths": [
+        "/Users/niaopenclaw/.claude-scratch/agentos-1567/out-verify2.md"
+      ]
+    }
+  ],
+  "green": [],
+  "pending": [],
+  "open_decisions": [],
+  "notes": [],
+  "started": "2026-10-31T13:18:49Z",
+  "updated": "2026-10-31T15:38:00Z",
+  "previous": {
+    "schema_version": 1,
+    "issue": "scaleupventures01/paperclip#1567",
+    "worktree": "/Users/niaopenclaw/.claude-scratch/agentos-1508/ac4/paperclip/.worktrees/wt-1567",
+    "branch": "feat/1567-guard-reopen-residuals",
+    "terminal": "IN-FLIGHT",
+    "path": "core-first",
+    "current_wave": null,
+    "next_gate": "core-reproduce NOT RUN -- a missing row is NOT RUN, never N/A",
+    "gates": [],
+    "green": [],
+    "pending": [],
+    "open_decisions": [],
+    "notes": [],
+    "started": "2026-10-31T13:17:06Z",
+    "updated": "2026-10-31T13:17:06Z"
+  },
+  "path": "core-first",
+  "end_state_poc": {
+    "not_applicable": "server-side 422 refusal on an API route; no new surface a person looks at",
+    "at": "2026-10-31T13:18:49Z"
+  },
+  "boundary_probe": {
+    "none": null,
+    "entries": [
+      {
+        "boundary": "agentos-paperclip-api",
+        "from_host": "scaleup-svr",
+        "prod_host": "scaleup-svr",
+        "command": "curl -s -o /dev/null -w 'health %{http_code}' http://127.0.0.1:3101/api/health",
+        "result": "health 200 (10:13:07 ET)",
+        "at": "2026-10-31T14:13:16Z"
+      }
+    ]
+  }
+}
