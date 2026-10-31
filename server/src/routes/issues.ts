@@ -13927,6 +13927,11 @@ export function issueRoutes(
         ...updateFields,
         actorAgentId: actor.agentId ?? null,
         actorUserId: actor.actorType === "user" ? actor.actorId : null,
+        // agentos#1612 P0-A: an agent done read before a concurrent checkout reopen must not
+        // close the reopened card; the write is refused if the status moved since this read.
+        ...(req.actor.type === "agent" && updateFields.status === "done"
+          ? { expectedStatus: existing.status }
+          : {}),
       };
       const shouldCollectCompletionPublication =
         actor.actorType === "user" &&

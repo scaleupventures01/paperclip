@@ -232,6 +232,23 @@ export function assertAgentMayCloseOrChangeReview(input: GuardInput): void {
   if (input.requestedStatus !== "done") return;
   const policy = input.nextPolicy;
   if (!policy) return;
+  // agentos#1612 P0-A: an open card (not done, not cancelled) with a completed review state
+  // exists only between a checkout reopen's write and its review reset. A done read in that
+  // gap would close the reopened work with the old approval, so it is refused.
+  if (
+    state?.status === "completed" &&
+    input.issue.status !== "cancelled" &&
+    policy.stages.some((stage) => stage.type === "review")
+  ) {
+    throw unprocessable(
+      "self_close_refused: this card was reopened after its review was approved; the new work needs a fresh review. Hand the card to the reviewer with status in_review instead.",
+      {
+        code: SELF_CLOSE_REFUSED_CODE,
+        issueStatus: input.issue.status,
+        executionStateStatus: state.status,
+      },
+    );
+  }
   const nextCompleted =
     input.executionPolicyProvided && input.nextPolicy !== input.previousPolicy
       ? new Set([...completedStageIds].filter((id) => policy.stages.some((stage) => stage.id === id)))
