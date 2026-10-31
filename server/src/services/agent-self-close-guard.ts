@@ -17,6 +17,18 @@
 //   - code `review_policy_change_refused` for (2)
 // Board (user) actors are never checked here and keep the existing behavior.
 //
+// agentos#1567 residuals, also refused with `review_policy_change_refused`:
+//   - On a done card (an approved review is complete) an agent may still not
+//     null the policy or drop or replace any of its review stages, alone or
+//     together with a reopen to todo (verify72r2 R1 and R3b). Every review stage
+//     of the stored policy counts as one the agent may not remove; completed
+//     stage ids are ignored for this check. The self-close check (1) is skipped
+//     on a done card, and re-sending the identical policy is still accepted.
+//   - While a review stage is open (state pending or changes_requested on that
+//     stage), an agent's new policy must keep a review stage with the same stage
+//     id and the same reviewers (verify72r2 R9). A re-post with new stage ids
+//     would otherwise clear the review state and its round count.
+//
 // This lives outside services/issue-execution-policy.ts on purpose: AgentOS
 // re-patches that module's built file at every server start (review escalation
 // patch v2), and that patch refuses any file whose md5 it does not know. Keeping
@@ -118,36 +130,70 @@ export function assertAgentMayCloseOrChangeReview(input: GuardInput): void {
   if (!agentSelfCloseGuardEnabled(input.issue.companyId, input.env)) return;
   // A cancelled card is still checked: cancel, then drop the review stage, then done
   // was a three-request self-close (fix round 1, verifier probes P13 and P6).
-  if (input.issue.status === "done") return;
+  const isDone = input.issue.status === "done";
 
   const actorKey = `agent:${input.actorAgentId}`;
   const state = parseIssueExecutionState(input.issue.executionState ?? null);
   const completedStageIds = new Set(state?.completedStageIds ?? []);
 
   // (2) agentos#1567: an agent may not drop an open review stage or remove its reviewers.
+  // On a done card every review stage is guarded, completed or not (R1, R3b).
   if (input.executionPolicyProvided && input.previousPolicy) {
     const nextReviewStages = (input.nextPolicy?.stages ?? []).filter((stage) => stage.type === "review");
-    for (const stage of openReviewStages(input.previousPolicy, completedStageIds)) {
+    const keepsReviewers = (candidate: IssueExecutionStage, required: Set<string>) => {
+      const keys = participantKeys(candidate);
+      for (const key of required) if (!keys.has(key)) return false;
+      // Adding yourself as a reviewer of your own card is a removal in effect.
+      if (!required.has(actorKey) && keys.has(actorKey)) return false;
+      return true;
+    };
+    const guardedCompleted = isDone ? new Set<string>() : completedStageIds;
+    for (const stage of openReviewStages(input.previousPolicy, guardedCompleted)) {
       const required = participantKeys(stage);
-      const kept = nextReviewStages.some((candidate) => {
-        const keys = participantKeys(candidate);
-        for (const key of required) if (!keys.has(key)) return false;
-        // Adding yourself as a reviewer of your own card is a removal in effect.
-        if (!required.has(actorKey) && keys.has(actorKey)) return false;
-        return true;
-      });
+      const kept = nextReviewStages.some((candidate) => keepsReviewers(candidate, required));
       if (!kept) {
         throw unprocessable(
-          `review_policy_change_refused: an agent cannot remove or replace an open review stage; ${stageLabel(input.previousPolicy, stage)} must decide this card first.`,
+          isDone
+            ? `review_policy_change_refused: an agent cannot remove or replace the review stage of a done card; ${stageLabel(input.previousPolicy, stage)} approved it. Reopen with a comment instead and hand the card back with status in_review.`
+            : `review_policy_change_refused: an agent cannot remove or replace an open review stage; ${stageLabel(input.previousPolicy, stage)} must decide this card first.`,
           {
             code: REVIEW_POLICY_CHANGE_REFUSED_CODE,
             ...describeStage(input.previousPolicy, stage),
+            nextPolicy: input.nextPolicy ? "replaced" : "null",
+            ...(isDone ? { issueStatus: "done" } : {}),
+          },
+        );
+      }
+    }
+
+    // (2b) agentos#1567 R9: the open stage keeps its id, so its review state and round
+    // count survive (a new stage id makes the transition clear the state).
+    const openStageId =
+      state && (state.status === "pending" || state.status === "changes_requested")
+        ? state.currentStageId
+        : null;
+    const openStage = openStageId
+      ? input.previousPolicy.stages.find((stage) => stage.id === openStageId && stage.type === "review") ?? null
+      : null;
+    if (openStage) {
+      const required = participantKeys(openStage);
+      const sameStage = nextReviewStages.find((candidate) => candidate.id === openStage.id) ?? null;
+      if (!sameStage || !keepsReviewers(sameStage, required)) {
+        throw unprocessable(
+          `review_policy_change_refused: an agent cannot replace the review stage that is deciding this card; keep ${stageLabel(input.previousPolicy, openStage)} with the same stage id.`,
+          {
+            code: REVIEW_POLICY_CHANGE_REFUSED_CODE,
+            ...describeStage(input.previousPolicy, openStage),
+            executionStateStatus: state?.status ?? null,
             nextPolicy: input.nextPolicy ? "replaced" : "null",
           },
         );
       }
     }
   }
+
+  // The self-close check does not apply to a card that is already done.
+  if (isDone) return;
 
   // (1) agentos#1508 AC4: only the review stage's current participant may send done.
   if (input.requestedStatus !== "done") return;
