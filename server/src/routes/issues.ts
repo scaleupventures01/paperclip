@@ -17995,7 +17995,38 @@ export function issueRoutes(
               actor,
             })
           : null;
-        const reopenedIssue = await svc.update(id, { status: "todo" });
+        // agentos#1567 R4: a reopen of a closed card resets its execution state, as the
+        // PATCH reopen does, so the next in_review handoff starts a fresh review instead
+        // of finding a completed one. The return assignee (the worker) and the monitor
+        // history are kept: without the return assignee the next handoff would treat the
+        // card's current assignee (the reviewer who closed it) as the worker and skip
+        // that reviewer.
+        const closedExecutionState =
+          isClosed && issue.executionState != null
+            ? parseIssueExecutionState(issue.executionState)
+            : null;
+        const reopenedExecutionState =
+          closedExecutionState?.returnAssignee || closedExecutionState?.monitor
+            ? {
+                status: "idle" as const,
+                currentStageId: null,
+                currentStageIndex: null,
+                currentStageType: null,
+                currentParticipant: null,
+                returnAssignee: closedExecutionState.returnAssignee ?? null,
+                reviewRequest: null,
+                completedStageIds: [],
+                lastDecisionId: null,
+                lastDecisionOutcome: null,
+                monitor: closedExecutionState.monitor ?? null,
+              }
+            : null;
+        const reopenedIssue = await svc.update(
+          id,
+          isClosed && issue.executionState != null
+            ? { status: "todo", executionState: reopenedExecutionState }
+            : { status: "todo" },
+        );
         if (!reopenedIssue) {
           res.status(404).json({ error: "Issue not found" });
           return;
