@@ -35,16 +35,6 @@ function isClosedStatus(status: string | null | undefined) {
   return status === "done" || status === "cancelled";
 }
 
-// agentos#1612 P0-B: the agent that reopens and does the work is the return assignee, so the
-// next in_review handoff excludes that agent. Keeping the original builder let a reviewer that
-// reopened its own approved card become the reviewer of its own handoff.
-function workerOrPrevious(
-  workerAgentId: string | null | undefined,
-  previous: IssueExecutionState["returnAssignee"],
-): IssueExecutionState["returnAssignee"] {
-  return workerAgentId ? { type: "agent", agentId: workerAgentId, userId: null } : previous;
-}
-
 /**
  * agentos#1612: the execution state to store when a closed card with a completed
  * review is checked out again. Returns undefined when nothing must change (the card
@@ -54,13 +44,12 @@ function workerOrPrevious(
 export function executionStateAfterCheckoutReopen(input: {
   previousStatus: string;
   executionState: unknown;
-  workerAgentId?: string | null;
 }): IssueExecutionState | null | undefined {
   if (!isClosedStatus(input.previousStatus)) return undefined;
   const parsed = parseIssueExecutionState(input.executionState ?? null);
   if (parsed?.status !== "completed") return undefined;
   if (!parsed.returnAssignee && !parsed.monitor) return null;
-  return idleState(workerOrPrevious(input.workerAgentId, parsed.returnAssignee), parsed.monitor);
+  return idleState(parsed.returnAssignee, parsed.monitor);
 }
 
 /**
@@ -76,21 +65,61 @@ export function executionStatePatchAfterPatchReopen(input: {
   requestedStatus: string | undefined;
   hasPolicy: boolean;
   patchExecutionState: unknown;
-  workerAgentId?: string | null;
 }): unknown {
   if (!input.hasPolicy || !isClosedStatus(input.previousStatus)) return input.patchExecutionState;
   if (!input.requestedStatus || isClosedStatus(input.requestedStatus)) return input.patchExecutionState;
   const previous = parseIssueExecutionState(input.previousExecutionState ?? null);
   if (previous?.status !== "completed" || !previous.returnAssignee) return input.patchExecutionState;
-  const returnAssignee = workerOrPrevious(input.workerAgentId, previous.returnAssignee);
   if (input.patchExecutionState === null) {
-    return idleState(returnAssignee, null);
+    return idleState(previous.returnAssignee, null);
   }
   const next = parseIssueExecutionState(input.patchExecutionState);
   if (next && next.status === "idle" && !next.currentStageId && !next.returnAssignee) {
-    return { ...(input.patchExecutionState as Record<string, unknown>), returnAssignee };
+    return { ...(input.patchExecutionState as Record<string, unknown>), returnAssignee: previous.returnAssignee };
   }
   return input.patchExecutionState;
+}
+
+/**
+ * agentos#1612 POC (maker-checker): the issue the PATCH transition sees when an agent submits
+ * work for review, that is an agent status in_review, or an agent done that starts the review.
+ * The transition excludes the execution state's return assignee from the stage it opens, so the
+ * submitting agent becomes the return assignee for this round, whoever reopened the card or was
+ * assigned at reopen. A pending stage is left alone (that request is a review decision, not a
+ * submission). Returns the issue unchanged when nothing must change.
+ */
+export function issueForAgentHandoff<
+  T extends { executionState?: unknown; assigneeAgentId?: string | null; assigneeUserId?: string | null },
+>(issue: T, input: { actorAgentId: string | null | undefined; requestedStatus: string | undefined; hasPolicy: boolean }): T {
+  const agentId = input.actorAgentId;
+  if (!agentId || !input.hasPolicy) return issue;
+  if (input.requestedStatus !== "in_review" && input.requestedStatus !== "done") return issue;
+  const parsed = parseIssueExecutionState(issue.executionState ?? null);
+  if (parsed?.status === "pending") return issue;
+  const submitter = { type: "agent" as const, agentId, userId: null };
+  if (!parsed) {
+    if (issue.assigneeAgentId === agentId && !issue.assigneeUserId) return issue;
+    return { ...issue, executionState: idleState(submitter, null) };
+  }
+  if (parsed.returnAssignee?.type === "agent" && parsed.returnAssignee.agentId === agentId) return issue;
+  return { ...issue, executionState: { ...parsed, returnAssignee: submitter } };
+}
+
+/**
+ * agentos#1612 POC: an agent done that closed the card only because every open review stage
+ * had the submitting agent as its only reviewer (the transition's self-only auto-skip). That is
+ * a close with no other party's review.
+ */
+export function isAgentSelfOnlyAutoSkipClose(input: {
+  previousExecutionState: unknown;
+  patchExecutionState: unknown;
+  hadDecision: boolean;
+}): boolean {
+  if (input.hadDecision) return false;
+  const previous = parseIssueExecutionState(input.previousExecutionState ?? null);
+  if (previous?.status === "completed") return false;
+  const next = parseIssueExecutionState(input.patchExecutionState ?? null);
+  return next?.status === "completed";
 }
 
 /**

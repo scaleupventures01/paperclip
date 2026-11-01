@@ -299,11 +299,17 @@ import {
   redactIssueMonitorExternalRef,
   setIssueExecutionPolicyMonitorScheduledBy,
 } from "../services/issue-execution-policy.js";
-import { assertAgentMayCloseOrChangeReview } from "../services/agent-self-close-guard.js";
+import {
+  agentSelfCloseGuardEnabled,
+  assertAgentMayCloseOrChangeReview,
+  SELF_CLOSE_REFUSED_CODE,
+} from "../services/agent-self-close-guard.js";
 import {
   executionStateAfterCheckoutReopen,
   executionStatePatchAfterPatchReopen,
+  isAgentSelfOnlyAutoSkipClose,
   isReopenedReviewState,
+  issueForAgentHandoff,
   issueForBoardCloseOfReopenedCard,
 } from "../services/review-reopen-state.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
@@ -13469,10 +13475,26 @@ export function issueRoutes(
         req.actor.type === "board" &&
         updateFields.status === "done" &&
         isReopenedReviewState(existing.executionState);
+      // agentos#1612 POC (maker-checker): the agent submitting work for review is excluded
+      // from reviewing that round.
+      const makerCheckerOn =
+        req.actor.type === "agent" &&
+        Boolean(actor.agentId) &&
+        agentSelfCloseGuardEnabled(existing.companyId);
+      const transitionIssue = boardClosesReopenedCard
+        ? issueForBoardCloseOfReopenedCard(existing)
+        : makerCheckerOn
+          ? issueForAgentHandoff(existing, {
+              actorAgentId: actor.agentId ?? null,
+              requestedStatus:
+                typeof updateFields.status === "string"
+                  ? updateFields.status
+                  : undefined,
+              hasPolicy: nextExecutionPolicy != null,
+            })
+          : existing;
       const transition = applyIssueExecutionPolicyTransition({
-        issue: boardClosesReopenedCard
-          ? issueForBoardCloseOfReopenedCard(existing)
-          : existing,
+        issue: transitionIssue,
         policy: nextExecutionPolicy,
         previousPolicy: previousExecutionPolicy,
         requestedStatus:
@@ -13496,6 +13518,20 @@ export function issueRoutes(
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
       });
+      if (
+        makerCheckerOn &&
+        updateFields.status === "done" &&
+        isAgentSelfOnlyAutoSkipClose({
+          previousExecutionState: existing.executionState,
+          patchExecutionState: transition.patch.executionState,
+          hadDecision: Boolean(transition.decision),
+        })
+      ) {
+        throw unprocessable(
+          "self_close_refused: you submitted this work and are the only reviewer configured for its review stage; another reviewer or a board user must review it.",
+          { code: SELF_CLOSE_REFUSED_CODE, reason: "no_other_reviewer" },
+        );
+      }
       // agentos#1613 case 1: a PATCH reopen of an approved card keeps who did the work,
       // so the next in_review handoff goes to the reviewer still assigned (QA) first.
       if (transition.patch.executionState !== undefined) {
@@ -13508,12 +13544,6 @@ export function issueRoutes(
               : undefined,
           hasPolicy: nextExecutionPolicy != null,
           patchExecutionState: transition.patch.executionState,
-          // agentos#1612 P0-B: on an agent reopen the agent given the work (or the actor) is
-          // the return assignee, so it cannot review its own handoff.
-          workerAgentId:
-            req.actor.type === "agent"
-              ? (normalizedAssigneeAgentId ?? actor.agentId ?? null)
-              : null,
         });
       }
       const decisionId = transition.decision ? randomUUID() : null;
@@ -15550,8 +15580,6 @@ export function issueRoutes(
         const reopenedExecutionState = executionStateAfterCheckoutReopen({
           previousStatus: issue.status,
           executionState: issue.executionState,
-          // agentos#1612 P0-B: the agent that checks the card out does the work.
-          workerAgentId: updated.assigneeAgentId ?? req.body.agentId ?? null,
         });
         if (reopenedExecutionState !== undefined) {
           const executionState = reopenedExecutionState as Record<string, unknown> | null;
