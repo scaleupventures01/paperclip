@@ -506,4 +506,162 @@ d("review reopen follow-ups through the issue routes (agentos#1612, #1613, #1614
     expect(c.status).toBe("in_review");
     expect(st(c)?.status).toBe("pending");
   }, T);
+
+  // ---------------- agentos#1612 round 3: maker-checker ----------------
+  // The agent that submits a card for review (an agent PATCH to in_review, or an agent done that
+  // would start or settle the review) is excluded from reviewing or closing that round, whoever
+  // reopened the card and whoever was assigned at reopen. Scenarios ported from the poc-1612c
+  // harness: vb-adv C2, C4, C6, C13, G6, G7, C9; vb-adv2 C14, C15, C17; poc-extra X_selfOnly, X_C9_board.
+  const qaOnly = (s: Seed) => ({ mode: "normal", maxReviewRounds: 2,
+    stages: [{ type: "review", participants: [{ type: "agent", agentId: s.qaId }] }] });
+  const who = (s: Seed, id: string | null | undefined) =>
+    id === s.qaId ? "QA" : id === s.builderId ? "builder" : id === s.managerId ? "manager" : id ?? null;
+  const errCode = (r: request.Response) => r.body?.details?.code ?? r.body?.code ?? null;
+  async function approvedDoneWith(s: Seed, policy: Record<string, unknown>) {
+    const id = await buildCard(s, policy);
+    await toPending(s, id);
+    const q = await patch(s, s.qaId, id, qaPass);
+    expect(q.status, body(q)).toBe(200);
+    const c = await card(id);
+    expect(c.status).toBe("done");
+    expect(st(c)?.status).toBe("completed");
+    return id;
+  }
+  // The named agent does the work: takes the card if not assigned, checks it out if not
+  // in_progress, then submits in_review with no explicit assignee (the probe's workAndHandoff).
+  async function workAndSubmit(s: Seed, agentId: string, id: string, steps: Record<string, unknown>) {
+    let c = await card(id);
+    if (c.assigneeAgentId !== agentId) {
+      await newRun(s, agentId, id);
+      const a = await patch(s, agentId, id, { assigneeAgentId: agentId, comment: "taking it" });
+      steps.assign = a.status;
+      c = await card(id);
+    }
+    if (c.status !== "in_progress") {
+      const co = await checkoutRoute(s, agentId, id, [c.status]);
+      steps.checkout = co.status;
+    }
+    const submit = { status: "in_review", comment: fix };
+    let h = await patch(s, agentId, id, submit);
+    // Harness only: a background heartbeat run can clear the checkout run between the helper's
+    // read and the request (poc-c C15_two receipts). Re-hold the submitter's run and resend once.
+    if (h.status === 409 && h.body?.error === "Issue run ownership conflict") {
+      steps.runOwnershipRetry = true;
+      h = await asAgent(s, agentId, await holdRun(s, agentId, id)).patch(`/api/issues/${id}`).send(submit);
+    }
+    steps.handoff = h.status === 200 ? 200 : body(h);
+    const after = await card(id);
+    steps.afterHandoff = {
+      status: after.status, state: st(after)?.status ?? null, reviewer: who(s, cur(after)),
+      returnAssignee: who(s, st(after)?.returnAssignee?.agentId),
+    };
+    return { h, after };
+  }
+  // The submitter is not the current reviewer; that other reviewer's PASS closes the card.
+  async function expectOtherReviewerCloses(
+    s: Seed, id: string, submitter: string, expectedReviewer: string,
+    h: request.Response, after: Awaited<ReturnType<typeof card>>, steps: Record<string, unknown>,
+  ) {
+    expect(h.status, `submit: ${JSON.stringify(steps)}`).toBe(200);
+    expect(after.status, `after submit: ${JSON.stringify(steps)}`).toBe("in_review");
+    expect(st(after)?.status).toBe("pending");
+    const reviewer = cur(after);
+    expect(reviewer, `${who(s, submitter)} is the reviewer of its own submission: ${JSON.stringify(steps)}`).not.toBe(submitter);
+    expect(who(s, reviewer), `reviewer: ${JSON.stringify(steps)}`).toBe(who(s, expectedReviewer));
+    const q = await patch(s, reviewer!, id, qaPass);
+    expect(q.status, `reviewer PASS: ${body(q)}`).toBe(200);
+    const fin = await card(id);
+    expect(fin.status, `final state ${JSON.stringify(st(fin))}`).toBe("done");
+    expect(st(fin)?.status).toBe("completed");
+  }
+
+  type SubmitterSpec = {
+    tag: string; title: string;
+    reopen: (s: Seed, id: string) => Promise<request.Response>;
+  };
+  const qaSubmits: SubmitterSpec[] = [
+    { tag: "C2", title: "builder PATCH reopens todo, QA does the work and submits",
+      reopen: async (s, id) => { await newRun(s, s.builderId, id); return patch(s, s.builderId, id, { status: "todo", comment: "reopen" }); } },
+    { tag: "C4", title: "manager PATCH reopens todo, QA does the work and submits",
+      reopen: async (s, id) => { await newRun(s, s.managerId, id); return patch(s, s.managerId, id, { status: "todo", comment: "reopen" }); } },
+    { tag: "C6", title: "QA PATCH reopens todo assigning the builder, QA does the work itself and submits",
+      reopen: async (s, id) => { await newRun(s, s.qaId, id); return patch(s, s.qaId, id, { status: "todo", comment: "reopen", assigneeAgentId: s.builderId }); } },
+    { tag: "C13", title: "board PATCH reopens todo, QA does the work and submits",
+      reopen: async (s, id) => asBoard(s).patch(`/api/issues/${id}`).send({ status: "todo" }) },
+    { tag: "G6", title: "QA comment resume on its approved card, QA does the work and submits",
+      reopen: async (s, id) => { await newRun(s, s.qaId, id);
+        return asAgent(s, s.qaId, await runOf(s, s.qaId, id)).post(`/api/issues/${id}/comments`).send({ body: "QA resumes to fix", resume: true }); } },
+    { tag: "G7", title: "manager comment reopen, QA (still the assignee) does the work and submits",
+      reopen: async (s, id) => { await newRun(s, s.managerId, id);
+        return asAgent(s, s.managerId, await runOf(s, s.managerId, id)).post(`/api/issues/${id}/comments`).send({ body: "manager reopens", reopen: true }); } },
+  ];
+  for (const sp of qaSubmits) {
+    it(`1612c-${sp.tag} ${sp.title}: QA is not the reviewer, the manager reviews and closes`, async () => {
+      const s = await seed(); const id = await approvedDoneCard(s);
+      const steps: Record<string, unknown> = {};
+      const r = await sp.reopen(s, id);
+      steps.reopen = r.status;
+      expect([200, 201], `reopen: ${body(r)}`).toContain(r.status);
+      expect((await card(id)).status).not.toBe("done");
+      const { h, after } = await workAndSubmit(s, s.qaId, id, steps);
+      await expectOtherReviewerCloses(s, id, s.qaId, s.managerId, h, after, steps);
+    }, T);
+  }
+
+  // QA-only policy, the builder does the work: QA did not submit, so QA reviews. Round 2 refused
+  // the builder's handoff with 422 "No eligible review participant" (verify-b P0-D).
+  const builderSubmitsQaOnly: SubmitterSpec[] = [
+    { tag: "C14_qaOnly", title: "QA PATCH reopens todo (no assignee), the builder takes it and submits",
+      reopen: async (s, id) => patch(s, s.qaId, id, { status: "todo", comment: "QA found a defect after approval" }) },
+    { tag: "C17_qaOnly", title: "manager PATCH reopens todo assigning QA, the builder later takes it and submits",
+      reopen: async (s, id) => patch(s, s.managerId, id, { status: "todo", comment: "redo", assigneeAgentId: s.qaId }) },
+  ];
+  for (const sp of builderSubmitsQaOnly) {
+    it(`1612c-${sp.tag} ${sp.title}: the handoff is not refused, QA reviews and closes`, async () => {
+      const s = await seed(); const id = await approvedDoneWith(s, qaOnly(s));
+      const steps: Record<string, unknown> = {};
+      const r = await sp.reopen(s, id);
+      steps.reopen = r.status;
+      expect(r.status, `reopen: ${body(r)}`).toBe(200);
+      const { h, after } = await workAndSubmit(s, s.builderId, id, steps);
+      expect(h.status, `builder handoff refused: ${JSON.stringify(steps)}`).not.toBe(422);
+      await expectOtherReviewerCloses(s, id, s.builderId, s.qaId, h, after, steps);
+    }, T);
+  }
+
+  it("1612c-C9 QA-only policy, QA checks out [done] its approved card and sends done: refused 422, a board user can close it", async () => {
+    const s = await seed(); const id = await approvedDoneWith(s, qaOnly(s));
+    await newRun(s, s.qaId, id);
+    const co = await checkoutRoute(s, s.qaId, id, ["done"]);
+    expect(co.status, `QA checkout: ${body(co)}`).toBe(200);
+    const dn = await patch(s, s.qaId, id, { status: "done", comment: "close own" });
+    const mid = await card(id);
+    expect(dn.status, `QA closed its own work with no other reviewer: ${body(dn)} state ${JSON.stringify(st(mid))}`).toBe(422);
+    expect(errCode(dn)).toBe("self_close_refused");
+    expect(mid.status).not.toBe("done");
+    const b = await asBoard(s).patch(`/api/issues/${id}`).send({ status: "done", comment: "board reviewed and closes" });
+    expect(b.status, `board done: ${body(b)}`).toBe(200);
+    expect((await card(id)).status).toBe("done");
+  }, T);
+
+  it("1612c-X_selfOnly the builder is the only reviewer of the card's review stage and sends done: refused 422, not closed", async () => {
+    const s = await seed();
+    const pol = { mode: "normal", maxReviewRounds: 2, stages: [{ type: "review", participants: [{ type: "agent", agentId: s.builderId }] }] };
+    const id = await buildCard(s, pol);
+    const dn = await patch(s, s.builderId, id, { status: "done", comment: "done" });
+    const c = await card(id);
+    expect(dn.status, `self-only auto-skip closed the card: ${body(dn)} state ${JSON.stringify(st(c))}`).toBe(422);
+    expect(errCode(dn)).toBe("self_close_refused");
+    expect(c.status).not.toBe("done");
+  }, T);
+
+  it("control-1612c-C15_two QA PATCH reopens todo assigning the builder, the builder submits: QA reviews and closes", async () => {
+    const s = await seed(); const id = await approvedDoneCard(s);
+    const steps: Record<string, unknown> = {};
+    const r = await patch(s, s.qaId, id, { status: "todo", comment: "QA found a defect", assigneeAgentId: s.builderId });
+    steps.reopen = r.status;
+    expect(r.status, `reopen: ${body(r)}`).toBe(200);
+    const { h, after } = await workAndSubmit(s, s.builderId, id, steps);
+    await expectOtherReviewerCloses(s, id, s.builderId, s.qaId, h, after, steps);
+  }, T);
 });
