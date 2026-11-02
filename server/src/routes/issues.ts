@@ -293,7 +293,6 @@ import {
   type CompanySearchRateLimiter,
 } from "../services/company-search-rate-limit.js";
 import {
-  applyIssueExecutionPolicyTransition,
   normalizeIssueExecutionPolicy,
   parseIssueExecutionState,
   redactIssueMonitorExternalRef,
@@ -302,16 +301,14 @@ import {
 import {
   agentSelfCloseGuardEnabled,
   assertAgentMayCloseOrChangeReview,
-  SELF_CLOSE_REFUSED_CODE,
 } from "../services/agent-self-close-guard.js";
 import {
   executionStateAfterCheckoutReopen,
   executionStatePatchAfterPatchReopen,
-  isAgentSelfOnlyAutoSkipClose,
   isReopenedReviewState,
-  issueForAgentHandoff,
   issueForBoardCloseOfReopenedCard,
 } from "../services/review-reopen-state.js";
+import { applyMakerCheckedTransition } from "../services/review-transition-guard.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import {
@@ -9635,7 +9632,7 @@ export function issueRoutes(
             const executionPolicy = normalizeIssueExecutionPolicy(
               lockedIssue.executionPolicy ?? null,
             );
-            const transition = applyIssueExecutionPolicyTransition({
+            const transition = applyMakerCheckedTransition({
               issue: lockedIssue,
               policy: executionPolicy,
               previousPolicy: executionPolicy,
@@ -9647,6 +9644,10 @@ export function issueRoutes(
               },
               allowBoardOverride: req.actor.type === "board",
               commentBody: resolutionNote ?? null,
+            }, {
+              companyId: lockedIssue.companyId,
+              actorType: req.actor.type,
+              actorAgentId: actor.agentId ?? null,
             });
             Object.assign(updateFields, transition.patch);
             if (transition.decision) {
@@ -13469,31 +13470,21 @@ export function issueRoutes(
         nextPolicy: nextExecutionPolicy,
       });
 
+      // agentos#1612: every behavior added for agentos#1612, #1613 and #1614 is behind
+      // PAPERCLIP_AGENT_SELF_CLOSE_GUARD, so the switch off restores the earlier behavior.
+      const reviewFollowupsOn = agentSelfCloseGuardEnabled(existing.companyId);
       // agentos#1613 case 2: the board closes a card reopened after an approved review in
       // one request, as before agentos#1567, instead of starting a fresh review.
       const boardClosesReopenedCard =
+        reviewFollowupsOn &&
         req.actor.type === "board" &&
         updateFields.status === "done" &&
         isReopenedReviewState(existing.executionState);
-      // agentos#1612 POC (maker-checker): the agent submitting work for review is excluded
-      // from reviewing that round.
-      const makerCheckerOn =
-        req.actor.type === "agent" &&
-        Boolean(actor.agentId) &&
-        agentSelfCloseGuardEnabled(existing.companyId);
       const transitionIssue = boardClosesReopenedCard
         ? issueForBoardCloseOfReopenedCard(existing)
-        : makerCheckerOn
-          ? issueForAgentHandoff(existing, {
-              actorAgentId: actor.agentId ?? null,
-              requestedStatus:
-                typeof updateFields.status === "string"
-                  ? updateFields.status
-                  : undefined,
-              hasPolicy: nextExecutionPolicy != null,
-            })
-          : existing;
-      const transition = applyIssueExecutionPolicyTransition({
+        : existing;
+      // agentos#1612: the maker-checker rule is applied inside applyMakerCheckedTransition.
+      const transition = applyMakerCheckedTransition({
         issue: transitionIssue,
         policy: nextExecutionPolicy,
         previousPolicy: previousExecutionPolicy,
@@ -13517,24 +13508,14 @@ export function issueRoutes(
         reviewRequest: reviewRequest === undefined ? undefined : reviewRequest,
         monitorExplicitlyUpdated:
           req.body.executionPolicy !== undefined && monitorChanged,
+      }, {
+        companyId: existing.companyId,
+        actorType: req.actor.type,
+        actorAgentId: actor.agentId ?? null,
       });
-      if (
-        makerCheckerOn &&
-        updateFields.status === "done" &&
-        isAgentSelfOnlyAutoSkipClose({
-          previousExecutionState: existing.executionState,
-          patchExecutionState: transition.patch.executionState,
-          hadDecision: Boolean(transition.decision),
-        })
-      ) {
-        throw unprocessable(
-          "self_close_refused: you submitted this work and are the only reviewer configured for its review stage; another reviewer or a board user must review it.",
-          { code: SELF_CLOSE_REFUSED_CODE, reason: "no_other_reviewer" },
-        );
-      }
       // agentos#1613 case 1: a PATCH reopen of an approved card keeps who did the work,
       // so the next in_review handoff goes to the reviewer still assigned (QA) first.
-      if (transition.patch.executionState !== undefined) {
+      if (reviewFollowupsOn && transition.patch.executionState !== undefined) {
         transition.patch.executionState = executionStatePatchAfterPatchReopen({
           previousStatus: existing.status,
           previousExecutionState: existing.executionState,
@@ -13965,7 +13946,7 @@ export function issueRoutes(
         actorUserId: actor.actorType === "user" ? actor.actorId : null,
         // agentos#1612 P0-A: an agent done read before a concurrent checkout reopen must not
         // close the reopened card; the write is refused if the status moved since this read.
-        ...(req.actor.type === "agent" && updateFields.status === "done"
+        ...(reviewFollowupsOn && req.actor.type === "agent" && updateFields.status === "done"
           ? { expectedStatus: existing.status }
           : {}),
       };
@@ -15575,8 +15556,13 @@ export function issueRoutes(
       // agentos#1612: a checkout of a closed card whose review completed resets that
       // review the same way the comment reopen does (agentos#1567 R4), so the next done
       // cannot close the new work unreviewed and the next in_review handoff starts a
-      // fresh review. The return assignee and the monitor history are kept.
-      if (updated && updated.status === "in_progress") {
+      // fresh review. The return assignee and the monitor history are kept. Behind
+      // PAPERCLIP_AGENT_SELF_CLOSE_GUARD (agentos#1612).
+      if (
+        updated &&
+        updated.status === "in_progress" &&
+        agentSelfCloseGuardEnabled(issue.companyId)
+      ) {
         const reopenedExecutionState = executionStateAfterCheckoutReopen({
           previousStatus: issue.status,
           executionState: issue.executionState,
@@ -18218,7 +18204,7 @@ export function issueRoutes(
       let comment: Awaited<ReturnType<typeof svc.addComment>>;
       let goalCommentSteered = false;
       if (shouldAutoApproveReviewComment) {
-        const transition = applyIssueExecutionPolicyTransition({
+        const transition = applyMakerCheckedTransition({
           issue: currentIssue,
           policy: currentExecutionPolicy,
           requestedStatus: "done",
@@ -18228,6 +18214,10 @@ export function issueRoutes(
             userId: actor.actorType === "user" ? actor.actorId : null,
           },
           commentBody: req.body.body,
+        }, {
+          companyId: currentIssue.companyId,
+          actorType: req.actor.type,
+          actorAgentId: actor.agentId ?? null,
         });
         const decisionId = transition.decision ? randomUUID() : null;
         if (decisionId) {

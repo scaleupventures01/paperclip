@@ -38,10 +38,10 @@ import { deriveProjectUrlKey, WORKSPACE_OVERVIEW_LINKED_ISSUE_LIMIT } from "@pap
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import {
-  applyIssueExecutionPolicyTransition,
   normalizeIssueExecutionPolicy,
   parseIssueExecutionState,
 } from "./issue-execution-policy.js";
+import { applyMakerCheckedTransition } from "./review-transition-guard.js";
 import { parseProjectExecutionWorkspacePolicy } from "./execution-workspace-policy.js";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { logActivity } from "./activity-log.js";
@@ -3638,7 +3638,7 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
 
           const requestedStatus = quarantineRestoreRequestedSourceStatus(sourceBefore);
           const policy = normalizeIssueExecutionPolicy(sourceBefore.executionPolicy ?? null);
-          const transition = applyIssueExecutionPolicyTransition({
+          const transition = applyMakerCheckedTransition({
             issue: sourceBefore,
             policy,
             previousPolicy: policy,
@@ -3649,6 +3649,10 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
               userId: input.actor.actorType === "user" ? input.actor.actorId : null,
             },
             commentBody: null,
+          }, {
+            companyId: sourceBefore.companyId,
+            actorType: input.actor.actorType,
+            actorAgentId: input.actor.agentId ?? null,
           });
           const { issueService } = await import("./issues.js");
           const updatedIssue = await issueService(db).update(
