@@ -20290,12 +20290,9 @@ export function heartbeatService(
     });
   }
 
-  async function reconcileCancelledPendingInteractionAddresseeWakes() {
-    const [interactionWakes, resolvedDescriptorCleanup] = await Promise.all([
-      recovery.reconcileCancelledPendingInteractionAddresseeWakes(),
-      recovery.reconcileResolvedInteractionUnblockDescriptors(),
-    ]);
-    return { ...interactionWakes, resolvedDescriptorCleanup };
+  async function reconcileResolvedInteractionUnblockDescriptors() {
+    const resolvedDescriptorCleanup = await recovery.reconcileResolvedInteractionUnblockDescriptors();
+    return { resolvedDescriptorCleanup };
   }
 
   async function sweepStaleIssueLocks() {
@@ -30690,7 +30687,7 @@ export function heartbeatService(
     },
 
     reconcileStrandedAssignedIssues,
-    reconcileCancelledPendingInteractionAddresseeWakes,
+    reconcileResolvedInteractionUnblockDescriptors,
     recoverPendingSessionGoalActions,
     recoverActiveSessionGoals,
 
