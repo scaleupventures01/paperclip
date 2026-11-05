@@ -51,6 +51,18 @@ const SSH_CONFIG = {
   strictHostKeyChecking: true,
 };
 
+// The ssh driver must refuse with its own reason, never the dispatcher's
+// "driver does not support orphan sandbox teardown" fallback.
+async function expectSshRefusal(promise: Promise<unknown>, pattern?: RegExp) {
+  const error = await promise.then(
+    () => null,
+    (caught: unknown) => caught,
+  );
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).not.toContain("does not support orphan sandbox teardown");
+  if (pattern) expect((error as Error).message).toMatch(pattern);
+}
+
 function exitError(code: number, stdout = "", stderr = "") {
   return Object.assign(new Error(`Command failed with exit code ${code}`), { code, stdout, stderr });
 }
@@ -90,7 +102,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     const driver = input.driver ?? "ssh";
     const companyId = randomUUID();
     const agentId = randomUUID();
-    const environmentId = randomUUID();
+    let environmentId = randomUUID();
     const runId = randomUUID();
     const leaseId = randomUUID();
     await db.insert(companies).values({
@@ -112,7 +124,12 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    await db.insert(environments).values({
+    // Only one local environment row may exist, so a local seed reuses it.
+    const existingLocal = driver === "local"
+      ? await db.select().from(environments).where(eq(environments.driver, "local")).then((rows) => rows[0] ?? null)
+      : null;
+    if (existingLocal) environmentId = existingLocal.id;
+    else await db.insert(environments).values({
       id: environmentId,
       name: `${driver}-${environmentId.slice(0, 8)}`,
       driver,
@@ -188,7 +205,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     runSshCommandMock.mockResolvedValueOnce({ stdout: "4242\n4243\n", stderr: "" });
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow(/still running/i);
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }), /still running/i);
     expect(runSshCommandMock).toHaveBeenCalledTimes(1);
   });
 
@@ -199,7 +216,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     );
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
     expect(runSshCommandMock).toHaveBeenCalledTimes(1);
   });
 
@@ -208,14 +225,14 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     runSshCommandMock.mockRejectedValueOnce(exitError(1, "4242\n"));
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
   });
 
   it("throws without running ssh when the environment is gone", async () => {
     const { lease } = await seed();
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment: null, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment: null, lease }));
     expect(runSshCommandMock).not.toHaveBeenCalled();
   });
 
@@ -223,7 +240,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     const { environment, lease } = await seed({ withRun: false });
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
     expect(runSshCommandMock).not.toHaveBeenCalled();
   });
 
@@ -231,7 +248,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     const { environment, lease } = await seed({ provider: "fake" });
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
     expect(runSshCommandMock).not.toHaveBeenCalled();
   });
 
@@ -239,7 +256,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     const { environment, lease } = await seed({ providerLeaseId: "sandbox://fake/abc" });
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
     expect(runSshCommandMock).not.toHaveBeenCalled();
   });
 
@@ -247,7 +264,7 @@ describeEmbeddedPostgres("ssh driver retryPendingSandboxTeardown", () => {
     const { environment, lease } = await seed({ providerLeaseId: "ssh://other@other.example.test:22/srv/x" });
     const runtime = environmentRuntimeService(db);
 
-    await expect(runtime.retryPendingSandboxTeardown({ environment, lease })).rejects.toThrow();
+    await expectSshRefusal(runtime.retryPendingSandboxTeardown({ environment, lease }));
     expect(runSshCommandMock).not.toHaveBeenCalled();
   });
 
