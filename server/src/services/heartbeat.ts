@@ -18841,25 +18841,32 @@ export function heartbeatService(
       );
   }
 
-  // Move a guarded orphan candidate to the back of the sweep order. The
-  // shared-resource guard below can skip a row on every tick as long as the
-  // other owner stays live, retained, or pending cleanup. The select orders
-  // by `updatedAt` ascending and takes only the oldest page, so an untouched
-  // skipped row keeps refilling that same page and blocks every row behind
-  // it. The bump pushes the row past the fixed-size page, so the next tick
-  // reaches the rows behind it. It costs the row one extra backoff wait,
-  // which is safe because the guard means a physical sandbox still exists.
-  async function deferOrphanedActiveLease(leaseId: string): Promise<void> {
+  // Retire only the orphaned bookkeeping row when another lease still owns
+  // the same physical provider resource. Sending this row through
+  // pending_cleanup would tear down a sandbox that the surviving lease still
+  // uses. Leaving it active would permanently block recovery of its terminal
+  // run. The provider resource needs no cleanup from this row, so mark that
+  // cleanup satisfied without touching the surviving owner.
+  async function retireCoveredOrphanedActiveLease(leaseId: string): Promise<boolean> {
     const now = new Date();
-    await db
+    const retired = await db
       .update(environmentLeases)
-      .set({ updatedAt: now })
+      .set({
+        status: "expired",
+        releasedAt: now,
+        lastUsedAt: now,
+        updatedAt: now,
+        failureReason: "orphaned_active_lease_covered_by_other_owner",
+        cleanupStatus: "success",
+      })
       .where(
         and(
           eq(environmentLeases.id, leaseId),
           eq(environmentLeases.status, "active"),
         ),
-      );
+      )
+      .returning({ id: environmentLeases.id });
+    return retired.length > 0;
   }
 
   // An active lease is reachable only while its heartbeat run keeps the
@@ -18922,10 +18929,7 @@ export function heartbeatService(
           )
           .limit(1);
         if (otherOwner) {
-          // Defer this row so the fixed-size page reaches the rows behind
-          // it next tick, instead of re-selecting the same guarded rows
-          // forever.
-          await deferOrphanedActiveLease(lease.id);
+          if (await retireCoveredOrphanedActiveLease(lease.id)) recovered += 1;
           continue;
         }
       }
