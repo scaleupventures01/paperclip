@@ -28,7 +28,7 @@ import type {
   PluginEnvironmentSyncResult,
   PluginSyncOperation,
 } from "@paperclipai/plugin-sdk";
-import { ensureSshWorkspaceReady } from "@paperclipai/adapter-utils/ssh";
+import { ensureSshWorkspaceReady, runSshCommand, shellQuote } from "@paperclipai/adapter-utils/ssh";
 import {
   getActiveStepContext,
   runWithRuntimeParent,
@@ -1165,6 +1165,10 @@ function createLocalEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
   };
 }
 
+// Bounds the remote liveness check a pending_cleanup sweep runs for an ssh
+// lease, so an unreachable host cannot hold the sweep.
+const SSH_PENDING_CLEANUP_CHECK_TIMEOUT_MS = 15_000;
+
 function createSshEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
   const environmentsSvc = environmentService(db);
 
@@ -1207,6 +1211,64 @@ function createSshEnvironmentDriver(db: Db): EnvironmentRuntimeDriver {
 
     async releaseRunLease(input) {
       return await environmentsSvc.releaseLease(input.lease.id, input.status);
+    },
+
+    async retryPendingSandboxTeardown({ environment, lease }) {
+      // A cancelled run whose remote teardown never confirmed leaves its ssh
+      // lease in pending_cleanup. There is no sandbox to destroy; the only
+      // question is whether a process for the run is still alive on the host.
+      // This check never kills anything. Every path that cannot prove the run
+      // is gone throws, so the sweep keeps the lease pending for a later try.
+      if (lease.provider !== "ssh" || !lease.providerLeaseId?.startsWith("ssh://")) {
+        throw new Error("SSH lease cleanup only verifies ssh provider leases.");
+      }
+      if (!environment) {
+        throw new Error("SSH lease cleanup cannot verify the remote host without its environment.");
+      }
+      const runId = lease.heartbeatRunId;
+      if (!runId) {
+        throw new Error("SSH lease cleanup cannot verify a lease with no run id.");
+      }
+      // The run id goes into a pgrep pattern, so accept only plain id
+      // characters. The first character is wrapped in a bracket class so the
+      // pattern never matches the remote shell that carries the pgrep command.
+      if (!/^[A-Za-z0-9-]+$/.test(runId)) {
+        throw new Error("SSH lease cleanup cannot verify a run id with unexpected characters.");
+      }
+
+      const parsed = await resolveEnvironmentDriverConfigForRuntime(db, lease.companyId, environment, {
+        issueId: lease.issueId,
+        heartbeatRunId: runId,
+      });
+      if (parsed.driver !== "ssh") {
+        throw new Error(`Expected SSH environment config for driver "${environment.driver}".`);
+      }
+      // The lease must belong to the host the environment points at now, or
+      // an empty pgrep on a different host would wrongly release it.
+      const expectedPrefix = `ssh://${parsed.config.username}@${parsed.config.host}:${parsed.config.port}`;
+      const recorded = lease.providerLeaseId;
+      if (recorded !== expectedPrefix && !recorded.startsWith(`${expectedPrefix}/`)) {
+        throw new Error("SSH lease cleanup found a lease for a different host than its environment.");
+      }
+
+      const pattern = `[${runId[0]}]${runId.slice(1)}`;
+      let stdout = "";
+      try {
+        const result = await runSshCommand(parsed.config, `pgrep -f ${shellQuote(pattern)}`, {
+          timeoutMs: SSH_PENDING_CLEANUP_CHECK_TIMEOUT_MS,
+        });
+        stdout = result.stdout;
+      } catch (error) {
+        const failed = error as { code?: unknown; stdout?: unknown };
+        const failedStdout = typeof failed.stdout === "string" ? failed.stdout : "";
+        // pgrep exits 1 with no output when no process matches.
+        if (failed.code === 1 && failedStdout.trim().length === 0) return;
+        throw new Error("SSH lease cleanup could not verify the remote host.");
+      }
+      if (stdout.trim().length > 0) {
+        throw new Error("SSH lease cleanup found a process for the run still running on the remote host.");
+      }
+      throw new Error("SSH lease cleanup got an unexpected empty success from pgrep.");
     },
 
     async realizeWorkspace(input) {
