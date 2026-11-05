@@ -281,9 +281,10 @@ describeEmbeddedPostgres("heartbeat sweepOrphanedActiveLeases", () => {
     expect(row?.status).toBe("retained");
   });
 
-  it("test_skips_a_lease_when_another_live_lease_holds_the_same_provider_lease_id", async () => {
+  it("retires only the orphaned bookkeeping lease when another lease holds the provider resource", async () => {
     const { companyId, agentId, environmentId } = await seedCompanyAgentAndEnvironment();
     const runId = await insertHeartbeatRun({ companyId, agentId, status: "failed" });
+    const survivingRunId = await insertHeartbeatRun({ companyId, agentId, status: "running" });
     const sharedProviderLeaseId = "sandbox://fake/shared-resource";
     const orphanedLeaseId = await insertActiveLease({
       companyId,
@@ -293,24 +294,32 @@ describeEmbeddedPostgres("heartbeat sweepOrphanedActiveLeases", () => {
       providerLeaseId: sharedProviderLeaseId,
     });
     // A second lease still owns the same physical sandbox resource.
-    await insertActiveLease({
+    const survivingLeaseId = await insertActiveLease({
       companyId,
       environmentId,
-      heartbeatRunId: null,
+      heartbeatRunId: survivingRunId,
       updatedAt: new Date(),
       providerLeaseId: sharedProviderLeaseId,
-      status: "retained",
     });
 
     const heartbeat = heartbeatService(db);
     const result = await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 5 * 60 * 1000 });
 
-    expect(result).toEqual({ recovered: 0 });
-    const row = await leaseRow(orphanedLeaseId);
-    expect(row?.status).toBe("active");
+    expect(result).toEqual({ recovered: 1 });
+    expect(await leaseRow(orphanedLeaseId)).toMatchObject({
+      status: "expired",
+      cleanupStatus: "success",
+      failureReason: "orphaned_active_lease_covered_by_other_owner",
+    });
+    expect((await leaseRow(orphanedLeaseId))?.releasedAt).toBeInstanceOf(Date);
+    expect(await leaseRow(survivingLeaseId)).toMatchObject({
+      status: "active",
+      cleanupStatus: null,
+      releasedAt: null,
+    });
   });
 
-  it("test_defers_a_guarded_lease_instead_of_leaving_it_at_the_front_of_the_page", async () => {
+  it("does not dispatch provider cleanup for a retired duplicate lease", async () => {
     const { companyId, agentId, environmentId } = await seedCompanyAgentAndEnvironment();
     const runId = await insertHeartbeatRun({ companyId, agentId, status: "failed" });
     const sharedProviderLeaseId = "sandbox://fake/shared-resource";
@@ -321,7 +330,7 @@ describeEmbeddedPostgres("heartbeat sweepOrphanedActiveLeases", () => {
       updatedAt: oldEnough(),
       providerLeaseId: sharedProviderLeaseId,
     });
-    await insertActiveLease({
+    const survivingLeaseId = await insertActiveLease({
       companyId,
       environmentId,
       heartbeatRunId: null,
@@ -330,15 +339,17 @@ describeEmbeddedPostgres("heartbeat sweepOrphanedActiveLeases", () => {
       status: "retained",
     });
 
-    const heartbeat = heartbeatService(db);
-    await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 5 * 60 * 1000 });
+    const destroyRunLease = vi.fn();
+    const heartbeat = heartbeatService(db, {
+      environmentRuntime: {
+        destroyRunLease,
+      } as unknown as HeartbeatEnvironmentRuntime,
+    });
+    await heartbeat.reapOrphanedRuns({ staleThresholdMs: 5 * 60 * 1000 });
 
-    const row = await leaseRow(orphanedLeaseId);
-    expect(row?.status).toBe("active");
-    // The guard moved the row's `updatedAt` forward, so a fresh backoff
-    // cutoff no longer selects it. The exact value is not the point; only
-    // that it moved out of the stale range the sweep reads by.
-    expect(row!.updatedAt.getTime()).toBeGreaterThan(oldEnough().getTime());
+    expect(destroyRunLease).not.toHaveBeenCalled();
+    expect((await leaseRow(orphanedLeaseId))?.status).toBe("expired");
+    expect((await leaseRow(survivingLeaseId))?.status).toBe("retained");
   });
 
   it("test_a_full_page_of_guarded_leases_does_not_starve_a_later_eligible_orphan", async () => {
@@ -383,11 +394,11 @@ describeEmbeddedPostgres("heartbeat sweepOrphanedActiveLeases", () => {
     const heartbeat = heartbeatService(db);
 
     const firstTick = await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 5 * 60 * 1000 });
-    expect(firstTick).toEqual({ recovered: 0 });
+    expect(firstTick).toEqual({ recovered: 20 });
     const eligibleAfterFirstTick = await leaseRow(eligibleLeaseId);
     expect(eligibleAfterFirstTick?.status).toBe("active");
 
-    // The guarded rows moved out of the stale page on the first tick, so
+    // The covered orphan rows became terminal on the first tick, so
     // the second tick reaches the eligible orphan behind them.
     const secondTick = await heartbeat.sweepOrphanedActiveLeases({ backoffMs: 5 * 60 * 1000 });
     expect(secondTick).toEqual({ recovered: 1 });
