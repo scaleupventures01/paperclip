@@ -1527,8 +1527,8 @@ async function startServerWithDatabaseTeardown(
           );
         }
         const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
-        const interactionWakes =
-          await heartbeat.reconcileCancelledPendingInteractionAddresseeWakes();
+        const interactionCleanup =
+          await heartbeat.reconcileResolvedInteractionUnblockDescriptors();
         if (
           promotion.promoted > 0 ||
           reconciled.assignmentDispatched > 0 ||
@@ -1542,13 +1542,9 @@ async function startServerWithDatabaseTeardown(
             "startup heartbeat recovery changed assigned issue state",
           );
         }
-        if (
-          interactionWakes.recovered > 0 ||
-          interactionWakes.descriptorsRestored > 0 ||
-          interactionWakes.resolvedDescriptorCleanup.cleared > 0
-        ) {
+        if (interactionCleanup.resolvedDescriptorCleanup.cleared > 0) {
           logger.warn(
-            interactionWakes,
+            interactionCleanup,
             "startup interaction-addressee recovery restored pending decision paths",
           );
         }
@@ -1779,8 +1775,8 @@ async function startServerWithDatabaseTeardown(
             .then(async (promotion) => {
               await heartbeat.resumeQueuedRuns();
               const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
-              const interactionWakes =
-                await heartbeat.reconcileCancelledPendingInteractionAddresseeWakes();
+              const interactionCleanup =
+                await heartbeat.reconcileResolvedInteractionUnblockDescriptors();
               if (
                 promotion.promoted > 0 ||
                 reconciled.assignmentDispatched > 0 ||
@@ -1794,13 +1790,9 @@ async function startServerWithDatabaseTeardown(
                   "periodic heartbeat recovery changed assigned issue state",
                 );
               }
-              if (
-                interactionWakes.recovered > 0 ||
-                interactionWakes.descriptorsRestored > 0 ||
-                interactionWakes.resolvedDescriptorCleanup.cleared > 0
-              ) {
+              if (interactionCleanup.resolvedDescriptorCleanup.cleared > 0) {
                 logger.warn(
-                  interactionWakes,
+                  interactionCleanup,
                   "periodic interaction-addressee recovery restored pending decision paths",
                 );
               }
