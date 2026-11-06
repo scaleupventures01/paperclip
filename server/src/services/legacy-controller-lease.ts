@@ -9,6 +9,19 @@ export const LEGACY_CONTROLLER_RENEW_MS = 10_000;
 
 type Run = typeof heartbeatRuns.$inferSelect;
 
+/** The abort reason the lease watcher uses, so finalization can tell it apart
+ * from a Stop or any other abort. */
+export class LegacyControllerLeaseLostError extends Error {
+  constructor() {
+    super("Legacy controller lease lost");
+    this.name = "LegacyControllerLeaseLostError";
+  }
+}
+
+export function isLegacyControllerLeaseLoss(reason: unknown): reason is LegacyControllerLeaseLostError {
+  return reason instanceof LegacyControllerLeaseLostError;
+}
+
 /** Commit these fields in the same UPDATE that claims a queued run. */
 export function legacyControllerClaim(runtimeMode: string) {
   if (runtimeMode === "native") return {};
@@ -70,7 +83,7 @@ export function watchLegacyControllerLease(db: Db, run: Run, controller: AbortCo
   }
   let stopped = false;
   let pending = false;
-  const lost = () => { if (!stopped) controller.abort(new Error("Legacy controller lease lost")); };
+  const lost = () => { if (!stopped) controller.abort(new LegacyControllerLeaseLostError()); };
   let deadline = setTimeout(lost, Math.max(0,
     (run.controllerLeaseExpiresAt?.getTime() ?? 0) - Date.now()));
   deadline.unref();
