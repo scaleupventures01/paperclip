@@ -9,7 +9,7 @@ import { PROCESS_IDENTITY_RECORDED, recordNativeLocalProcessStop } from "./nativ
 import { hasAcknowledgedNativeReassignmentStopIntent, hasAcknowledgedNativeStopIntent, isAcknowledgedNativeStop, acknowledgedNativeStopExecutionHasStopped } from "./acknowledged-native-stop.js";
 import { handoffWakeReleaseEnabled } from "./handoff-wake-release.js";
 import { ownershipWakeParkEnabled, ownershipWakeParkMaxMs } from "./ownership-wake-park.js";
-import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease } from "./legacy-controller-lease.js";
+import { legacyControllerBootId, legacyControllerClaim, renewLegacyControllerLease, hasLiveLegacyController, revokeExpiredLegacyController, watchLegacyControllerLease, isLegacyControllerLeaseLoss } from "./legacy-controller-lease.js";
 import { completeTerminatedRemoteNativeSessionCleanup } from "../vendor/paperclip-runner/index.js";
 import { hasRemoteTerminationReceipt, remoteExecutionHasStopped, remoteTerminationReceipt, stoppedRemoteCleanupScopes } from "./remote-execution-termination.js";
 import { applyConnectorSkills, prepareConnectorSkillDelivery, resolveConnectorAssignments } from "./connector-runtime.js";
@@ -25484,8 +25484,38 @@ export function heartbeatService(
         await processCancellation?.settled;
         let outcome: RunSessionOutcome;
         const latestRun = await getRun(run.id);
+        // The lease watcher aborts the controller when a renewal lapses, but a
+        // local adapter such as codex keeps working. When that lapse is the only
+        // abort and the adapter then exited 0 with no error or signal, the work
+        // finished: record it as succeeded, never as a Stop.
+        const leaseLossOnCleanExit =
+          !isHeartbeatRunTerminalStatus(latestRun?.status) &&
+          executionControl.controller.signal.aborted &&
+          isLegacyControllerLeaseLoss(executionControl.controller.signal.reason) &&
+          !processCancellation &&
+          (!latestRun?.errorCode || latestRun.errorCode === DETACHED_PROCESS_ERROR_CODE) &&
+          !parseObject(latestRun?.resultJson).executionCancellation &&
+          !adapterResult.nativeFinalization &&
+          !adapterResult.timedOut &&
+          adapterResult.exitCode === 0 &&
+          !adapterResult.errorMessage &&
+          !adapterResult.signal;
+        if (leaseLossOnCleanExit) {
+          const leaseLossMessage =
+            "Legacy controller lease lost during the run; the adapter exited 0 with no error, so the run is recorded as succeeded";
+          logger.warn({ runId: run.id, agentId: agent.id }, leaseLossMessage);
+          await appendRunEvent(latestRun ?? run, {
+            eventType: "lifecycle",
+            stream: "system",
+            level: "warn",
+            message: leaseLossMessage,
+            payload: { legacyControllerLeaseLost: true, exitCode: adapterResult.exitCode },
+          });
+        }
         if (isHeartbeatRunTerminalStatus(latestRun?.status)) {
           outcome = latestRun.status;
+        } else if (leaseLossOnCleanExit) {
+          outcome = "succeeded";
         } else if (executionControl.controller.signal.aborted) {
           outcome = "cancelled";
         } else if (adapterResult.nativeFinalization) {
