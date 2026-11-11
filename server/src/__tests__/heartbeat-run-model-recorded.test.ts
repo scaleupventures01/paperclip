@@ -8,10 +8,13 @@ import {
   agentConfigRevisions,
   agentRuntimeState,
   agents,
+  agentTaskSessions,
   agentWakeupRequests,
   companies,
   companySkills,
+  costEvents,
   createDb,
+  financeEvents,
   environmentLeases,
   environments,
   executionWorkspaces,
@@ -120,6 +123,9 @@ describeEmbeddedPostgres("agentos#2104 heartbeat runs record their model", () =>
         await db.delete(issueComments);
         await db.delete(issues);
         await db.delete(heartbeatRunEvents);
+        await db.delete(financeEvents);
+        await db.delete(costEvents);
+        await db.delete(agentTaskSessions);
         await db.delete(heartbeatRuns);
         await db.delete(agentWakeupRequests);
         await db.delete(agentRuntimeState);
