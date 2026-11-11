@@ -22,6 +22,7 @@ import { isHeartbeatWakeOnDemandEnabled } from "../../../services/heartbeat-poli
 import { collectDispositionRepairSourceState } from "../../../services/recovery/disposition-repair.js";
 import { appendHeartbeatRunEvent } from "../../../services/heartbeat-run-events.js";
 import { emitAgentTaskRun } from "../../../services/agent-task-run-telemetry.js";
+import { recordConfiguredRunModel } from "../../../services/run-configured-model.js";
 import { issueService } from "../../../services/issues.js";
 import {
   issueTreeControlService,
@@ -867,6 +868,8 @@ export function createPostgresRunDispatchAdapter(
     // published before its cancellation is durable, and never published at
     // all if the transaction rolled back.
     if (transactionResult.telemetryRun) {
+      // agentos#2104: a suppressed retry ends with no adapter usage.
+      await recordConfiguredRunModel(db, [transactionResult.telemetryRun.id]);
       void emitAgentTaskRun(db, transactionResult.telemetryRun);
     }
 
@@ -1008,7 +1011,7 @@ export function createPostgresRunDispatchAdapter(
       return cancelStaleRunInTx(tx, run, issueId, decision, input.expectedStatus, input.now);
     };
 
-    return withIssueThenRunLocks(
+    const outcome = await withIssueThenRunLocks(
       input,
       () => {
         throw new RunDispatchApplicationError(
@@ -1018,6 +1021,9 @@ export function createPostgresRunDispatchAdapter(
       },
       cancelLockedRun,
     );
+    // agentos#2104: a stale run cancelled before dispatch has no adapter usage.
+    if (outcome.outcome === "cancelled") await recordConfiguredRunModel(db, [input.runId]);
+    return outcome;
   }
 
   async function dispatchResolvedInteractionIfCurrent<T>(
@@ -1078,7 +1084,7 @@ export function createPostgresRunDispatchAdapter(
       return { dispatched: true as const, resultPromise };
     };
 
-    return withIssueThenRunLocks(
+    const outcome = await withIssueThenRunLocks(
       input,
       () => {
         throw new RunDispatchApplicationError(
@@ -1088,7 +1094,11 @@ export function createPostgresRunDispatchAdapter(
       },
       dispatchLockedRun,
     );
-
+    // agentos#2104: a stale run cancelled before dispatch has no adapter usage.
+    if (!outcome.dispatched && outcome.cancellation.outcome === "cancelled") {
+      await recordConfiguredRunModel(db, [input.runId]);
+    }
+    return outcome;
   }
 
   return {

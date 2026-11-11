@@ -77,6 +77,7 @@ import {
 } from "../activity-log.js";
 import { appendHeartbeatRunEvent } from "../heartbeat-run-events.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
+import { recordConfiguredRunModel } from "../run-configured-model.js";
 import { budgetService } from "../budgets.js";
 import {
   AGENT_ISSUE_COMMENT_HISTORY_FETCH_LIMIT,
@@ -6276,6 +6277,8 @@ export function recoveryService(
       return { terminalized: false, status: current?.status ?? run.status };
     }
 
+    // agentos#2104: a run terminalized by the backstop has no adapter usage.
+    await recordConfiguredRunModel(db, [updated.id]);
     // Telemetry is best-effort background work; it must not delay clearing
     // the stale lock below, so fire it and do not await it.
     void emitAgentTaskRun(db, updated);

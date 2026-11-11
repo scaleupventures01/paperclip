@@ -184,6 +184,7 @@ import {
 import { queueLiveRunnerPrpCommand } from "../realtime/runner-prp-ws.js";
 import { questionResponseDeliveryService } from "../services/question-response-delivery.js";
 import { emitAgentTaskRunById } from "../services/agent-task-run-telemetry.js";
+import { recordConfiguredRunModel } from "../services/run-configured-model.js";
 import {
   createQueuedCommentQueue,
   QueuedCommentMutationError,
@@ -16172,6 +16173,8 @@ export function issueRoutes(
       // Telemetry is best-effort background work; it must not delay the
       // response with a slow lookup, so fire it and do not await it.
       if (result.cancelledRun) {
+        // agentos#2104: a queued run cancelled by a discard has no adapter usage.
+        await recordConfiguredRunModel(db, [result.cancelledRun.id]);
         void emitAgentTaskRunById(db, { runId: result.cancelledRun.id, companyId: issue.companyId });
       }
       res.json(await runRedactions.redactForIssue(issue.companyId, issue.id, result.queue));

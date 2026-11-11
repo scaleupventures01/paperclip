@@ -33,6 +33,7 @@ import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { issueService } from "../issues.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { reportRunFailure } from "../run-failure-report.js";
+import { recordConfiguredRunModel } from "../run-configured-model.js";
 import { resumeNativeWorkspaceFinalization } from "./native-workspace-finalizer.js";
 import { dismissObsoleteNativePolicyReviews } from "./obsolete-policy-reviews.js";
 import {
@@ -524,6 +525,8 @@ export async function claimNativeSessionResumptions(input: {
     // Telemetry is best-effort background work; it must not delay claiming
     // the remaining candidates in this loop, so fire it and do not await it.
     if (terminalRunToEmit) {
+      // agentos#2104: a native run that ends here has no adapter usage.
+      await recordConfiguredRunModel(input.db, [terminalRunToEmit.id]);
       void emitAgentTaskRun(input.db, terminalRunToEmit);
       void reportRunFailure(input.db, terminalRunToEmit);
     }
