@@ -1021,7 +1021,7 @@ export async function claimNativeRestartRecoveries(input: {
     });
     if (terminalRunToReport) {
       // agentos#2104: a native run that ends here has no adapter usage.
-      await recordConfiguredRunModel(input.db, [terminalRunToReport.id]);
+      await recordConfiguredRunModel(input.db, [((terminalRunToReport as unknown) as { id: string }).id]);
       void reportRunFailure(input.db, terminalRunToReport);
     }
     dispositions.push(disposition);

@@ -526,7 +526,7 @@ export async function claimNativeSessionResumptions(input: {
     // the remaining candidates in this loop, so fire it and do not await it.
     if (terminalRunToEmit) {
       // agentos#2104: a native run that ends here has no adapter usage.
-      await recordConfiguredRunModel(input.db, [terminalRunToEmit.id]);
+      await recordConfiguredRunModel(input.db, [((terminalRunToEmit as unknown) as { id: string }).id]);
       void emitAgentTaskRun(input.db, terminalRunToEmit);
       void reportRunFailure(input.db, terminalRunToEmit);
     }

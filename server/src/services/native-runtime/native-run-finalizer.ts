@@ -492,7 +492,7 @@ async function recordRetryableFailure(input: {
   });
   if (terminalRunToEmit) {
     // agentos#2104: a native run that ends here has no adapter usage.
-    await recordConfiguredRunModel(input.db, [terminalRunToEmit.id]);
+    await recordConfiguredRunModel(input.db, [((terminalRunToEmit as unknown) as { id: string }).id]);
     await emitAgentTaskRun(input.db, terminalRunToEmit);
     void reportRunFailure(input.db, terminalRunToEmit);
   }

@@ -256,7 +256,7 @@ export async function reconcileAbandonedExecutionControl(
         if (repaired) surfaced += 1;
         if (terminalRunToReport) {
           // agentos#2104: a run failed by reconciliation has no adapter usage.
-          await recordConfiguredRunModel(db, [terminalRunToReport.id]);
+          await recordConfiguredRunModel(db, [((terminalRunToReport as unknown) as { id: string }).id]);
           void reportRunFailure(db, terminalRunToReport);
         }
       } catch {
