@@ -13,6 +13,7 @@ import { visibleIssueCondition } from "../../../services/issue-visibility.js";
 import { logActivity } from "../../../services/activity-log.js";
 import { appendHeartbeatRunEvent } from "../../../services/heartbeat-run-events.js";
 import { emitAgentTaskRun } from "../../../services/agent-task-run-telemetry.js";
+import { recordConfiguredRunModel } from "../../../services/run-configured-model.js";
 import {
   executeIssuePostCommitActions,
   issueService,
@@ -461,6 +462,8 @@ export function createPostgresWatchdogAdapter(db: Db): WatchdogRunReader & Watch
 
     if (!transactionResult) return { kind: "stale" };
     const finalizedRun = transactionResult;
+    // agentos#2104: the fold ends the run with no adapter usage.
+    await recordConfiguredRunModel(db, [finalizedRun.id]);
 
     await executeIssuePostCommitActions(db, postCommitIssueActions);
 

@@ -7044,7 +7044,16 @@ export function agentRoutes(
     const limitParam = req.query.limit as string | undefined;
     const limit = limitParam ? Math.max(1, Math.min(1000, parseInt(limitParam, 10) || 200)) : undefined;
     const summary = req.query.summary === "true" || req.query.summary === "1";
-    const runs = await heartbeat.list(companyId, agentId, limit, { summary });
+    // agentos#2104: `since` (ISO time) returns only runs created at or after it.
+    const sinceParam = req.query.since;
+    let since: Date | undefined;
+    if (sinceParam !== undefined) {
+      since = typeof sinceParam === "string" && sinceParam.trim() ? new Date(sinceParam) : undefined;
+      if (!since || Number.isNaN(since.getTime())) {
+        throw badRequest("since must be an ISO 8601 date-time");
+      }
+    }
+    const runs = await heartbeat.list(companyId, agentId, limit, { summary, since });
     res.json(await runRedactions.redactForRuns(companyId, runs));
   });
 

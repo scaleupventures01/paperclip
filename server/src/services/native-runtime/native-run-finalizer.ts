@@ -43,6 +43,7 @@ import {
 } from "./native-board-response-wait.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
 import { reportRunFailure } from "../run-failure-report.js";
+import { recordConfiguredRunModel } from "../run-configured-model.js";
 import { resolveExternalChatResponseWaitAuthorization } from "./chat-attachment-reuse.js";
 import {
   authorizeNativeChatReviewPresentation,
@@ -490,6 +491,8 @@ async function recordRetryableFailure(input: {
     };
   });
   if (terminalRunToEmit) {
+    // agentos#2104: a native run that ends here has no adapter usage.
+    await recordConfiguredRunModel(input.db, [((terminalRunToEmit as unknown) as { id: string }).id]);
     await emitAgentTaskRun(input.db, terminalRunToEmit);
     void reportRunFailure(input.db, terminalRunToEmit);
   }
@@ -640,6 +643,8 @@ async function projectCommittedRun(input: {
   // Metadata repairs can preserve the terminal status. Only a genuine status
   // transition should emit another terminal event.
   if (updatedRun && updatedRun.status !== input.run.status) {
+    // agentos#2104: a native run that ends here has no adapter usage.
+    await recordConfiguredRunModel(input.db, [updatedRun.id]);
     await emitAgentTaskRun(input.db, updatedRun);
     void reportRunFailure(input.db, updatedRun);
   }
@@ -1353,6 +1358,10 @@ export async function finalizeNativeRun(input: {
         })
         .where(eq(heartbeatRuns.id, run.id))
         .returning();
+      // agentos#2104: a native run that ends here has no adapter usage.
+      if (input.projectRunStatus && updatedRun) {
+        await recordConfiguredRunModel(input.db, [updatedRun.id]);
+      }
       if (
         input.projectRunStatus &&
         !alreadyEmittedByCommittedDecision &&

@@ -175,6 +175,10 @@ import { createHostDuplexObservabilityRecorder } from "./duplex-observability-re
 import { incrementToolRuntimeMetricCounter } from "./tool-runtime-metrics.js";
 import { logger } from "../middleware/logger.js";
 import {
+  heartbeatRunUsageHasModel,
+  recordConfiguredRunModel,
+} from "./run-configured-model.js";
+import {
   createGitRemoteAuthProvider,
   resolveManagedGitHubIdentitySelection,
   describeGitAuthFailure,
@@ -12981,6 +12985,22 @@ export function heartbeatService(
     void reportRunFailure(db, updated);
   }
 
+  // agentos#2104: a run write that just moved a run into a terminal status
+  // records the agent's configured model when the run ended with no adapter
+  // usage. Returns the row as stored afterwards (unchanged when nothing was
+  // recorded). A status-preserving rewrite of a run that was already terminal
+  // is left alone, so old rows are never backfilled here.
+  async function withConfiguredRunModel<
+    T extends typeof heartbeatRuns.$inferSelect | null | undefined,
+  >(updated: T, previousStatus: string | null): Promise<T> {
+    if (!updated) return updated;
+    if (!isHeartbeatRunTerminalStatus(updated.status)) return updated;
+    if (previousStatus === updated.status) return updated;
+    if (heartbeatRunUsageHasModel(updated.usageJson)) return updated;
+    const [recorded] = await recordConfiguredRunModel(db, [updated.id]);
+    return (recorded ?? updated) as T;
+  }
+
   async function setRunStatus(
     runId: string,
     status: string,
@@ -13010,7 +13030,7 @@ export function heartbeatService(
         },
       };
     }
-    const updated =
+    let updated =
       previousStatus &&
       legacyExecutionNeedsReconciliation({
         ...previousStatus,
@@ -13034,6 +13054,7 @@ export function heartbeatService(
             .where(eq(heartbeatRuns.id, runId))
             .returning()
             .then((rows) => rows[0] ?? null);
+    updated = await withConfiguredRunModel(updated, previousStatus?.status ?? null);
 
     if (updated) {
       publishLiveEvent({
@@ -13094,7 +13115,7 @@ export function heartbeatService(
         },
       };
     }
-    const updated =
+    let updated =
       previousStatus &&
       legacyExecutionNeedsReconciliation({
         ...previousStatus,
@@ -13127,6 +13148,7 @@ export function heartbeatService(
             )
             .returning()
             .then((rows) => rows[0] ?? null);
+    updated = await withConfiguredRunModel(updated, previousStatus?.status ?? null);
 
     if (updated) {
       publishLiveEvent({
@@ -17567,6 +17589,7 @@ export function heartbeatService(
         : await attempt();
       if (terminal) {
         const settled = terminal as typeof heartbeatRuns.$inferSelect;
+        await recordConfiguredRunModel(db, [settled.id]);
         publishLiveEvent({
           companyId: settled.companyId,
           type: "heartbeat.run.status",
@@ -18086,6 +18109,7 @@ export function heartbeatService(
             })
         : null;
     if (queuedCommentClaim?.kind === "cancelled") {
+      await recordConfiguredRunModel(db, [queuedCommentClaim.run.id]);
       await appendRunEvent(queuedCommentClaim.run, {
         eventType: "lifecycle",
         stream: "system",
@@ -25724,7 +25748,11 @@ export function heartbeatService(
           errorCode: runErrorCode,
           exitCode: adapterResult.exitCode,
           signal: adapterResult.signal,
-          usageJson,
+          // agentos#2104: with no adapter usage, leave usageJson out so a
+          // model already recorded on the row (for example by a cancel that
+          // won the race) is kept; the terminal write records the configured
+          // model when there is none.
+          ...(usageJson ? { usageJson } : {}),
           resultJson: persistedResultJson,
           sessionIdAfter:
             nextSessionState.displayId ?? nextSessionState.legacySessionId,
@@ -25772,6 +25800,10 @@ export function heartbeatService(
               )
               .returning()
               .then((rows) => rows[0] ?? null);
+            if (persistedRun && !heartbeatRunUsageHasModel(persistedRun.usageJson)) {
+              const [recorded] = await recordConfiguredRunModel(db, [persistedRun.id]);
+              persistedRun = recorded ?? persistedRun;
+            }
           }
           if (!persistedRun) {
             logger.info(
@@ -29193,6 +29225,12 @@ export function heartbeatService(
       // Fire it here and never await it: none of the lifecycle work below,
       // nor this function's return, depends on it, so a slow telemetry
       // lookup must not delay them.
+      // agentos#2104: these cancels committed with no adapter usage. The
+      // guarded write is a no-op for any row the transaction did not commit.
+      await recordConfiguredRunModel(
+        db,
+        cancelledRunsToEmit.map((cancelledRun) => cancelledRun.id),
+      );
       for (const cancelledRun of cancelledRunsToEmit) {
         void emitAgentTaskRun(db, cancelledRun);
       }
@@ -30393,7 +30431,7 @@ export function heartbeatService(
       companyId: string,
       agentId?: string,
       limit?: number,
-      options: { summary?: boolean } = {},
+      options: { summary?: boolean; since?: Date } = {},
     ) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
       const summary = options.summary === true;
@@ -30418,12 +30456,12 @@ export function heartbeatService(
         )
         .from(heartbeatRuns)
         .where(
-          agentId
-            ? and(
-                eq(heartbeatRuns.companyId, companyId),
-                eq(heartbeatRuns.agentId, agentId),
-              )
-            : eq(heartbeatRuns.companyId, companyId),
+          and(
+            eq(heartbeatRuns.companyId, companyId),
+            agentId ? eq(heartbeatRuns.agentId, agentId) : undefined,
+            // agentos#2104: only runs created at or after `since`.
+            options.since ? gte(heartbeatRuns.createdAt, options.since) : undefined,
+          ),
         )
         .orderBy(desc(heartbeatRuns.createdAt));
 

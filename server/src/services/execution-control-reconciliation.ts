@@ -11,6 +11,7 @@ import {
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { reportRunFailure } from "./run-failure-report.js";
+import { recordConfiguredRunModel } from "./run-configured-model.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext } from "./native-runtime/native-review-participant.js";
 
 /** Only newly recorded control deadlines are eligible. Upgrades never replay ambiguous historical runs. */
@@ -253,7 +254,11 @@ export async function reconcileAbandonedExecutionControl(
           return true;
         });
         if (repaired) surfaced += 1;
-        if (terminalRunToReport) void reportRunFailure(db, terminalRunToReport);
+        if (terminalRunToReport) {
+          // agentos#2104: a run failed by reconciliation has no adapter usage.
+          await recordConfiguredRunModel(db, [((terminalRunToReport as unknown) as { id: string }).id]);
+          void reportRunFailure(db, terminalRunToReport);
+        }
       } catch {
         logger.warn(
           { runId: candidate.runId },

@@ -48,6 +48,7 @@ import {
   type ActivityPublication,
 } from "../activity-log.js";
 import { emitAgentTaskRun } from "../agent-task-run-telemetry.js";
+import { recordConfiguredRunModel } from "../run-configured-model.js";
 
 export class NativeStatusRaceError extends Error {
   readonly code = "native_status_race" as const;
@@ -2111,6 +2112,8 @@ export async function commitNativeStatusDecision(input: {
   });
 
   for (const publication of publications) publishActivity(publication);
+  // agentos#2104: continuation runs cancelled here have no adapter usage.
+  await recordConfiguredRunModel(input.db, terminalRunsToEmit.map((run) => run.id));
   for (const terminalRun of terminalRunsToEmit)
     await emitAgentTaskRun(input.db, terminalRun);
   return committed;

@@ -15,6 +15,7 @@ import { getServerInfoSnapshot } from "../../server-info.js";
 import { redactSensitiveText } from "../../redaction.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { reportRunFailure } from "../run-failure-report.js";
+import { recordConfiguredRunModel } from "../run-configured-model.js";
 import { isNativeRunnerOwnershipHeld } from "./native-runner-ownership.js";
 
 export type NativeControllerIdentity = {
@@ -1018,8 +1019,11 @@ export async function claimNativeRestartRecoveries(input: {
         ...common,
       } satisfies NativeRestartRecoveryClaim;
     });
-    if (terminalRunToReport)
+    if (terminalRunToReport) {
+      // agentos#2104: a native run that ends here has no adapter usage.
+      await recordConfiguredRunModel(input.db, [((terminalRunToReport as unknown) as { id: string }).id]);
       void reportRunFailure(input.db, terminalRunToReport);
+    }
     dispositions.push(disposition);
   }
   return dispositions;
