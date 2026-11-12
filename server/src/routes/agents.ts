@@ -7044,16 +7044,27 @@ export function agentRoutes(
     const limitParam = req.query.limit as string | undefined;
     const limit = limitParam ? Math.max(1, Math.min(1000, parseInt(limitParam, 10) || 200)) : undefined;
     const summary = req.query.summary === "true" || req.query.summary === "1";
-    // agentos#2104: `since` (ISO time) returns only runs created at or after it.
-    const sinceParam = req.query.since;
-    let since: Date | undefined;
-    if (sinceParam !== undefined) {
-      since = typeof sinceParam === "string" && sinceParam.trim() ? new Date(sinceParam) : undefined;
-      if (!since || Number.isNaN(since.getTime())) {
-        throw badRequest("since must be an ISO 8601 date-time");
+    // agentos#2104: `since` (ISO time) returns only runs created at or after it,
+    // and `until` only runs created strictly before it, so a reader can page
+    // back past the row cap. Both must be a full ISO 8601 date-time with a
+    // timezone or Z (agentos#2155: `new Date` alone accepts values like "1").
+    const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+    const parseRunTimeParam = (name: "since" | "until"): Date | undefined => {
+      const value = req.query[name];
+      if (value === undefined) return undefined;
+      const parsed =
+        typeof value === "string" && ISO_DATE_TIME.test(value.trim()) ? new Date(value.trim()) : undefined;
+      if (!parsed || Number.isNaN(parsed.getTime())) {
+        throw badRequest(`${name} must be an ISO 8601 date-time`);
       }
+      return parsed;
+    };
+    const since = parseRunTimeParam("since");
+    const until = parseRunTimeParam("until");
+    if (since && until && since.getTime() > until.getTime()) {
+      throw badRequest("since must be before until");
     }
-    const runs = await heartbeat.list(companyId, agentId, limit, { summary, since });
+    const runs = await heartbeat.list(companyId, agentId, limit, { summary, since, until });
     res.json(await runRedactions.redactForRuns(companyId, runs));
   });
 
