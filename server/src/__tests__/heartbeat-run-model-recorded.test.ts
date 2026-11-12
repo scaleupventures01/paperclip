@@ -428,4 +428,84 @@ describeEmbeddedPostgres("agentos#2104 heartbeat runs record their model", () =>
     expect(summary.status, JSON.stringify(summary.body)).toBe(200);
     expect(summary.body.map((run: { id: string }) => run.id)).toEqual([newest, boundary]);
   }, 30_000);
+
+  // agentos#2104 round 2: `until` lets a reader page back past the 1000 row cap.
+  // It keeps rows created strictly before it, combines with `since`, and keeps
+  // the newest first order and the limit clamp.
+
+  it("(f) until keeps only rows created strictly before it, newest first", async () => {
+    const { companyId, agentId } = await seed();
+    const { oldest, boundary } = await plantHistory(companyId, agentId);
+
+    const atBoundary = await request(app())
+      .get(`/api/companies/${companyId}/heartbeat-runs`)
+      .query({ until: "2026-11-05T00:00:00.000Z" });
+    expect(atBoundary.status, JSON.stringify(atBoundary.body)).toBe(200);
+    expect(atBoundary.body.map((run: { id: string }) => run.id)).toEqual([oldest]);
+
+    const beforeNewest = await request(app())
+      .get(`/api/companies/${companyId}/heartbeat-runs`)
+      .query({ until: "2026-11-09T12:00:00.000Z" });
+    expect(beforeNewest.status, JSON.stringify(beforeNewest.body)).toBe(200);
+    expect(beforeNewest.body.map((run: { id: string }) => run.id)).toEqual([boundary, oldest]);
+
+    const capped = await request(app())
+      .get(`/api/companies/${companyId}/heartbeat-runs`)
+      .query({ until: "2026-11-09T12:00:00.000Z", limit: "1" });
+    expect(capped.status, JSON.stringify(capped.body)).toBe(200);
+    expect(capped.body.map((run: { id: string }) => run.id)).toEqual([boundary]);
+  }, 30_000);
+
+  it("(g) since and until combine as since <= createdAt < until", async () => {
+    const { companyId, agentId } = await seed();
+    const { boundary } = await plantHistory(companyId, agentId);
+
+    const res = await request(app())
+      .get(`/api/companies/${companyId}/heartbeat-runs`)
+      .query({ since: "2026-11-05T00:00:00.000Z", until: "2026-11-09T12:00:00.000Z" });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.map((run: { id: string }) => run.id)).toEqual([boundary]);
+  }, 30_000);
+
+  it("(h) an empty, repeated or unparseable until is refused with 400", async () => {
+    const { companyId } = await seed();
+    const base = `/api/companies/${companyId}/heartbeat-runs`;
+    for (const suffix of [
+      "?until=",
+      "?until=not-a-date",
+      "?until=2026-11-05T00:00:00.000Z&until=2026-11-06T00:00:00.000Z",
+    ]) {
+      const res = await request(app()).get(`${base}${suffix}`);
+      expect(res.status, `${suffix} ${JSON.stringify(res.body)}`).toBe(400);
+    }
+  }, 30_000);
+
+  it("(i) since after until is refused with 400", async () => {
+    const { companyId } = await seed();
+    const res = await request(app())
+      .get(`/api/companies/${companyId}/heartbeat-runs`)
+      .query({ since: "2026-11-09T00:00:00.000Z", until: "2026-11-05T00:00:00.000Z" });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("since must be before until");
+  }, 30_000);
+
+  it("(j) since and until must be a full ISO 8601 date-time with a timezone (agentos#2155)", async () => {
+    const { companyId, agentId } = await seed();
+    const { newest, boundary } = await plantHistory(companyId, agentId);
+    const base = `/api/companies/${companyId}/heartbeat-runs`;
+    for (const name of ["since", "until"]) {
+      for (const value of ["1", "2026-11-05", "2026-11-05T00:00:00", "Nov 5 2026"]) {
+        const res = await request(app()).get(base).query({ [name]: value });
+        expect(res.status, `${name}=${value} ${JSON.stringify(res.body)}`).toBe(400);
+      }
+    }
+
+    // Control: a full date-time with an offset or Z, with or without fractions, is accepted.
+    const offset = await request(app()).get(base).query({ since: "2026-11-05T01:00:00+01:00" });
+    expect(offset.status, JSON.stringify(offset.body)).toBe(200);
+    expect(offset.body.map((run: { id: string }) => run.id)).toEqual([newest, boundary]);
+    const plainZ = await request(app()).get(base).query({ until: "2026-11-10T00:00:00Z" });
+    expect(plainZ.status, JSON.stringify(plainZ.body)).toBe(200);
+    expect(plainZ.body).toHaveLength(3);
+  }, 30_000);
 });
