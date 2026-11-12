@@ -30431,7 +30431,7 @@ export function heartbeatService(
       companyId: string,
       agentId?: string,
       limit?: number,
-      options: { summary?: boolean; since?: Date } = {},
+      options: { summary?: boolean; since?: Date; until?: Date } = {},
     ) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
       const summary = options.summary === true;
@@ -30461,6 +30461,8 @@ export function heartbeatService(
             agentId ? eq(heartbeatRuns.agentId, agentId) : undefined,
             // agentos#2104: only runs created at or after `since`.
             options.since ? gte(heartbeatRuns.createdAt, options.since) : undefined,
+            // agentos#2104 round 2: only runs created strictly before `until`.
+            options.until ? lt(heartbeatRuns.createdAt, options.until) : undefined,
           ),
         )
         .orderBy(desc(heartbeatRuns.createdAt));
